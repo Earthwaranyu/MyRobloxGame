@@ -6,17 +6,24 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 local Stages = require(Shared.Stages)
 
+local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 
 local LeaderboardController = {}
 
 local player = Players.LocalPlayer
 
-local panel: Frame
+local panel: CanvasGroup
 local entriesList: ScrollingFrame
-local tabButtons: { [string]: TextButton } = {}
+local tabSetters: { [string]: (boolean) -> () } = {}
 
 local selectedStageId = Stages[1].Id
+
+local MEDAL_COLOR = {
+	[1] = Color3.fromRGB(255, 209, 102),
+	[2] = Color3.fromRGB(210, 214, 222),
+	[3] = Color3.fromRGB(205, 127, 80),
+}
 
 local function formatTime(ms: number): string
 	local totalSeconds = ms / 1000
@@ -27,31 +34,47 @@ end
 
 local function buildEntryRow(entry): Frame
 	local row = Instance.new("Frame")
-	row.Size = UDim2.new(1, 0, 0, 32)
-	row.BackgroundColor3 = if entry.Rank % 2 == 0 then Color3.fromRGB(40, 40, 48) else Color3.fromRGB(48, 48, 56)
+	row.Size = UDim2.new(1, 0, 0, 34)
+	row.BackgroundColor3 = if entry.Rank <= 3 then Theme.Color.PanelLight else Theme.Color.Panel
+	row.BackgroundTransparency = if entry.Rank % 2 == 0 then 0 else 0.25
 	row.BorderSizePixel = 0
 
-	local rankLabel = Widgets.Label(("#%d"):format(entry.Rank), UDim2.new(0, 40, 1, 0), UDim2.fromOffset(8, 0))
-	rankLabel.TextSize = 16
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = row
+
+	if MEDAL_COLOR[entry.Rank] then
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = MEDAL_COLOR[entry.Rank]
+		stroke.Thickness = 1.5
+		stroke.Transparency = 0.25
+		stroke.Parent = row
+	end
+
+	local rankLabel = Widgets.Label(("#%d"):format(entry.Rank), UDim2.new(0, 40, 1, 0), UDim2.fromOffset(10, 0), {
+		TextSize = 15,
+		Color = MEDAL_COLOR[entry.Rank] or Theme.Color.TextSecondary,
+	})
 	rankLabel.Parent = row
 
-	local nameLabel = Widgets.Label(tostring(entry.Name), UDim2.new(0.5, -48, 1, 0), UDim2.fromOffset(48, 0))
-	nameLabel.TextSize = 16
+	local nameLabel = Widgets.Label(tostring(entry.Name), UDim2.new(0.5, -50, 1, 0), UDim2.fromOffset(50, 0), {
+		TextSize = 15,
+	})
 	nameLabel.Parent = row
 
-	local timeLabel = Widgets.Label(formatTime(entry.TimeMs), UDim2.new(0.4, -8, 1, 0), UDim2.fromScale(0.6, 0))
-	timeLabel.TextSize = 16
-	timeLabel.TextXAlignment = Enum.TextXAlignment.Right
+	local timeLabel = Widgets.Label(formatTime(entry.TimeMs), UDim2.new(0.4, -10, 1, 0), UDim2.fromScale(0.6, 0), {
+		TextSize = 15,
+		Align = Enum.TextXAlignment.Right,
+		Color = Theme.Color.TextSecondary,
+	})
 	timeLabel.Parent = row
 
 	return row
 end
 
 local function refreshTabHighlight()
-	for stageId, button in tabButtons do
-		button.BackgroundColor3 = if stageId == selectedStageId
-			then Color3.fromRGB(60, 120, 220)
-			else Color3.fromRGB(55, 55, 64)
+	for stageId, setActive in tabSetters do
+		setActive(stageId == selectedStageId)
 	end
 end
 
@@ -65,7 +88,10 @@ function LeaderboardController.Refresh()
 	end
 
 	if #entries == 0 then
-		local emptyLabel = Widgets.Label("No times recorded yet.", UDim2.new(1, -16, 0, 32), UDim2.fromOffset(8, 0))
+		local emptyLabel = Widgets.Label("No times recorded yet.", UDim2.new(1, -16, 0, 32), UDim2.fromOffset(8, 0), {
+			Color = Theme.Color.TextMuted,
+			Bold = false,
+		})
 		emptyLabel.Parent = entriesList
 		return
 	end
@@ -84,19 +110,20 @@ local function buildUI()
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
 	-- y = 60 clears Roblox's default top bar (chat/leaderboard/settings icons).
-	local toggleButton = Widgets.Button("Leaderboard", UDim2.fromOffset(130, 36), UDim2.fromOffset(10, 60))
+	local toggleButton = Widgets.Button("Leaderboard", UDim2.fromOffset(150, 38), UDim2.fromOffset(10, 60))
 	toggleButton.Parent = screenGui
 
 	panel = Widgets.Panel(UDim2.fromOffset(360, 420), UDim2.fromOffset(10, 106))
 	panel.Parent = screenGui
 
-	local title = Widgets.Label("Leaderboard", UDim2.new(1, -16, 0, 24), UDim2.fromOffset(8, 4))
-	title.TextSize = 20
+	local title = Widgets.Label("LEADERBOARD", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 6), {
+		TextSize = 20,
+	})
 	title.Parent = panel
 
 	local tabRow = Instance.new("Frame")
 	tabRow.Size = UDim2.new(1, -16, 0, 30)
-	tabRow.Position = UDim2.fromOffset(8, 32)
+	tabRow.Position = UDim2.fromOffset(8, 36)
 	tabRow.BackgroundTransparency = 1
 	tabRow.Parent = panel
 
@@ -107,11 +134,14 @@ local function buildUI()
 	tabLayout.Parent = tabRow
 
 	for i, stage in Stages do
-		local tabButton = Widgets.Button(stage.Name, UDim2.fromOffset(110, 30), UDim2.fromOffset(0, 0))
+		local tabButton, setActive = Widgets.Button(stage.Name, UDim2.fromOffset(110, 30), UDim2.fromOffset(0, 0), {
+			Variant = "Tab",
+			TextSize = 15,
+		})
 		tabButton.Name = "Tab_" .. stage.Id
 		tabButton.LayoutOrder = i
 		tabButton.Parent = tabRow
-		tabButtons[stage.Id] = tabButton
+		tabSetters[stage.Id] = setActive
 
 		tabButton.MouseButton1Click:Connect(function()
 			selectedStageId = stage.Id
@@ -122,13 +152,14 @@ local function buildUI()
 	refreshTabHighlight()
 
 	entriesList = Instance.new("ScrollingFrame")
-	entriesList.Size = UDim2.new(1, -16, 1, -82)
-	entriesList.Position = UDim2.fromOffset(8, 74)
+	entriesList.Size = UDim2.new(1, -16, 1, -86)
+	entriesList.Position = UDim2.fromOffset(8, 78)
 	entriesList.BackgroundTransparency = 1
 	entriesList.BorderSizePixel = 0
 	entriesList.CanvasSize = UDim2.new(0, 0, 0, 0)
 	entriesList.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	entriesList.ScrollBarThickness = 6
+	entriesList.ScrollBarThickness = 5
+	entriesList.ScrollBarImageColor3 = Theme.Color.AccentA
 	entriesList.Parent = panel
 
 	local layout = Instance.new("UIListLayout")
@@ -137,8 +168,10 @@ local function buildUI()
 	layout.Parent = entriesList
 
 	toggleButton.MouseButton1Click:Connect(function()
-		panel.Visible = not panel.Visible
 		if panel.Visible then
+			Widgets.Close(panel)
+		else
+			Widgets.Open(panel)
 			LeaderboardController.Refresh()
 		end
 	end)

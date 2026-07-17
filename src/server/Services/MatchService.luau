@@ -1,4 +1,5 @@
 local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
@@ -9,6 +10,7 @@ local RemoteNames = require(Shared.RemoteNames)
 local EloService = require(script.Parent.EloService)
 local LeaderboardService = require(script.Parent.LeaderboardService)
 local LobbyService = require(script.Parent.LobbyService)
+local PlayerDataService = require(script.Parent.PlayerDataService)
 
 -- Groups players who queue for the same stage into a single race: everyone who
 -- queues within the countdown window starts together, and whoever crosses the
@@ -35,10 +37,38 @@ local playerRaceStage: { [number]: string } = {}
 
 local queueStatusRemote: RemoteEvent
 local racePositionRemote: RemoteEvent
+local raceOutcomeRemote: RemoteEvent
 
 local tryStartCountdown: (stageId: string) -> ()
 local startSession: (stageId: string) -> ()
 local endSession: (stageId: string) -> ()
+
+-- Levels are built directly in Studio (not synced from src/), following the
+-- convention Workspace.Stages.<StageId>.<StageId>Spawn for each stage's spawn point.
+local function getStageSpawnCFrame(stageId: string): CFrame?
+	local stagesFolder = Workspace:FindFirstChild("Stages")
+	local stageFolder = stagesFolder and stagesFolder:FindFirstChild(stageId)
+	local spawnPart = stageFolder and stageFolder:FindFirstChild(stageId .. "Spawn")
+	if spawnPart and spawnPart:IsA("BasePart") then
+		return spawnPart.CFrame + Vector3.new(0, 3, 0)
+	end
+	return nil
+end
+
+-- Warps a participant to the stage's spawn regardless of where they wandered
+-- off to during the countdown, so everyone actually starts the race together.
+-- pcall'd so one player's stale/missing character can't abort session start
+-- for everyone else in the loop that calls this.
+local function teleportToStageSpawn(player: Player, spawnCFrame: CFrame)
+	pcall(function()
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if root then
+			root.CFrame = spawnCFrame
+			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+		end
+	end)
+end
 
 function tryStartCountdown(stageId: string)
 	if pendingCountdown[stageId] or activeSessions[stageId] then
@@ -64,12 +94,17 @@ function startSession(stageId: string)
 		return
 	end
 
+	local spawnCFrame = getStageSpawnCFrame(stageId)
+
 	local participants: { [number]: Player } = {}
 	for _, player in queued do
 		playerQueueStage[player.UserId] = nil
 		if player.Parent then
 			participants[player.UserId] = player
 			playerRaceStage[player.UserId] = stageId
+			if spawnCFrame then
+				teleportToStageSpawn(player, spawnCFrame)
+			end
 			LobbyService.SetPlayerState(player, "Racing")
 			queueStatusRemote:FireClient(player, nil)
 		end
@@ -156,16 +191,36 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 	LeaderboardService.SubmitTime(player, stageId, elapsed)
 
 	session.finishedCount += 1
-	racePositionRemote:FireClient(player, session.finishedCount, session.totalParticipants)
+	local placement = session.finishedCount
+	racePositionRemote:FireClient(player, placement, session.totalParticipants)
 	for _, opponent in session.participants do
-		racePositionRemote:FireClient(opponent, session.finishedCount + 1, session.totalParticipants)
+		racePositionRemote:FireClient(opponent, placement + 1, session.totalParticipants)
 	end
 
-	if not session.winner then
+	local isWinner = not session.winner
+	if isWinner then
 		session.winner = player
+
+		-- Elo is settled once, at the moment the winner crosses the line, against
+		-- every opponent still racing at that instant (see the module comment).
+		local winnerDelta = 0
 		for _, opponent in session.participants do
-			EloService.ReportMatchResult(player, opponent)
+			local delta, opponentDelta = EloService.ReportMatchResult(player, opponent)
+			winnerDelta += delta
+			raceOutcomeRemote:FireClient(opponent, { Won = false, EloDelta = opponentDelta })
 		end
+
+		-- Points are awarded once per race won, not once per opponent beaten.
+		local winnerProfile = PlayerDataService.GetProfile(player)
+		if winnerProfile then
+			winnerProfile.Points += Constants.Match.PointsPerWin
+		end
+
+		raceOutcomeRemote:FireClient(player, { Won = true, Placement = placement, EloDelta = winnerDelta })
+	else
+		-- Elo for this player was already settled when the winner finished;
+		-- this is just their personal placement confirmation.
+		raceOutcomeRemote:FireClient(player, { Won = false, Placement = placement, Total = session.totalParticipants })
 	end
 
 	if next(session.participants) == nil then
@@ -201,6 +256,7 @@ end
 function MatchService.Init()
 	queueStatusRemote = Net.CreateRemoteEvent(RemoteNames.QueueStatusChanged)
 	racePositionRemote = Net.CreateRemoteEvent(RemoteNames.RacePositionChanged)
+	raceOutcomeRemote = Net.CreateRemoteEvent(RemoteNames.RaceOutcome)
 	Players.PlayerRemoving:Connect(removePlayer)
 end
 

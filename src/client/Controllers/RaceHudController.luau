@@ -6,6 +6,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
+local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local MatchStateController = require(script.Parent.MatchStateController)
 
@@ -13,7 +14,7 @@ local RaceHudController = {}
 
 local player = Players.LocalPlayer
 
-local panel: Frame
+local panel: CanvasGroup
 local positionLabel: TextLabel
 local timeLabel: TextLabel
 
@@ -35,18 +36,21 @@ local function buildUI()
 	screenGui.ResetOnSpawn = false
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
-	panel = Widgets.Panel(UDim2.fromOffset(220, 70), UDim2.new(0.5, -110, 0, 60))
-	panel.BackgroundTransparency = 0.25
+	panel = Widgets.Panel(UDim2.fromOffset(240, 88), UDim2.new(0.5, -120, 0, 56))
 	panel.Parent = screenGui
 
-	positionLabel = Widgets.Label("Position: -", UDim2.new(1, -16, 0, 28), UDim2.fromOffset(8, 4))
-	positionLabel.TextXAlignment = Enum.TextXAlignment.Center
-	positionLabel.TextSize = 20
+	positionLabel = Widgets.Label("Position: -", UDim2.new(1, -16, 0, 34), UDim2.fromOffset(8, 6), {
+		Font = Theme.Font.Display,
+		TextSize = 22,
+		Align = Enum.TextXAlignment.Center,
+	})
 	positionLabel.Parent = panel
 
-	timeLabel = Widgets.Label("0:00.00", UDim2.new(1, -16, 0, 28), UDim2.fromOffset(8, 34))
-	timeLabel.TextXAlignment = Enum.TextXAlignment.Center
-	timeLabel.TextSize = 20
+	timeLabel = Widgets.Label("0:00.00", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 42), {
+		TextSize = 18,
+		Color = Theme.Color.TextSecondary,
+		Align = Enum.TextXAlignment.Center,
+	})
 	timeLabel.Parent = panel
 
 	RunService.RenderStepped:Connect(function()
@@ -61,12 +65,16 @@ local function onStateChanged(state: string)
 	if state == "Racing" then
 		raceStartTime = os.clock()
 		timeLabel.Text = "0:00.00"
-		panel.Visible = true
+		positionLabel.Text = "Position: -"
+		positionLabel.TextColor3 = Theme.Color.TextPrimary
+		Widgets.Open(panel)
 		-- positionLabel is intentionally left alone: it's set by RacePositionChanged,
 		-- a separate remote with no guaranteed ordering relative to this one.
 	else
 		raceStartTime = nil
-		panel.Visible = false
+		if panel.Visible then
+			Widgets.Close(panel)
+		end
 	end
 end
 
@@ -79,6 +87,7 @@ function RaceHudController.Init()
 	local remote = Net.GetRemoteEvent(RemoteNames.RacePositionChanged)
 	remote.OnClientEvent:Connect(function(position: number, total: number)
 		positionLabel.Text = ("Position: %d/%d"):format(position, total)
+		positionLabel.TextColor3 = if position == 1 then Theme.Color.Success else Theme.Color.TextPrimary
 	end)
 end
 

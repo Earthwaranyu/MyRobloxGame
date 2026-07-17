@@ -13,21 +13,40 @@ local OverheadDisplayService = {}
 local function buildBillboard(head: BasePart): BillboardGui
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "EloDisplay"
-	billboard.Size = UDim2.fromOffset(160, 36)
-	billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+	billboard.Size = UDim2.fromOffset(168, 40)
+	billboard.StudsOffset = Vector3.new(0, 2.6, 0)
 	billboard.MaxDistance = 100
 	billboard.AlwaysOnTop = true
 	billboard.Parent = head
 
+	local backdrop = Instance.new("Frame")
+	backdrop.Name = "Backdrop"
+	backdrop.Size = UDim2.fromScale(1, 1)
+	backdrop.BackgroundColor3 = Color3.fromRGB(15, 16, 22)
+	backdrop.BackgroundTransparency = 0.35
+	backdrop.BorderSizePixel = 0
+	backdrop.Parent = billboard
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(1, 0)
+	corner.Parent = backdrop
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Name = "RankStroke"
+	stroke.Thickness = 1.5
+	stroke.Transparency = 0.2
+	stroke.Parent = backdrop
+
 	local label = Instance.new("TextLabel")
 	label.Name = "Label"
-	label.Size = UDim2.fromScale(1, 1)
+	label.Size = UDim2.fromScale(0.92, 0.86)
+	label.Position = UDim2.fromScale(0.04, 0.07)
 	label.BackgroundTransparency = 1
 	label.TextColor3 = Color3.fromRGB(255, 255, 255)
-	label.TextStrokeTransparency = 0.3
+	label.TextStrokeTransparency = 0.2
 	label.Font = Enum.Font.GothamBold
 	label.TextScaled = true
-	label.Parent = billboard
+	label.Parent = backdrop
 
 	return billboard
 end
@@ -51,8 +70,14 @@ function OverheadDisplayService.Refresh(player: Player)
 	end
 
 	local billboard = head:FindFirstChild("EloDisplay") :: BillboardGui? or buildBillboard(head :: BasePart)
-	local label = billboard:FindFirstChild("Label") :: TextLabel
-	label.Text = ("%s (%d)"):format(RankTiers.GetRankForElo(profile.Elo), profile.Elo)
+	local backdrop = billboard:FindFirstChild("Backdrop") :: Frame
+	local label = backdrop:FindFirstChild("Label") :: TextLabel
+	local stroke = backdrop:FindFirstChild("RankStroke") :: UIStroke
+
+	local rankColor = RankTiers.GetColorForElo(profile.Elo)
+	label.Text = ("%s  %d"):format(RankTiers.GetRankForElo(profile.Elo), profile.Elo)
+	label.TextColor3 = rankColor
+	stroke.Color = rankColor
 end
 
 function OverheadDisplayService.Init()

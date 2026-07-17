@@ -11,6 +11,29 @@ local PlayerDataService = require(script.Parent.PlayerDataService)
 
 local ShopService = {}
 
+-- Mirrors the equipped trail onto the character as a replicated attribute so
+-- every client (not just the owner) can build the matching Trail effect --
+-- see client/Controllers/TrailVisualsController.luau.
+local function applyEquippedTrailAttribute(player: Player)
+	local character = player.Character
+	if not character then
+		return
+	end
+
+	local profile = PlayerDataService.GetProfile(player)
+	local attempts = 0
+	while not profile and attempts < 100 do
+		task.wait()
+		profile = PlayerDataService.GetProfile(player)
+		attempts += 1
+	end
+	if not profile then
+		return
+	end
+
+	character:SetAttribute("EquippedTrail", profile.EquippedTrail)
+end
+
 local function handlePurchase(player: Player, trailId: string): (boolean, string)
 	local trail = Trails[trailId]
 	local profile = PlayerDataService.GetProfile(player)
@@ -45,6 +68,7 @@ local function handleEquip(player: Player, trailId: string): (boolean, string)
 	end
 
 	profile.EquippedTrail = trailId
+	applyEquippedTrailAttribute(player)
 	return true, "Equipped"
 end
 
@@ -99,6 +123,21 @@ function ShopService.Init()
 	end)
 
 	MarketplaceService.ProcessReceipt = processReceipt
+
+	Players.PlayerAdded:Connect(function(player)
+		player.CharacterAdded:Connect(function()
+			applyEquippedTrailAttribute(player)
+		end)
+	end)
+
+	for _, player in Players:GetPlayers() do
+		player.CharacterAdded:Connect(function()
+			applyEquippedTrailAttribute(player)
+		end)
+		if player.Character then
+			applyEquippedTrailAttribute(player)
+		end
+	end
 end
 
 return ShopService
