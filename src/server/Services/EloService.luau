@@ -5,6 +5,7 @@ local Constants = require(Shared.Constants)
 local EloCalculator = require(Shared.EloCalculator)
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local OverheadDisplayService = require(script.Parent.OverheadDisplayService)
 
 local EloService = {}
 
@@ -23,6 +24,9 @@ function EloService.ReportMatchResult(winner: Player, loser: Player)
 	winnerProfile.Elo = newWinnerElo
 	loserProfile.Elo = newLoserElo
 	winnerProfile.Points += Constants.Match.PointsPerWin
+
+	OverheadDisplayService.Refresh(winner)
+	OverheadDisplayService.Refresh(loser)
 end
 
 return EloService

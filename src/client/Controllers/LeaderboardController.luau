@@ -4,18 +4,19 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
+local Stages = require(Shared.Stages)
 
 local Widgets = require(script.Parent.Parent.Widgets)
 
 local LeaderboardController = {}
 
--- Hardcoded until a stage picker is built; only Stage1 exists so far.
-local STAGE_ID = "Stage1"
-
 local player = Players.LocalPlayer
 
 local panel: Frame
 local entriesList: ScrollingFrame
+local tabButtons: { [string]: TextButton } = {}
+
+local selectedStageId = Stages[1].Id
 
 local function formatTime(ms: number): string
 	local totalSeconds = ms / 1000
@@ -46,11 +47,19 @@ local function buildEntryRow(entry): Frame
 	return row
 end
 
+local function refreshTabHighlight()
+	for stageId, button in tabButtons do
+		button.BackgroundColor3 = if stageId == selectedStageId
+			then Color3.fromRGB(60, 120, 220)
+			else Color3.fromRGB(55, 55, 64)
+	end
+end
+
 function LeaderboardController.Refresh()
-	local entries = Net.GetRemoteFunction(RemoteNames.GetLeaderboard):InvokeServer(STAGE_ID)
+	local entries = Net.GetRemoteFunction(RemoteNames.GetLeaderboard):InvokeServer(selectedStageId)
 
 	for _, child in entriesList:GetChildren() do
-		if child:IsA("Frame") then
+		if not child:IsA("UIListLayout") then
 			child:Destroy()
 		end
 	end
@@ -81,13 +90,40 @@ local function buildUI()
 	panel = Widgets.Panel(UDim2.fromOffset(360, 420), UDim2.fromOffset(10, 106))
 	panel.Parent = screenGui
 
-	local title = Widgets.Label("Stage 1 - Top Times", UDim2.new(1, -16, 0, 28), UDim2.fromOffset(8, 4))
+	local title = Widgets.Label("Leaderboard", UDim2.new(1, -16, 0, 24), UDim2.fromOffset(8, 4))
 	title.TextSize = 20
 	title.Parent = panel
 
+	local tabRow = Instance.new("Frame")
+	tabRow.Size = UDim2.new(1, -16, 0, 30)
+	tabRow.Position = UDim2.fromOffset(8, 32)
+	tabRow.BackgroundTransparency = 1
+	tabRow.Parent = panel
+
+	local tabLayout = Instance.new("UIListLayout")
+	tabLayout.FillDirection = Enum.FillDirection.Horizontal
+	tabLayout.Padding = UDim.new(0, 6)
+	tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	tabLayout.Parent = tabRow
+
+	for i, stage in Stages do
+		local tabButton = Widgets.Button(stage.Name, UDim2.fromOffset(110, 30), UDim2.fromOffset(0, 0))
+		tabButton.Name = "Tab_" .. stage.Id
+		tabButton.LayoutOrder = i
+		tabButton.Parent = tabRow
+		tabButtons[stage.Id] = tabButton
+
+		tabButton.MouseButton1Click:Connect(function()
+			selectedStageId = stage.Id
+			refreshTabHighlight()
+			LeaderboardController.Refresh()
+		end)
+	end
+	refreshTabHighlight()
+
 	entriesList = Instance.new("ScrollingFrame")
-	entriesList.Size = UDim2.new(1, -16, 1, -52)
-	entriesList.Position = UDim2.fromOffset(8, 44)
+	entriesList.Size = UDim2.new(1, -16, 1, -82)
+	entriesList.Position = UDim2.fromOffset(8, 74)
 	entriesList.BackgroundTransparency = 1
 	entriesList.BorderSizePixel = 0
 	entriesList.CanvasSize = UDim2.new(0, 0, 0, 0)

@@ -9,7 +9,7 @@ function EloCalculator.CalculateNewRatings(winnerRating: number, loserRating: nu
 	local expectedLoser = expectedScore(loserRating, winnerRating)
 
 	local newWinnerRating = winnerRating + kFactor * (1 - expectedWinner)
-	local newLoserRating = loserRating + kFactor * (0 - expectedLoser)
+	local newLoserRating = math.max(0, loserRating + kFactor * (0 - expectedLoser))
 
 	return math.round(newWinnerRating), math.round(newLoserRating)
 end

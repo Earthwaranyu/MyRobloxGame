@@ -3,7 +3,7 @@ return {
 	SprintSpeed = 24,
 
 	Elo = {
-		StartingRating = 1000,
+		StartingRating = 0,
 		KFactor = 32,
 	},
 

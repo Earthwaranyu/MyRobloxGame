@@ -14,3 +14,11 @@ Before joining any lobby to compete with other players. They are still in the th
 
 -Has a shop to buy some trailing skin to show off other people (this can be bought by the point after winning each game or robux).
 
+-Has Rank in each elo (like Bronze,Silver,Gold,Platinum,Diamond,Master,Grandmaster).
+
+-Show the elo and rank on the top of the head to show off other players
+
+
+
+
+
