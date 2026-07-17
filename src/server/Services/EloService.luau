@@ -22,6 +22,7 @@ function EloService.ReportMatchResult(winner: Player, loser: Player)
 
 	winnerProfile.Elo = newWinnerElo
 	loserProfile.Elo = newLoserElo
+	winnerProfile.Points += Constants.Match.PointsPerWin
 end
 
 return EloService

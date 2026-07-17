@@ -1,13 +1,13 @@
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 
-local LeaderboardService = require(script.Parent.LeaderboardService)
+local MatchService = require(script.Parent.MatchService)
 
 -- Tag start/finish parts with CollectionService tags "StartLine" / "FinishLine"
 -- and set a "StageId" string attribute on each to identify which stage they belong to.
+-- Timing, matchmaking, and win-detection all live in MatchService; this module
+-- is just the touch-detection layer.
 local StageService = {}
-
-local raceStartTimes = {}
 
 local function getStageId(part: Instance): string?
 	return part:GetAttribute("StageId")
@@ -20,8 +20,7 @@ local function onStartTouched(part: Instance, hit: BasePart)
 		return
 	end
 
-	raceStartTimes[player.UserId] = raceStartTimes[player.UserId] or {}
-	raceStartTimes[player.UserId][stageId] = os.clock()
+	MatchService.Enqueue(player, stageId)
 end
 
 local function onFinishTouched(part: Instance, hit: BasePart)
@@ -31,13 +30,7 @@ local function onFinishTouched(part: Instance, hit: BasePart)
 		return
 	end
 
-	local startTime = raceStartTimes[player.UserId] and raceStartTimes[player.UserId][stageId]
-	if not startTime then
-		return
-	end
-
-	raceStartTimes[player.UserId][stageId] = nil
-	LeaderboardService.SubmitTime(player, stageId, os.clock() - startTime)
+	MatchService.PlayerReachedFinish(player, stageId)
 end
 
 local function bindStart(part: Instance)

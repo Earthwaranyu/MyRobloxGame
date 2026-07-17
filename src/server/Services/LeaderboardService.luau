@@ -1,4 +1,11 @@
 local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+
+local Net = require(Shared.Net)
+local RemoteNames = require(Shared.RemoteNames)
+local Constants = require(Shared.Constants)
 
 local LeaderboardService = {}
 
@@ -51,6 +58,30 @@ function LeaderboardService.GetTopTimes(stageId: string, count: number?)
 	end
 
 	return pages:GetCurrentPage()
+end
+
+function LeaderboardService.Init()
+	local remote = Net.CreateRemoteFunction(RemoteNames.GetLeaderboard)
+	remote.OnServerInvoke = function(_player: Player, stageId: string)
+		local rawEntries = LeaderboardService.GetTopTimes(stageId, Constants.Leaderboard.TopCount)
+		local entries = {}
+
+		for i, entry in rawEntries do
+			local userId = tonumber((entry.key :: string):match("_(%d+)$"))
+			local name = userId and ("Player" .. tostring(userId)) or entry.key
+
+			if userId then
+				local success, result = pcall(Players.GetNameFromUserIdAsync, Players, userId)
+				if success then
+					name = result
+				end
+			end
+
+			entries[i] = { Rank = i, Name = name, TimeMs = entry.value }
+		end
+
+		return entries
+	end
 end
 
 return LeaderboardService

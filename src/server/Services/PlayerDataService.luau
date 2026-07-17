@@ -4,6 +4,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local Constants = require(Shared.Constants)
+local Net = require(Shared.Net)
+local RemoteNames = require(Shared.RemoteNames)
 
 -- DataStoreService:GetDataStore() throws if API access is disabled (e.g. an
 -- unpublished place in Studio), so this is deferred and guarded rather than
@@ -18,8 +20,8 @@ end
 local DEFAULT_PROFILE = {
 	Elo = Constants.Elo.StartingRating,
 	Points = 0,
-	OwnedTrails = {},
-	EquippedTrail = "",
+	OwnedTrails = { "Basic" },
+	EquippedTrail = "Basic",
 }
 
 local PlayerDataService = {}
@@ -80,6 +82,18 @@ function PlayerDataService.Init()
 
 	for _, player in Players:GetPlayers() do
 		loadProfile(player)
+	end
+
+	local getProfileRemote = Net.CreateRemoteFunction(RemoteNames.GetProfile)
+	getProfileRemote.OnServerInvoke = function(player: Player)
+		-- loadProfile may still be in flight (e.g. an async DataStore read)
+		-- when the client asks, so wait briefly instead of returning nil.
+		local attempts = 0
+		while not profiles[player.UserId] and attempts < 100 do
+			task.wait()
+			attempts += 1
+		end
+		return profiles[player.UserId]
 	end
 end
 

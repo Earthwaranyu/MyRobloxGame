@@ -10,4 +10,10 @@ return {
 	Leaderboard = {
 		TopCount = 100,
 	},
+
+	Match = {
+		CountdownSeconds = 8,
+		MaxDurationSeconds = 300,
+		PointsPerWin = 50,
+	},
 }

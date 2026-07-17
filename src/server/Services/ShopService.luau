@@ -31,10 +31,30 @@ local function handlePurchase(player: Player, trailId: string): (boolean, string
 	return true, "Purchased"
 end
 
+-- trailId == "" unequips.
+local function handleEquip(player: Player, trailId: string): (boolean, string)
+	local profile = PlayerDataService.GetProfile(player)
+	if not profile then
+		return false, "Profile not loaded"
+	end
+
+	if trailId ~= "" and not table.find(profile.OwnedTrails, trailId) then
+		return false, "Not owned"
+	end
+
+	profile.EquippedTrail = trailId
+	return true, "Equipped"
+end
+
 function ShopService.Init()
-	local remote = Net.CreateRemoteFunction(RemoteNames.PurchaseTrail)
-	remote.OnServerInvoke = function(player: Player, trailId: string)
+	local purchaseRemote = Net.CreateRemoteFunction(RemoteNames.PurchaseTrail)
+	purchaseRemote.OnServerInvoke = function(player: Player, trailId: string)
 		return handlePurchase(player, trailId)
+	end
+
+	local equipRemote = Net.CreateRemoteFunction(RemoteNames.EquipTrail)
+	equipRemote.OnServerInvoke = function(player: Player, trailId: string)
+		return handleEquip(player, trailId)
 	end
 end
 
