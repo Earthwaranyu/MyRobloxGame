@@ -6,20 +6,24 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Constants = require(Shared.Constants)
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
+local Stages = require(Shared.Stages)
 
 local EloService = require(script.Parent.EloService)
 local LeaderboardService = require(script.Parent.LeaderboardService)
 local LobbyService = require(script.Parent.LobbyService)
 local PlayerDataService = require(script.Parent.PlayerDataService)
 
--- Groups players who queue for the same stage into a single race: everyone who
--- queues within the countdown window starts together, and whoever crosses the
--- finish line first is the winner against every other participant still racing
--- at that moment (2nd/3rd place etc. still "lost" the heat, matching the
--- "find the winner who pass the finish line first" design in the game docs).
+-- Flow: touch a start line / click Play -> shared queue -> once the waiting
+-- window ends, roll a random stage and teleport everyone there (still
+-- third-person, no finish-line detection yet) -> a short pre-race countdown
+-- plays on the map itself -> THEN the race actually starts (first-person,
+-- timer running, finish-line detection live). Whoever crosses the finish
+-- line first is the winner against every other participant still racing at
+-- that moment (2nd/3rd place etc. still "lost" the heat).
 local MatchService = {}
 
 type Session = {
+	stageId: string,
 	participants: { [number]: Player },
 	totalParticipants: number,
 	finishedCount: number,
@@ -27,21 +31,36 @@ type Session = {
 	startTime: number,
 }
 
-local queues: { [string]: { Player } } = {}
-local pendingCountdown: { [string]: boolean } = {}
-local countdownEndTime: { [string]: number } = {}
-local activeSessions: { [string]: Session } = {}
+local queue: { Player } = {}
+local queuedSet: { [number]: boolean } = {}
+local pendingCountdown = false
+local countdownEndTime: number? = nil
+local pendingStageId: string? = nil
+local activeSession: Session? = nil
 
-local playerQueueStage: { [number]: string } = {}
 local playerRaceStage: { [number]: string } = {}
 
+-- True from the moment a player is enqueued until they either finish their
+-- race or get force-reset (watchdog/disconnect). Separate from queuedSet
+-- (only true while literally sitting in `queue`) and playerRaceStage (only
+-- true once the race has actually started): there's a real gap between
+-- those two -- teleported to the stage, waiting out CountdownSeconds, but
+-- not yet racing -- during which neither flag was set, so touching another
+-- start line in that window would silently re-enqueue the player into a
+-- second, overlapping race. playerBusy is the single guard covering the
+-- whole span.
+local playerBusy: { [number]: boolean } = {}
+
 local queueStatusRemote: RemoteEvent
+local preRaceCountdownRemote: RemoteEvent
 local racePositionRemote: RemoteEvent
 local raceOutcomeRemote: RemoteEvent
+local mapSelectedRemote: RemoteEvent
 
-local tryStartCountdown: (stageId: string) -> ()
-local startSession: (stageId: string) -> ()
-local endSession: (stageId: string) -> ()
+local tryStartCountdown: () -> ()
+local startSession: () -> ()
+local beginRace: (stageId: string, participants: { [number]: Player }) -> ()
+local endSession: () -> ()
 
 -- Levels are built directly in Studio (not synced from src/), following the
 -- convention Workspace.Stages.<StageId>.<StageId>Spawn for each stage's spawn point.
@@ -70,27 +89,34 @@ local function teleportToStageSpawn(player: Player, spawnCFrame: CFrame)
 	end)
 end
 
-function tryStartCountdown(stageId: string)
-	if pendingCountdown[stageId] or activeSessions[stageId] then
+function tryStartCountdown()
+	if pendingCountdown or activeSession then
 		return
 	end
-	if not queues[stageId] or #queues[stageId] == 0 then
+	if #queue == 0 then
 		return
 	end
 
-	pendingCountdown[stageId] = true
-	countdownEndTime[stageId] = os.clock() + Constants.Match.CountdownSeconds
+	pendingCountdown = true
+	pendingStageId = Stages[math.random(1, #Stages)].Id
+	countdownEndTime = os.clock() + Constants.Match.MatchingSeconds
 
-	task.delay(Constants.Match.CountdownSeconds, function()
-		pendingCountdown[stageId] = false
-		startSession(stageId)
+	task.delay(Constants.Match.MatchingSeconds, function()
+		pendingCountdown = false
+		startSession()
 	end)
 end
 
-function startSession(stageId: string)
-	local queued = queues[stageId]
-	queues[stageId] = nil
-	if not queued or #queued == 0 then
+-- Teleports the matched group to the chosen stage. They stay in "Lobby"
+-- (third-person, no finish-line detection) for CountdownSeconds so everyone
+-- gets a moment to see the map before the clock starts.
+function startSession()
+	local queued = queue
+	queue = {}
+	local stageId = pendingStageId
+	pendingStageId = nil
+	countdownEndTime = nil
+	if #queued == 0 or not stageId then
 		return
 	end
 
@@ -98,15 +124,14 @@ function startSession(stageId: string)
 
 	local participants: { [number]: Player } = {}
 	for _, player in queued do
-		playerQueueStage[player.UserId] = nil
+		queuedSet[player.UserId] = nil
 		if player.Parent then
 			participants[player.UserId] = player
-			playerRaceStage[player.UserId] = stageId
 			if spawnCFrame then
 				teleportToStageSpawn(player, spawnCFrame)
 			end
-			LobbyService.SetPlayerState(player, "Racing")
 			queueStatusRemote:FireClient(player, nil)
+			preRaceCountdownRemote:FireClient(player, Constants.Match.CountdownSeconds)
 		end
 	end
 
@@ -114,61 +139,83 @@ function startSession(stageId: string)
 		return
 	end
 
+	task.delay(Constants.Match.CountdownSeconds, function()
+		beginRace(stageId, participants)
+	end)
+end
+
+-- Actually starts the race: first-person camera (via the Racing state),
+-- timer running, finish-line detection live.
+function beginRace(stageId: string, participants: { [number]: Player })
+	local validParticipants: { [number]: Player } = {}
 	local totalParticipants = 0
-	for _ in participants do
-		totalParticipants += 1
+	for userId, player in participants do
+		if player.Parent then
+			validParticipants[userId] = player
+			totalParticipants += 1
+		end
+	end
+	if totalParticipants == 0 then
+		return
+	end
+
+	for userId, player in validParticipants do
+		playerRaceStage[userId] = stageId
+		LobbyService.SetPlayerState(player, "Racing")
 	end
 
 	local session: Session = {
-		participants = participants,
+		stageId = stageId,
+		participants = validParticipants,
 		totalParticipants = totalParticipants,
 		finishedCount = 0,
 		winner = nil,
 		startTime = os.clock(),
 	}
-	activeSessions[stageId] = session
+	activeSession = session
 
 	-- Nobody has finished yet, so everyone starts tied for 1st.
-	for _, racer in participants do
+	for _, racer in validParticipants do
 		racePositionRemote:FireClient(racer, 1, totalParticipants)
 	end
 
 	-- Watchdog: if the race never finishes (e.g. everyone AFKs), reset the
 	-- stage rather than leaving it permanently stuck.
 	task.delay(Constants.Match.MaxDurationSeconds, function()
-		if activeSessions[stageId] ~= session then
+		if activeSession ~= session then
 			return
 		end
 
 		for _, straggler in session.participants do
 			playerRaceStage[straggler.UserId] = nil
+			playerBusy[straggler.UserId] = nil
 			LobbyService.SetPlayerState(straggler, "Lobby")
 		end
 
-		endSession(stageId)
+		endSession()
 	end)
 end
 
-function endSession(stageId: string)
-	activeSessions[stageId] = nil
-	tryStartCountdown(stageId)
+function endSession()
+	activeSession = nil
+	tryStartCountdown()
 end
 
-function MatchService.Enqueue(player: Player, stageId: string)
+function MatchService.Enqueue(player: Player)
 	local userId = player.UserId
-	if playerQueueStage[userId] or playerRaceStage[userId] then
+	if playerBusy[userId] then
 		return
 	end
 
-	queues[stageId] = queues[stageId] or {}
-	table.insert(queues[stageId], player)
-	playerQueueStage[userId] = stageId
+	playerBusy[userId] = true
+	table.insert(queue, player)
+	queuedSet[userId] = true
 
-	tryStartCountdown(stageId)
+	tryStartCountdown()
 
-	local endTime = countdownEndTime[stageId]
-	if endTime then
-		queueStatusRemote:FireClient(player, math.max(0, endTime - os.clock()))
+	if countdownEndTime and pendingStageId then
+		queueStatusRemote:FireClient(player, math.max(0, countdownEndTime - os.clock()))
+		mapSelectedRemote:FireClient(player, pendingStageId)
 	end
 end
 
@@ -178,12 +225,13 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 		return
 	end
 
-	local session = activeSessions[stageId]
-	if not session or not session.participants[userId] then
+	local session = activeSession
+	if not session or session.stageId ~= stageId or not session.participants[userId] then
 		return
 	end
 
 	playerRaceStage[userId] = nil
+	playerBusy[userId] = nil
 	session.participants[userId] = nil
 	LobbyService.SetPlayerState(player, "Lobby")
 
@@ -224,40 +272,44 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 	end
 
 	if next(session.participants) == nil then
-		endSession(stageId)
+		endSession()
 	end
 end
 
 local function removePlayer(player: Player)
 	local userId = player.UserId
 
-	local queueStageId = playerQueueStage[userId]
-	if queueStageId and queues[queueStageId] then
-		local index = table.find(queues[queueStageId], player)
+	if queuedSet[userId] then
+		local index = table.find(queue, player)
 		if index then
-			table.remove(queues[queueStageId], index)
+			table.remove(queue, index)
 		end
+		queuedSet[userId] = nil
 	end
-	playerQueueStage[userId] = nil
 
 	local raceStageId = playerRaceStage[userId]
-	if raceStageId then
-		local session = activeSessions[raceStageId]
-		if session then
-			session.participants[userId] = nil
-			if next(session.participants) == nil then
-				endSession(raceStageId)
-			end
+	if raceStageId and activeSession and activeSession.stageId == raceStageId then
+		activeSession.participants[userId] = nil
+		if next(activeSession.participants) == nil then
+			endSession()
 		end
 	end
 	playerRaceStage[userId] = nil
+	playerBusy[userId] = nil
 end
 
 function MatchService.Init()
 	queueStatusRemote = Net.CreateRemoteEvent(RemoteNames.QueueStatusChanged)
+	preRaceCountdownRemote = Net.CreateRemoteEvent(RemoteNames.PreRaceCountdown)
 	racePositionRemote = Net.CreateRemoteEvent(RemoteNames.RacePositionChanged)
 	raceOutcomeRemote = Net.CreateRemoteEvent(RemoteNames.RaceOutcome)
+	mapSelectedRemote = Net.CreateRemoteEvent(RemoteNames.MapSelected)
 	Players.PlayerRemoving:Connect(removePlayer)
+
+	local requestQueueRemote = Net.CreateRemoteEvent(RemoteNames.RequestQueue)
+	requestQueueRemote.OnServerEvent:Connect(function(player: Player)
+		MatchService.Enqueue(player)
+	end)
 end
 
 return MatchService

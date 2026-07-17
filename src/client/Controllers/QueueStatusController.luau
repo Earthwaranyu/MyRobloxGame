@@ -4,6 +4,7 @@ local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
+local Constants = require(Shared.Constants)
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
@@ -17,15 +18,23 @@ local QueueStatusController = {}
 local player = Players.LocalPlayer
 
 local container: Frame
+local caption: TextLabel
 local numberLabel: TextLabel
 local numberScale: UIScale
 local goLabel: TextLabel
 local goScale: UIScale
 
 -- Server sends the remaining seconds once; ticking down locally avoids
--- relying on the client and server clocks (os.clock()) being in sync.
+-- relying on the client and server clocks (os.clock()) being in sync. This
+-- one ticker is reused for two back-to-back phases of the same flow:
+-- "Waiting" while the shared queue matches players (numeric ticker hides for
+-- the last Constants.Match.MapRevealSeconds so MapRevealController's
+-- case-opening reel can take over), then "PreRace" once the group has been
+-- teleported to the chosen stage and is standing there before the race
+-- actually starts.
 local endTime: number? = nil
 local lastShownSecond: number? = nil
+local phase: "Waiting" | "PreRace" = "Waiting"
 
 local function pulse(scale: UIScale)
 	scale.Scale = 1.35
@@ -47,7 +56,7 @@ local function buildUI()
 	container.Visible = false
 	container.Parent = screenGui
 
-	local caption = Widgets.Label("RACE STARTING IN", UDim2.new(1, 0, 0, 22), UDim2.fromOffset(0, 0), {
+	caption = Widgets.Label("WAITING FOR PLAYERS", UDim2.new(1, 0, 0, 22), UDim2.fromOffset(0, 0), {
 		TextSize = 16,
 		Color = Theme.Color.TextSecondary,
 		Align = Enum.TextXAlignment.Center,
@@ -92,6 +101,12 @@ local function buildUI()
 			return
 		end
 
+		if phase == "Waiting" and remaining <= Constants.Match.MapRevealSeconds then
+			container.Visible = false
+			return
+		end
+
+		container.Visible = true
 		local shownSecond = math.ceil(remaining)
 		numberLabel.Text = tostring(shownSecond)
 		if shownSecond ~= lastShownSecond then
@@ -102,6 +117,27 @@ local function buildUI()
 	end)
 end
 
+-- Fades goLabel back out. Guaranteed-hide fallback mirrors Widgets.Close: a
+-- tween that never reports completion would otherwise leave "GO!" stuck on
+-- screen forever.
+local function fadeOutGo()
+	local fadeTween = TweenService:Create(goLabel, Theme.Anim.Smooth, { TextTransparency = 1 })
+
+	local function hide()
+		goLabel.Visible = false
+		goLabel.TextTransparency = 0
+	end
+
+	fadeTween.Completed:Connect(function(playbackState: Enum.PlaybackState)
+		if playbackState == Enum.PlaybackState.Completed then
+			hide()
+		end
+	end)
+	fadeTween:Play()
+
+	task.delay(Theme.Anim.Smooth.Time + 0.15, hide)
+end
+
 local function flashGo()
 	goLabel.Visible = true
 	goLabel.TextTransparency = 0
@@ -109,14 +145,7 @@ local function flashGo()
 	Sounds.Play("Go")
 
 	TweenService:Create(goScale, Theme.Anim.Pop, { Scale = 1.15 }):Play()
-	task.delay(0.5, function()
-		local fadeTween = TweenService:Create(goLabel, Theme.Anim.Smooth, { TextTransparency = 1 })
-		fadeTween.Completed:Once(function()
-			goLabel.Visible = false
-			goLabel.TextTransparency = 0
-		end)
-		fadeTween:Play()
-	end)
+	task.delay(0.5, fadeOutGo)
 end
 
 function QueueStatusController.Init()
@@ -131,6 +160,17 @@ function QueueStatusController.Init()
 			return
 		end
 
+		phase = "Waiting"
+		caption.Text = "WAITING FOR PLAYERS"
+		endTime = os.clock() + secondsRemaining
+		lastShownSecond = nil
+		container.Visible = true
+	end)
+
+	local preRaceRemote = Net.GetRemoteEvent(RemoteNames.PreRaceCountdown)
+	preRaceRemote.OnClientEvent:Connect(function(secondsRemaining: number)
+		phase = "PreRace"
+		caption.Text = "RACE STARTING IN"
 		endTime = os.clock() + secondsRemaining
 		lastShownSecond = nil
 		container.Visible = true

@@ -20,6 +20,7 @@ local IDS = {
 	Defeat = "rbxasset://sounds/switch3.wav",
 	Purchase = "rbxasset://sounds/electronicpingshort.wav",
 	RankUp = "rbxasset://sounds/electronicpingshort.wav",
+	Reveal = "rbxasset://sounds/switch3.wav",
 }
 
 local VOLUME = {
@@ -31,6 +32,7 @@ local VOLUME = {
 	Defeat = 0.5,
 	Purchase = 0.45,
 	RankUp = 0.7,
+	Reveal = 0.55,
 }
 
 local PITCH = {
@@ -38,6 +40,7 @@ local PITCH = {
 	Go = 1.3,
 	Victory = 1.5,
 	RankUp = 1.8,
+	Reveal = 1.1,
 }
 
 local pool: { [string]: Sound } = {}
