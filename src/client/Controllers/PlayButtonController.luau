@@ -98,7 +98,7 @@ function PlayButtonController.Init()
 	end)
 
 	MatchStateController.StateChanged:Connect(function(state: string)
-		if state == "Racing" then
+		if state == "Racing" or state == "Spectating" then
 			button.Visible = false
 			botsButton.Visible = false
 		else

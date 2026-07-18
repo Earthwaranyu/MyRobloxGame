@@ -16,6 +16,7 @@ local EloService = require(script.Parent.EloService)
 local LeaderboardService = require(script.Parent.LeaderboardService)
 local LobbyService = require(script.Parent.LobbyService)
 local MonetizationService = require(script.Parent.MonetizationService)
+local PartyService = require(script.Parent.PartyService)
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local WeatherService = require(script.Parent.WeatherService)
 
@@ -46,6 +47,11 @@ type Session = {
 	finishedCount: number,
 	winner: Player?,
 	startTime: number,
+	-- Players who finished/lost but stuck around to watch the rest of the
+	-- race instead of being yanked straight back to the lobby (see
+	-- PlayerReachedFinish/MatchService.LeaveSpectate). Rounded up and sent
+	-- to the lobby together once the session actually ends.
+	spectators: { [number]: Player },
 }
 
 local queue: { Player } = {}
@@ -140,6 +146,7 @@ local racePositionRemote: RemoteEvent
 local raceOutcomeRemote: RemoteEvent
 local mapSelectedRemote: RemoteEvent
 local playerFellRemote: RemoteEvent
+local spectateStatusRemote: RemoteEvent
 
 local tryStartCountdown: () -> ()
 local startSession: () -> ()
@@ -284,6 +291,7 @@ function beginRace(stageId: string, participants: { [number]: Player })
 		finishedCount = 0,
 		winner = nil,
 		startTime = os.clock(),
+		spectators = {},
 	}
 	activeSession = session
 
@@ -310,27 +318,57 @@ function beginRace(stageId: string, participants: { [number]: Player })
 	end)
 end
 
+-- Sends a still-spectating player back to the lobby -- shared by endSession
+-- (everyone left watching once the race is actually over) and
+-- MatchService.LeaveSpectate (one spectator bailing out early).
+local function returnSpectatorToLobby(player: Player)
+	LobbyService.SetPlayerState(player, "Lobby")
+	local lobbyCFrame = getLobbySpawnCFrame()
+	if lobbyCFrame then
+		teleportToStageSpawn(player, lobbyCFrame)
+	end
+end
+
 function endSession()
+	if activeSession then
+		for _, spectator in activeSession.spectators do
+			returnSpectatorToLobby(spectator)
+		end
+	end
 	activeSession = nil
 	WeatherService.RevertToLobby()
 	tryStartCountdown()
 end
 
+-- Partied players (see PartyService) are enqueued together in one atomic
+-- pass -- every member gets added to the shared `queue` before this function
+-- returns, so whichever `startSession` call grabs the queue next is
+-- guaranteed to grab all of them together, regardless of exactly when each
+-- member's own PLAY click happened. If any party member is already busy,
+-- nobody is enqueued: a partial-party queue would just separate them anyway.
 function MatchService.Enqueue(player: Player)
-	local userId = player.UserId
-	if playerBusy[userId] then
-		return
+	local partyMembers = PartyService.GetPartyMembers(player)
+
+	for _, member in partyMembers do
+		if playerBusy[member.UserId] then
+			return
+		end
 	end
 
-	playerBusy[userId] = true
-	table.insert(queue, player)
-	queuedSet[userId] = true
+	for _, member in partyMembers do
+		local userId = member.UserId
+		playerBusy[userId] = true
+		table.insert(queue, member)
+		queuedSet[userId] = true
+	end
 
 	tryStartCountdown()
 
 	if countdownEndTime and pendingStageId then
-		queueStatusRemote:FireClient(player, math.max(0, countdownEndTime - os.clock()))
-		mapSelectedRemote:FireClient(player, pendingStageId)
+		for _, member in partyMembers do
+			queueStatusRemote:FireClient(member, math.max(0, countdownEndTime - os.clock()))
+			mapSelectedRemote:FireClient(member, pendingStageId)
+		end
 	end
 end
 
@@ -503,7 +541,24 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 	playerBusy[userId] = nil
 	lastCheckpoint[userId] = nil
 	session.participants[userId] = nil
-	LobbyService.SetPlayerState(player, "Lobby")
+
+	-- Others are still out there racing -- offer to stick around and watch
+	-- instead of yanking this player straight back to the lobby the instant
+	-- they cross the line. See MatchService.LeaveSpectate for bailing out
+	-- early, and endSession for the "round everyone up" once it's really over.
+	local racersLeft = 0
+	for _ in session.participants do
+		racersLeft += 1
+	end
+	if racersLeft > 0 then
+		session.spectators[userId] = player
+		LobbyService.SetPlayerState(player, "Spectating")
+		for _, spectator in session.spectators do
+			spectateStatusRemote:FireClient(spectator, racersLeft)
+		end
+	else
+		LobbyService.SetPlayerState(player, "Lobby")
+	end
 
 	local elapsed = os.clock() - session.startTime
 	LeaderboardService.SubmitTime(player, stageId, elapsed)
@@ -619,6 +674,22 @@ function MatchService.QuitMatch(player: Player)
 	end
 end
 
+-- Voluntary "stop spectating" -- a spectator isn't racing (playerBusy/
+-- playerRaceStage are already clear by the time someone's in this state, see
+-- PlayerReachedFinish), so this is a separate path from QuitMatch rather
+-- than folded into it. Wired to the same QuitMatch remote/Backspace key
+-- client-side though: whichever of the two actually applies to this player
+-- fires, the other is a no-op.
+function MatchService.LeaveSpectate(player: Player)
+	local userId = player.UserId
+	local session = activeSession
+	if not session or not session.spectators[userId] then
+		return
+	end
+	session.spectators[userId] = nil
+	returnSpectatorToLobby(player)
+end
+
 local function removePlayer(player: Player)
 	local userId = player.UserId
 
@@ -643,6 +714,9 @@ local function removePlayer(player: Player)
 			endSession()
 		end
 	end
+	if activeSession then
+		activeSession.spectators[userId] = nil
+	end
 	playerRaceStage[userId] = nil
 	playerBusy[userId] = nil
 	lastCheckpoint[userId] = nil
@@ -656,6 +730,7 @@ function MatchService.Init()
 	raceOutcomeRemote = Net.CreateRemoteEvent(RemoteNames.RaceOutcome)
 	mapSelectedRemote = Net.CreateRemoteEvent(RemoteNames.MapSelected)
 	playerFellRemote = Net.CreateRemoteEvent(RemoteNames.PlayerFell)
+	spectateStatusRemote = Net.CreateRemoteEvent(RemoteNames.SpectateStatus)
 	Players.PlayerRemoving:Connect(removePlayer)
 	startSpeedWatchdog()
 
@@ -671,6 +746,7 @@ function MatchService.Init()
 	local quitMatchRemote = Net.CreateRemoteEvent(RemoteNames.QuitMatch)
 	quitMatchRemote.OnServerEvent:Connect(function(player: Player)
 		MatchService.QuitMatch(player)
+		MatchService.LeaveSpectate(player)
 	end)
 end
 

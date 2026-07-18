@@ -21,4 +21,10 @@ return {
 	SetSprintIntent = "SetSprintIntent",
 	ShowTutorial = "ShowTutorial",
 	RequestDash = "RequestDash",
+	RequestPartyInvite = "RequestPartyInvite",
+	PartyInviteReceived = "PartyInviteReceived",
+	RespondToPartyInvite = "RespondToPartyInvite",
+	PartyUpdated = "PartyUpdated",
+	LeaveParty = "LeaveParty",
+	SpectateStatus = "SpectateStatus",
 }
