@@ -105,6 +105,28 @@ Weather.Presets = {
 		AccentIntervalMax = 38,
 	} :: WeatherPreset,
 
+	Windy = {
+		Lighting = {
+			ClockTime = 12,
+			Brightness = 2.7,
+			Ambient = Color3.fromRGB(128, 128, 118),
+			OutdoorAmbient = Color3.fromRGB(168, 168, 152),
+			FogColor = Color3.fromRGB(198, 193, 172),
+			FogStart = 100,
+			FogEnd = 1800,
+		},
+		Atmosphere = {
+			Density = 0.45,
+			Offset = 0.2,
+			Color = Color3.fromRGB(208, 202, 182),
+			Decay = Color3.fromRGB(148, 138, 108),
+			Glare = 0.1,
+			Haze = 4,
+		},
+		AmbientSoundId = "rbxassetid://9125742262", -- Plasma Trails Constant Airy Whooshing Windy
+		AmbientVolume = 0.4,
+	} :: WeatherPreset,
+
 	Night = {
 		Lighting = {
 			ClockTime = 0,

@@ -56,23 +56,21 @@ local function buildVignette(side: string): Frame
 	return panel
 end
 
-local function buildStreak(parent: Frame, side: string): Frame
+local BASE_STREAK_HEIGHT = 90
+
+local function buildStreak(parent: Frame): Frame
 	local streak = Instance.new("Frame")
 	streak.AnchorPoint = Vector2.new(0.5, 0.5)
-	streak.Size = UDim2.fromOffset(3 + math.random() * 3, 70 + math.random() * 70)
+	streak.Size = UDim2.fromOffset(4, BASE_STREAK_HEIGHT)
 	streak.BackgroundColor3 = Color3.fromRGB(240, 248, 255)
 	streak.BorderSizePixel = 0
-	streak.Rotation = math.random() * 20 - 10
 	streak.BackgroundTransparency = 1
-	local edgeGap = 20 + math.random() * (PANEL_WIDTH - 60)
-	local xOffset = if side == "Left" then edgeGap else -edgeGap
-	streak.Position = UDim2.new(if side == "Left" then 0 else 1, xOffset, -0.2, 0)
 	streak.Parent = parent
 
 	local gradient = Instance.new("UIGradient")
 	gradient.Transparency = NumberSequence.new({
 		NumberSequenceKeypoint.new(0, 1),
-		NumberSequenceKeypoint.new(0.5, 0.4),
+		NumberSequenceKeypoint.new(0.5, 0.35),
 		NumberSequenceKeypoint.new(1, 1),
 	})
 	gradient.Rotation = 90
@@ -81,10 +79,61 @@ local function buildStreak(parent: Frame, side: string): Frame
 	return streak
 end
 
--- Each streak runs its own top-to-bottom sweep forever, self-gating on
--- `active` at the top of every cycle so it just stops advancing (rather than
--- needing external pause/resume bookkeeping) once the effect switches off.
-local function loopStreak(streak: Frame)
+-- Wind hitting a face doesn't fall straight down like rain -- it splits and
+-- curls back past you. Each pass starts near the inner edge of the panel (as
+-- if right in front of your face) at a random "eye level" height, then
+-- sweeps out toward the true screen edge across two legs while drifting
+-- further up or down and rotating from near-vertical to swept-back, tracing
+-- an arc instead of a straight line.
+local function animateStreak(streak: Frame, side: string)
+	local sign = if side == "Left" then 1 else -1
+	local anchorScale = if side == "Left" then 0 else 1
+
+	local curveDir = if math.random() < 0.5 then 1 else -1
+	local startY = math.random(-120, 120)
+	local midY = startY + curveDir * (35 + math.random() * 45)
+	local endY = startY + curveDir * (100 + math.random() * 80)
+
+	local startInset = PANEL_WIDTH * (0.55 + math.random() * 0.3)
+	local midInset = PANEL_WIDTH * (0.15 + math.random() * 0.2)
+	local endInset = -(10 + math.random() * 30)
+
+	local startRotation = sign * (4 + math.random() * 6)
+	local midRotation = sign * (30 + math.random() * 14)
+	local endRotation = sign * (58 + math.random() * 18)
+
+	streak.Rotation = startRotation
+	streak.Size = UDim2.fromOffset(4, BASE_STREAK_HEIGHT * (0.8 + math.random() * 0.4))
+	streak.Position = UDim2.new(anchorScale, sign * startInset, 0.5, startY)
+	streak.BackgroundTransparency = 1
+
+	TweenService:Create(streak, TweenInfo.new(0.08), { BackgroundTransparency = 0 }):Play()
+
+	local leg1 = TweenService:Create(
+		streak,
+		TweenInfo.new(0.16 + math.random() * 0.06, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+		{ Position = UDim2.new(anchorScale, sign * midInset, 0.5, midY), Rotation = midRotation }
+	)
+	leg1:Play()
+	leg1.Completed:Wait()
+
+	local leg2 = TweenService:Create(
+		streak,
+		TweenInfo.new(0.22 + math.random() * 0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{
+			Position = UDim2.new(anchorScale, sign * endInset, 0.5, endY),
+			Rotation = endRotation,
+			BackgroundTransparency = 1,
+		}
+	)
+	leg2:Play()
+	leg2.Completed:Wait()
+end
+
+-- Each streak runs its own curved pass forever, self-gating on `active` at
+-- the top of every cycle so it just stops advancing (rather than needing
+-- external pause/resume bookkeeping) once the effect switches off.
+local function loopStreak(streak: Frame, side: string)
 	task.spawn(function()
 		while true do
 			if not active then
@@ -93,17 +142,8 @@ local function loopStreak(streak: Frame)
 				continue
 			end
 
-			local xScale, xOffset = streak.Position.X.Scale, streak.Position.X.Offset
-			streak.Position = UDim2.new(xScale, xOffset, -0.2, 0)
-			streak.BackgroundTransparency = 0
-
-			local duration = 0.45 + math.random() * 0.35
-			local tween = TweenService:Create(streak, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
-				Position = UDim2.new(xScale, xOffset, 1.2, 0),
-			})
-			tween:Play()
-			tween.Completed:Wait()
-			task.wait(math.random() * 0.35)
+			animateStreak(streak, side)
+			task.wait(math.random() * 0.3)
 		end
 	end)
 end
@@ -121,7 +161,7 @@ local function buildUI()
 		panel.Parent = screenGui
 		table.insert(panels, panel)
 		for _ = 1, STREAKS_PER_SIDE do
-			loopStreak(buildStreak(panel, side))
+			loopStreak(buildStreak(panel), side)
 		end
 	end
 end

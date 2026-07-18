@@ -26,6 +26,10 @@ Before joining any lobby to compete with other players. They are still in the th
 
 -Show the elo and rank on the top of the head to show off other players
 
+-Player can use emotes in the game by pressing some button to show emotes on top of the head like Clash Royale.
+
+-Player can have some free emotes, but some of them are paid with robux. Especially the hilarious one. (no copyright emote).
+
 
 
 

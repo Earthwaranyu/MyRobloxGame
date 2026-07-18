@@ -171,10 +171,12 @@ local function buildUI()
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
 	-- y = 60 clears Roblox's default top bar (chat/leaderboard/settings icons).
-	local toggleButton = Widgets.Button("Shop", UDim2.fromOffset(120, 38), UDim2.new(1, -130, 0, 60))
+	-- See LeaderboardController for why this is taller than it looks like it
+	-- needs to be.
+	local toggleButton = Widgets.Button("Shop", UDim2.fromOffset(130, 48), UDim2.new(1, -140, 0, 60))
 	toggleButton.Parent = screenGui
 
-	panel = Widgets.Panel(UDim2.fromOffset(380, 440), UDim2.new(1, -390, 0, 106))
+	panel = Widgets.Panel(UDim2.fromOffset(380, 440), UDim2.new(1, -390, 0, 116))
 	panel.Parent = screenGui
 
 	local title = Widgets.Label("TRAIL SHOP", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 6), {
@@ -194,9 +196,18 @@ local function buildUI()
 	})
 	pointsLabel.Parent = panel
 
+	local vipButton = Widgets.Button("👑 Get VIP — 2x Points Everywhere", UDim2.new(1, -16, 0, 32), UDim2.fromOffset(8, 62), {
+		Variant = "Danger",
+		TextSize = 14,
+	})
+	vipButton.Parent = panel
+	vipButton.MouseButton1Click:Connect(function()
+		Net.GetRemoteEvent(RemoteNames.PromptVIPPurchase):FireServer()
+	end)
+
 	itemsList = Instance.new("ScrollingFrame")
-	itemsList.Size = UDim2.new(1, -16, 1, -96)
-	itemsList.Position = UDim2.fromOffset(8, 88)
+	itemsList.Size = UDim2.new(1, -16, 1, -132)
+	itemsList.Position = UDim2.fromOffset(8, 100)
 	itemsList.BackgroundTransparency = 1
 	itemsList.BorderSizePixel = 0
 	itemsList.CanvasSize = UDim2.new(0, 0, 0, 0)

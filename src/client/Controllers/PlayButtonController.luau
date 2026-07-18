@@ -9,28 +9,46 @@ local Widgets = require(script.Parent.Parent.Widgets)
 local MatchStateController = require(script.Parent.MatchStateController)
 
 -- Primary way to enter matchmaking (touching a physical start line still
--- works too, and feeds the exact same shared queue -- see MatchService).
+-- works too for the real-players queue, and feeds the exact same shared
+-- queue -- see MatchService). "VS BOTS" is a second, independent entry
+-- point into MatchService.StartBotMatch -- same RequestQueue remote, just
+-- an extra boolean, since it's still fundamentally "start me a race."
 local PlayButtonController = {}
 
 local player = Players.LocalPlayer
 
 local button: TextButton
--- True from the moment a queue attempt starts until the player is actually
--- back in the Lobby state after a race. Deliberately NOT cleared by the
--- QueueStatusChanged(nil) signal alone: that fires the instant the group
--- gets teleported to the chosen stage, but the player is still in "Lobby"
--- state (third-person) for the pre-race countdown that follows, and
--- clicking Play again during that gap would double-queue them.
+local botsButton: TextButton
+-- True from the moment a queue attempt starts (either button) until the
+-- player is actually back in the Lobby state after a race. Deliberately NOT
+-- cleared by the QueueStatusChanged(nil) signal alone: that fires the
+-- instant the group gets teleported to the chosen stage, but the player is
+-- still in "Lobby" state (third-person) for the pre-race countdown that
+-- follows, and clicking either button again during that gap would
+-- double-queue them.
 local busy = false
 
 local function refresh()
 	if busy then
 		button.Text = "QUEUED..."
 		button.Active = false
+		botsButton.Text = "QUEUED..."
+		botsButton.Active = false
 	else
 		button.Text = "PLAY"
 		button.Active = true
+		botsButton.Text = "VS BOTS"
+		botsButton.Active = true
 	end
+end
+
+local function startQueue(vsBots: boolean)
+	if busy then
+		return
+	end
+	busy = true
+	refresh()
+	Net.GetRemoteEvent(RemoteNames.RequestQueue):FireServer(vsBots)
 end
 
 local function buildUI()
@@ -43,21 +61,27 @@ local function buildUI()
 		TextSize = 28,
 	})
 	button.Parent = screenGui
-
-	local requestRemote = Net.GetRemoteEvent(RemoteNames.RequestQueue)
 	button.MouseButton1Click:Connect(function()
-		if busy then
-			return
-		end
-		busy = true
-		refresh()
-		requestRemote:FireServer()
+		startQueue(false)
+	end)
+
+	-- Sits just above PLAY, same width family but a touch smaller -- a
+	-- clearly secondary/optional way to race, not competing with it.
+	botsButton = Widgets.Button("VS BOTS", UDim2.fromOffset(190, 44), UDim2.new(0.5, -95, 1, -172), {
+		Variant = "Secondary",
+		TextSize = 18,
+	})
+	botsButton.Parent = screenGui
+	botsButton.MouseButton1Click:Connect(function()
+		startQueue(true)
 	end)
 end
 
 function PlayButtonController.Init()
 	buildUI()
-	button.Visible = MatchStateController.CurrentState == "Lobby"
+	local visible = MatchStateController.CurrentState == "Lobby"
+	button.Visible = visible
+	botsButton.Visible = visible
 
 	local queueRemote = Net.GetRemoteEvent(RemoteNames.QueueStatusChanged)
 	queueRemote.OnClientEvent:Connect(function(secondsRemaining: number?)
@@ -76,10 +100,12 @@ function PlayButtonController.Init()
 	MatchStateController.StateChanged:Connect(function(state: string)
 		if state == "Racing" then
 			button.Visible = false
+			botsButton.Visible = false
 		else
 			busy = false
 			refresh()
 			button.Visible = true
+			botsButton.Visible = true
 		end
 	end)
 end

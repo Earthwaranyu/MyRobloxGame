@@ -110,10 +110,14 @@ local function buildUI()
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
 	-- y = 60 clears Roblox's default top bar (chat/leaderboard/settings icons).
-	local toggleButton = Widgets.Button("Leaderboard", UDim2.fromOffset(150, 38), UDim2.fromOffset(10, 60))
+	-- Bigger than it looks like it needs to be: small buttons (~38px tall)
+	-- rendered blurry/illegible in testing regardless of color/stroke tweaks
+	-- -- confirmed empirically that a taller button + bigger text is what
+	-- actually fixes it, not further contrast changes.
+	local toggleButton = Widgets.Button("Leaderboard", UDim2.fromOffset(220, 48), UDim2.fromOffset(10, 60))
 	toggleButton.Parent = screenGui
 
-	panel = Widgets.Panel(UDim2.fromOffset(360, 420), UDim2.fromOffset(10, 106))
+	panel = Widgets.Panel(UDim2.fromOffset(360, 420), UDim2.fromOffset(10, 116))
 	panel.Parent = screenGui
 
 	local title = Widgets.Label("LEADERBOARD", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 6), {

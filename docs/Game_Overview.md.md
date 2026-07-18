@@ -10,6 +10,10 @@
 
 -Player will be spawn in a very beautiful lobby until they click play.
 
+-Player can choose to play with bots or other player. But playing with bots won't give them elo, just points. (The bot is easy to beat, the bot will be the hologram)
+
+-Player and bots can't push each other.
+
 
 
 

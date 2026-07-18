@@ -22,6 +22,7 @@ local panel: CanvasGroup
 local titleLabel: TextLabel
 local detailLabel: TextLabel
 local rankLabel: TextLabel
+local streakLabel: TextLabel
 
 local queue: { any } = {}
 local processing = false
@@ -36,7 +37,7 @@ local function buildUI()
 	-- y = 0.55, well clear of QueueStatusController's countdown/"GO!" flash
 	-- (both centered around y = 0.22-0.3), in case a race finishes fast enough
 	-- for both to be on screen at once.
-	panel = Widgets.Panel(UDim2.fromOffset(380, 170), UDim2.new(0.5, -190, 0.55, 0))
+	panel = Widgets.Panel(UDim2.fromOffset(380, 196), UDim2.new(0.5, -190, 0.55, 0))
 	panel.Parent = screenGui
 
 	titleLabel = Widgets.Label("", UDim2.new(1, -20, 0, 50), UDim2.fromOffset(10, 16), {
@@ -58,6 +59,14 @@ local function buildUI()
 		Color = Theme.Color.TextSecondary,
 	})
 	rankLabel.Parent = panel
+
+	streakLabel = Widgets.Label("", UDim2.new(1, -20, 0, 24), UDim2.fromOffset(10, 136), {
+		Font = Theme.Font.Heading,
+		TextSize = 17,
+		Align = Enum.TextXAlignment.Center,
+		Color = Theme.Color.Warning,
+	})
+	streakLabel.Parent = panel
 end
 
 local function applyRankUp(eloDelta: number)
@@ -84,11 +93,17 @@ local function applyRankUp(eloDelta: number)
 	end)
 end
 
-local function show(data: { Won: boolean, EloDelta: number?, Placement: number?, Total: number? })
+local function show(data: { Won: boolean, EloDelta: number?, Placement: number?, Total: number?, WinStreak: number?, StreakBonus: number? })
+	streakLabel.Text = ""
 	if data.Won then
 		titleLabel.Text = "VICTORY!"
 		titleLabel.TextColor3 = Theme.Color.Warning
 		Sounds.Play("Victory")
+
+		if data.WinStreak and data.WinStreak >= 2 then
+			local bonusText = if data.StreakBonus and data.StreakBonus > 0 then (" (+%d pts)"):format(data.StreakBonus) else ""
+			streakLabel.Text = ("🔥 %d WIN STREAK%s"):format(data.WinStreak, bonusText)
+		end
 	elseif data.EloDelta then
 		titleLabel.Text = "DEFEAT"
 		titleLabel.TextColor3 = Theme.Color.Danger

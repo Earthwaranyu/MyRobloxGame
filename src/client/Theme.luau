@@ -26,6 +26,11 @@ Theme.Font = {
 	Display = Enum.Font.GothamBlack,
 	Heading = Enum.Font.GothamBold,
 	Body = Enum.Font.Gotham,
+	-- FredokaOne (a novelty display font) looked soft/hard-to-read at small
+	-- button sizes -- Gotham is Roblox's own UI font family and stays crisp
+	-- at any size, so buttons use its boldest cut instead. "Cartoony" now
+	-- comes from the pill shape/outline/bounce, not the letterforms.
+	Button = Enum.Font.GothamBlack,
 }
 
 Theme.Corner = {

@@ -22,6 +22,12 @@ local DEFAULT_PROFILE = {
 	Points = 0,
 	OwnedTrails = { "Basic" },
 	EquippedTrail = "Basic",
+	WinStreak = 0,
+	BestWinStreak = 0,
+	LastLoginDate = "",
+	DailyStreak = 0,
+	AwardedBadgeKeys = {},
+	OwnedEmotes = {},
 }
 
 local PlayerDataService = {}

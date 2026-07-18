@@ -7,12 +7,27 @@ local Constants = require(Shared.Constants)
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 local Stages = require(Shared.Stages)
+local RankTiers = require(Shared.RankTiers)
 
+local BadgeMilestoneService = require(script.Parent.BadgeMilestoneService)
+local BotService = require(script.Parent.BotService)
 local EloService = require(script.Parent.EloService)
 local LeaderboardService = require(script.Parent.LeaderboardService)
 local LobbyService = require(script.Parent.LobbyService)
+local MonetizationService = require(script.Parent.MonetizationService)
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local WeatherService = require(script.Parent.WeatherService)
+
+-- Streak level N (2 wins in a row = level 1) is worth STREAK_BONUS_PER_LEVEL
+-- extra points, capped at STREAK_BONUS_MAX_LEVEL so it stays a fun escalation
+-- instead of spiraling.
+local STREAK_BONUS_PER_LEVEL = 10
+local STREAK_BONUS_MAX_LEVEL = 5
+
+local function streakBonusPoints(winStreak: number): number
+	local level = math.clamp(winStreak - 1, 0, STREAK_BONUS_MAX_LEVEL)
+	return level * STREAK_BONUS_PER_LEVEL
+end
 
 -- Flow: touch a start line / click Play -> shared queue -> once the waiting
 -- window ends, roll a random stage and teleport everyone there (still
@@ -58,6 +73,14 @@ local lastCheckpoint: { [number]: CFrame } = {}
 -- whole span.
 local playerBusy: { [number]: boolean } = {}
 
+-- Solo vs-bot matches deliberately do NOT go through `activeSession`/the
+-- shared queue above -- that's a single server-wide slot by design (see
+-- WeatherService's comment on why), and a bot match blocking every other
+-- player's real matchmaking for up to MaxDurationSeconds would be a real
+-- regression. Each player can run their own bot match fully independently,
+-- tracked here by userId instead.
+local botMatches: { [number]: { stageId: string, bot: BotService.BotHandle } } = {}
+
 local queueStatusRemote: RemoteEvent
 local preRaceCountdownRemote: RemoteEvent
 local racePositionRemote: RemoteEvent
@@ -76,6 +99,14 @@ local function getStageSpawnCFrame(stageId: string): CFrame?
 	local stagesFolder = Workspace:FindFirstChild("Stages")
 	local stageFolder = stagesFolder and stagesFolder:FindFirstChild(stageId)
 	local spawnPart = stageFolder and stageFolder:FindFirstChild(stageId .. "Spawn")
+	if spawnPart and spawnPart:IsA("BasePart") then
+		return spawnPart.CFrame + Vector3.new(0, 3, 0)
+	end
+	return nil
+end
+
+local function getLobbySpawnCFrame(): CFrame?
+	local spawnPart = Workspace:FindFirstChild("SpawnLocation")
 	if spawnPart and spawnPart:IsA("BasePart") then
 		return spawnPart.CFrame + Vector3.new(0, 3, 0)
 	end
@@ -245,6 +276,94 @@ function MatchService.Enqueue(player: Player)
 	end
 end
 
+-- Solo mode: no matchmaking wait needed (nothing to match with), but keeps
+-- the same map-reveal + pre-race-countdown pacing as a real match so the
+-- client-side UI (MapRevealController, QueueStatusController) works
+-- completely unmodified. Doesn't touch `queue`/`activeSession` at all.
+function MatchService.StartBotMatch(player: Player)
+	local userId = player.UserId
+	if playerBusy[userId] then
+		return
+	end
+	playerBusy[userId] = true
+
+	local stageId = Stages[math.random(1, #Stages)].Id
+	playerRaceStage[userId] = stageId
+
+	queueStatusRemote:FireClient(player, Constants.Match.MatchingSeconds)
+	mapSelectedRemote:FireClient(player, stageId)
+
+	task.delay(Constants.Match.MatchingSeconds, function()
+		if not player.Parent or playerRaceStage[userId] ~= stageId then
+			return -- quit or disconnected during the reveal
+		end
+
+		local spawnCFrame = getStageSpawnCFrame(stageId)
+		if spawnCFrame then
+			teleportToStageSpawn(player, spawnCFrame)
+			lastCheckpoint[userId] = spawnCFrame
+		end
+		queueStatusRemote:FireClient(player, nil)
+		preRaceCountdownRemote:FireClient(player, Constants.Match.CountdownSeconds)
+
+		task.delay(Constants.Match.CountdownSeconds, function()
+			if not player.Parent or playerRaceStage[userId] ~= stageId then
+				return
+			end
+
+			-- Same anti-headstart snap-back as a real race (see beginRace).
+			if spawnCFrame then
+				teleportToStageSpawn(player, spawnCFrame)
+				lastCheckpoint[userId] = spawnCFrame
+			end
+			LobbyService.SetPlayerState(player, "Racing")
+			racePositionRemote:FireClient(player, 1, 2)
+
+			local bot = BotService.SpawnBot(stageId)
+			if not bot then
+				-- Stage geometry missing its waypoints; bail out cleanly rather
+				-- than strand the player mid-race with no opponent.
+				playerRaceStage[userId] = nil
+				playerBusy[userId] = nil
+				lastCheckpoint[userId] = nil
+				LobbyService.SetPlayerState(player, "Lobby")
+				return
+			end
+			botMatches[userId] = { stageId = stageId, bot = bot }
+
+			BotService.RunBot(bot, stageId, function()
+				-- Bot reached the finish first. If this fires after the player
+				-- already finished/quit, botMatches[userId] won't match this
+				-- bot anymore (DespawnBot already ran), so it's a no-op.
+				local match = botMatches[userId]
+				if not match or match.bot ~= bot then
+					return
+				end
+				botMatches[userId] = nil
+				playerRaceStage[userId] = nil
+				playerBusy[userId] = nil
+				lastCheckpoint[userId] = nil
+				LobbyService.SetPlayerState(player, "Lobby")
+				BotService.DespawnBot(bot)
+				raceOutcomeRemote:FireClient(player, { Won = false, Placement = 2, Total = 2 })
+			end)
+
+			task.delay(Constants.Match.MaxDurationSeconds, function()
+				local match = botMatches[userId]
+				if not match or match.bot ~= bot then
+					return
+				end
+				botMatches[userId] = nil
+				playerRaceStage[userId] = nil
+				playerBusy[userId] = nil
+				lastCheckpoint[userId] = nil
+				LobbyService.SetPlayerState(player, "Lobby")
+				BotService.DespawnBot(bot)
+			end)
+		end)
+	end)
+end
+
 function MatchService.PlayerReachedCheckpoint(player: Player, stageId: string, checkpointCFrame: CFrame)
 	local userId = player.UserId
 	if playerRaceStage[userId] ~= stageId then
@@ -280,9 +399,36 @@ function MatchService.PlayerFellOff(player: Player, stageId: string)
 	playerFellRemote:FireClient(player)
 end
 
+-- No Elo/streak/leaderboard here on purpose: "playing with bots won't give
+-- them elo, just points" -- and letting an easy-by-design bot time count on
+-- the competitive top-100 leaderboard would make that list meaningless.
+local function finishBotMatch(player: Player, botMatch: { stageId: string, bot: BotService.BotHandle })
+	local userId = player.UserId
+	botMatches[userId] = nil
+	playerRaceStage[userId] = nil
+	playerBusy[userId] = nil
+	lastCheckpoint[userId] = nil
+	LobbyService.SetPlayerState(player, "Lobby")
+	BotService.DespawnBot(botMatch.bot)
+
+	local profile = PlayerDataService.GetProfile(player)
+	if profile then
+		local multiplier = if MonetizationService.HasVIP(player) then MonetizationService.PointsMultiplier else 1
+		profile.Points += Constants.Match.PointsPerWin * multiplier
+	end
+
+	raceOutcomeRemote:FireClient(player, { Won = true, Placement = 1, Total = 2 })
+end
+
 function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 	local userId = player.UserId
 	if playerRaceStage[userId] ~= stageId then
+		return
+	end
+
+	local botMatch = botMatches[userId]
+	if botMatch and botMatch.stageId == stageId then
+		finishBotMatch(player, botMatch)
 		return
 	end
 
@@ -313,20 +459,48 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 
 		-- Elo is settled once, at the moment the winner crosses the line, against
 		-- every opponent still racing at that instant (see the module comment).
+		-- A loss also breaks that opponent's win streak right here, the same
+		-- moment their Elo drops -- not whenever (if ever) they themselves
+		-- cross the finish line.
 		local winnerDelta = 0
 		for _, opponent in session.participants do
 			local delta, opponentDelta = EloService.ReportMatchResult(player, opponent)
 			winnerDelta += delta
+			local opponentProfile = PlayerDataService.GetProfile(opponent)
+			if opponentProfile then
+				opponentProfile.WinStreak = 0
+			end
 			raceOutcomeRemote:FireClient(opponent, { Won = false, EloDelta = opponentDelta })
 		end
 
 		-- Points are awarded once per race won, not once per opponent beaten.
 		local winnerProfile = PlayerDataService.GetProfile(player)
+		local winStreak, streakBonus = 0, 0
 		if winnerProfile then
-			winnerProfile.Points += Constants.Match.PointsPerWin
+			local oldElo = winnerProfile.Elo - winnerDelta
+
+			winnerProfile.WinStreak += 1
+			winnerProfile.BestWinStreak = math.max(winnerProfile.BestWinStreak, winnerProfile.WinStreak)
+			winStreak = winnerProfile.WinStreak
+			streakBonus = streakBonusPoints(winStreak)
+			local multiplier = if MonetizationService.HasVIP(player) then MonetizationService.PointsMultiplier else 1
+			winnerProfile.Points += (Constants.Match.PointsPerWin + streakBonus) * multiplier
+
+			BadgeMilestoneService.CheckWinMilestones(player, winnerProfile)
+			local oldRank = RankTiers.GetRankForElo(oldElo)
+			local newRank = RankTiers.GetRankForElo(winnerProfile.Elo)
+			if newRank ~= oldRank then
+				BadgeMilestoneService.CheckRankMilestone(player, winnerProfile, newRank)
+			end
 		end
 
-		raceOutcomeRemote:FireClient(player, { Won = true, Placement = placement, EloDelta = winnerDelta })
+		raceOutcomeRemote:FireClient(player, {
+			Won = true,
+			Placement = placement,
+			EloDelta = winnerDelta,
+			WinStreak = winStreak,
+			StreakBonus = streakBonus,
+		})
 	else
 		-- Elo for this player was already settled when the winner finished;
 		-- this is just their personal placement confirmation.
@@ -335,6 +509,51 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 
 	if next(session.participants) == nil then
 		endSession()
+	end
+end
+
+-- Voluntary "Leave Match" -- no Elo/streak penalty (they didn't lose to
+-- anyone, they just left), just cleans them out of the queue/session exactly
+-- like a disconnect would (see removePlayer) and, since they're staying
+-- connected, teleports them back to the lobby and flips their camera back to
+-- third-person.
+function MatchService.QuitMatch(player: Player)
+	local userId = player.UserId
+	if not playerBusy[userId] then
+		return
+	end
+
+	if queuedSet[userId] then
+		local index = table.find(queue, player)
+		if index then
+			table.remove(queue, index)
+		end
+		queuedSet[userId] = nil
+		queueStatusRemote:FireClient(player, nil)
+	end
+
+	local botMatch = botMatches[userId]
+	if botMatch then
+		botMatches[userId] = nil
+		BotService.DespawnBot(botMatch.bot)
+	end
+
+	local raceStageId = playerRaceStage[userId]
+	if raceStageId and activeSession and activeSession.stageId == raceStageId then
+		activeSession.participants[userId] = nil
+		if next(activeSession.participants) == nil then
+			endSession()
+		end
+	end
+	playerRaceStage[userId] = nil
+	playerBusy[userId] = nil
+	lastCheckpoint[userId] = nil
+
+	LobbyService.SetPlayerState(player, "Lobby")
+
+	local lobbyCFrame = getLobbySpawnCFrame()
+	if lobbyCFrame then
+		teleportToStageSpawn(player, lobbyCFrame)
 	end
 end
 
@@ -347,6 +566,12 @@ local function removePlayer(player: Player)
 			table.remove(queue, index)
 		end
 		queuedSet[userId] = nil
+	end
+
+	local botMatch = botMatches[userId]
+	if botMatch then
+		botMatches[userId] = nil
+		BotService.DespawnBot(botMatch.bot)
 	end
 
 	local raceStageId = playerRaceStage[userId]
@@ -371,8 +596,17 @@ function MatchService.Init()
 	Players.PlayerRemoving:Connect(removePlayer)
 
 	local requestQueueRemote = Net.CreateRemoteEvent(RemoteNames.RequestQueue)
-	requestQueueRemote.OnServerEvent:Connect(function(player: Player)
-		MatchService.Enqueue(player)
+	requestQueueRemote.OnServerEvent:Connect(function(player: Player, vsBots: boolean?)
+		if vsBots then
+			MatchService.StartBotMatch(player)
+		else
+			MatchService.Enqueue(player)
+		end
+	end)
+
+	local quitMatchRemote = Net.CreateRemoteEvent(RemoteNames.QuitMatch)
+	quitMatchRemote.OnServerEvent:Connect(function(player: Player)
+		MatchService.QuitMatch(player)
 	end)
 end
 

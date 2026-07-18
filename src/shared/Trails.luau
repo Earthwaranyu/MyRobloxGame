@@ -42,6 +42,25 @@ local Trails: { [string]: Trail } = {
 		Width0 = 1.4,
 		Width1 = 0,
 	},
+	-- Grindable for free (steep PointsCost) or an instant Robux shortcut --
+	-- RobuxProductId is a placeholder until a real Developer Product is
+	-- created on the Creator Dashboard (Monetization tab) and its id pasted
+	-- in here; ShopService already no-ops PromptProductPurchase safely for
+	-- an unset/invalid id.
+	Galaxy = {
+		Name = "Galaxy Trail",
+		PointsCost = 3000,
+		RobuxProductId = 0,
+		HasEffect = true,
+		Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(180, 80, 255)),
+			ColorSequenceKeypoint.new(0.4, Color3.fromRGB(90, 60, 220)),
+			ColorSequenceKeypoint.new(0.7, Color3.fromRGB(30, 190, 255)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 10, 40)),
+		}),
+		Width0 = 1.8,
+		Width1 = 0,
+	},
 }
 
 return Trails

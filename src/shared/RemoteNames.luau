@@ -12,4 +12,10 @@ return {
 	GetProfile = "GetProfile",
 	GetLeaderboard = "GetLeaderboard",
 	PlayerFell = "PlayerFell",
+	DailyReward = "DailyReward",
+	PromptVIPPurchase = "PromptVIPPurchase",
+	QuitMatch = "QuitMatch",
+	PlayEmote = "PlayEmote",
+	EmotePlayed = "EmotePlayed",
+	PromptEmotePurchase = "PromptEmotePurchase",
 }

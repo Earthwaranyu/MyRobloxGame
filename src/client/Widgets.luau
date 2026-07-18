@@ -151,32 +151,25 @@ function Widgets.Label(text: string, size: UDim2, position: UDim2, opts: LabelOp
 	return label
 end
 
-local VARIANT_GRADIENT = {
-	Primary = { Theme.Color.AccentA, Theme.Color.AccentB },
-	Secondary = { Theme.Color.PanelLight, Theme.Color.Panel },
-	Success = { Color3.fromRGB(60, 200, 120), Color3.fromRGB(40, 160, 95) },
-	Danger = { Color3.fromRGB(230, 90, 100), Color3.fromRGB(190, 60, 75) },
-	Tab = { Theme.Color.PanelLight, Theme.Color.Panel },
+-- Kept flat and plain on purpose: an earlier chunky-gradient/multi-stroke
+-- version kept coming back blurry/hard-to-read in testing no matter which
+-- color combination was tried, so this strips it down to the simplest thing
+-- that can't introduce a rendering artifact -- one solid color, one text
+-- color, nothing layered on top. "Cartoony" now comes entirely from the
+-- shape (full-pill corners) and the squish/bounce motion, not the paint job.
+local WHITE = Color3.fromRGB(255, 255, 255)
+local NEAR_BLACK = Color3.fromRGB(24, 24, 28)
+
+local VARIANT_STYLE = {
+	Primary = { Color = Color3.fromRGB(20, 20, 24), Text = WHITE },
+	Secondary = { Color = WHITE, Text = NEAR_BLACK },
+	Success = { Color = Color3.fromRGB(45, 175, 100), Text = WHITE },
+	Danger = { Color = Color3.fromRGB(210, 70, 80), Text = WHITE },
 }
+VARIANT_STYLE.Tab = VARIANT_STYLE.Secondary
 
 local function lighten(color: Color3, amount: number): Color3
 	return color:Lerp(Color3.new(1, 1, 1), amount)
-end
-
-local function darken(color: Color3, amount: number): Color3
-	return color:Lerp(Color3.new(0, 0, 0), amount)
-end
-
--- Chunky "candy button" gradient: a bright glossy highlight along the top
--- fading through the base color into a darker band at the bottom, so the
--- button reads as a pressable 3D pill instead of a flat rectangle.
-local function chunkyGradientColors(colors: { Color3 }): ColorSequence
-	return ColorSequence.new({
-		ColorSequenceKeypoint.new(0, lighten(colors[1], 0.35)),
-		ColorSequenceKeypoint.new(0.45, colors[1]),
-		ColorSequenceKeypoint.new(0.85, colors[2]),
-		ColorSequenceKeypoint.new(1, darken(colors[2], 0.35)),
-	})
 end
 
 local HOVER_SCALE_INFO = TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
@@ -187,13 +180,13 @@ local SPARK_COUNT = 6
 
 -- Tiny burst of dots flying out from the button's center on a successful
 -- click -- pure "juice", no gameplay meaning, just makes tapping it feel fun.
-local function spawnClickSparkles(button: TextButton, colors: { Color3 })
+local function spawnClickSparkles(button: TextButton, color: Color3)
 	for i = 1, SPARK_COUNT do
 		local spark = Instance.new("Frame")
 		spark.AnchorPoint = Vector2.new(0.5, 0.5)
 		spark.Position = UDim2.fromScale(0.5, 0.5)
 		spark.Size = UDim2.fromOffset(7, 7)
-		spark.BackgroundColor3 = if i % 2 == 0 then Color3.new(1, 1, 1) else lighten(colors[1], 0.3)
+		spark.BackgroundColor3 = if i % 2 == 0 then Color3.new(1, 1, 1) else lighten(color, 0.3)
 		spark.BorderSizePixel = 0
 		spark.ZIndex = 20
 		spark.Parent = button
@@ -226,9 +219,9 @@ end
 -- the button's offset height when the caller didn't specify one.
 local function defaultTextSize(size: UDim2): number
 	if size.Y.Offset > 0 then
-		return math.clamp(math.floor(size.Y.Offset * 0.52), 14, 32)
+		return math.clamp(math.floor(size.Y.Offset * 0.6), 16, 34)
 	end
-	return 18
+	return 19
 end
 
 -- Returns the button plus a setActive(isActive) setter (only meaningful for
@@ -239,16 +232,14 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	local variant = opts.Variant or "Primary"
 	local isActiveTab = variant == "Tab" and opts.Active
 
+	local style = isActiveTab and VARIANT_STYLE.Primary or (VARIANT_STYLE[variant] or VARIANT_STYLE.Primary)
+
 	local button = Instance.new("TextButton")
 	button.Text = text
 	button.Size = size
-	button.BackgroundColor3 = Theme.Color.AccentA
-	button.TextColor3 = Theme.Color.TextPrimary
-	-- Solid black outline behind the text guarantees it reads clearly no
-	-- matter how light/dark the gradient underneath gets.
-	button.TextStrokeColor3 = Color3.new(0, 0, 0)
-	button.TextStrokeTransparency = 0
-	button.Font = Theme.Font.Heading
+	button.BackgroundColor3 = style.Color
+	button.TextColor3 = style.Text
+	button.Font = Theme.Font.Button
 	button.TextSize = opts.TextSize or defaultTextSize(size)
 	button.TextScaled = false
 	button.TextTruncate = Enum.TextTruncate.AtEnd
@@ -258,29 +249,6 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = Theme.Corner.Button
 	corner.Parent = button
-
-	local colors = isActiveTab and VARIANT_GRADIENT.Primary or (VARIANT_GRADIENT[variant] or VARIANT_GRADIENT.Primary)
-
-	-- Sticker look: a thick near-white outer ring plus a thinner colored ring
-	-- just inside it, like a die-cut cartoon sticker instead of a flat panel.
-	local outerStroke = Instance.new("UIStroke")
-	outerStroke.Name = "OuterStroke"
-	outerStroke.Color = Color3.fromRGB(255, 255, 255)
-	outerStroke.Thickness = 2.5
-	outerStroke.Transparency = 0.05
-	outerStroke.Parent = button
-
-	local stroke = Instance.new("UIStroke")
-	stroke.Name = "InnerStroke"
-	stroke.Color = darken(colors[2], 0.45)
-	stroke.Thickness = 1.5
-	stroke.Transparency = 0.1
-	stroke.Parent = button
-
-	local gradient = Instance.new("UIGradient")
-	gradient.Color = chunkyGradientColors(colors)
-	gradient.Rotation = 90
-	gradient.Parent = button
 
 	local scale = Instance.new("UIScale")
 	scale.Scale = 1
@@ -345,16 +313,13 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	end)
 	button.MouseButton1Click:Connect(function()
 		Sounds.Play("Click")
-		spawnClickSparkles(button, colors)
+		spawnClickSparkles(button, style.Color)
 	end)
 
 	local function setActive(isActive: boolean)
-		local activeColors = VARIANT_GRADIENT.Primary
-		local inactiveColors = VARIANT_GRADIENT.Secondary
-		local target = if isActive then activeColors else inactiveColors
-		gradient.Color = chunkyGradientColors(target)
-		stroke.Color = darken(target[2], 0.45)
-		stroke.Transparency = if isActive then 0.1 else 0.35
+		local target = if isActive then VARIANT_STYLE.Primary else VARIANT_STYLE.Secondary
+		button.BackgroundColor3 = target.Color
+		button.TextColor3 = target.Text
 	end
 
 	return button, setActive

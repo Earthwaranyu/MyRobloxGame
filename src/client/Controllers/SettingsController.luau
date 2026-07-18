@@ -33,10 +33,12 @@ local function buildUI()
 	screenGui.ResetOnSpawn = false
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
-	local toggleButton = Widgets.Button("Settings", UDim2.fromOffset(110, 38), UDim2.new(0, 10, 1, -58))
+	-- See LeaderboardController for why this is taller than it looks like it
+	-- needs to be.
+	local toggleButton = Widgets.Button("Settings", UDim2.fromOffset(150, 48), UDim2.new(0, 10, 1, -68))
 	toggleButton.Parent = screenGui
 
-	panel = Widgets.Panel(UDim2.fromOffset(320, 140), UDim2.new(0, 10, 1, -206))
+	panel = Widgets.Panel(UDim2.fromOffset(320, 140), UDim2.new(0, 10, 1, -216))
 	panel.Parent = screenGui
 
 	local title = Widgets.Label("SETTINGS", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 6), {

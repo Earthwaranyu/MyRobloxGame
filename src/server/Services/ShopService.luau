@@ -72,37 +72,6 @@ local function handleEquip(player: Player, trailId: string): (boolean, string)
 	return true, "Equipped"
 end
 
-local function findTrailByProductId(productId: number): string?
-	for trailId, trail in Trails do
-		if trail.RobuxProductId == productId then
-			return trailId
-		end
-	end
-	return nil
-end
-
--- Roblox requires this to be idempotent: a receipt can be replayed if the
--- prior call didn't return PurchaseGranted in time, so re-granting an already
--- owned trail must be a safe no-op rather than an error.
-local function processReceipt(receiptInfo): Enum.ProductPurchaseDecision
-	local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
-	if not player then
-		return Enum.ProductPurchaseDecision.NotProcessedYet
-	end
-
-	local trailId = findTrailByProductId(receiptInfo.ProductId)
-	local profile = PlayerDataService.GetProfile(player)
-	if not trailId or not profile then
-		return Enum.ProductPurchaseDecision.NotProcessedYet
-	end
-
-	if not table.find(profile.OwnedTrails, trailId) then
-		table.insert(profile.OwnedTrails, trailId)
-	end
-
-	return Enum.ProductPurchaseDecision.PurchaseGranted
-end
-
 function ShopService.Init()
 	local purchaseRemote = Net.CreateRemoteFunction(RemoteNames.PurchaseTrail)
 	purchaseRemote.OnServerInvoke = function(player: Player, trailId: string)
@@ -122,7 +91,9 @@ function ShopService.Init()
 		end
 	end)
 
-	MarketplaceService.ProcessReceipt = processReceipt
+	-- Receipt granting for every Developer Product in the game lives in
+	-- PurchaseService (MarketplaceService.ProcessReceipt only takes one
+	-- assignment game-wide) -- this only ever prompts the purchase above.
 
 	Players.PlayerAdded:Connect(function(player)
 		player.CharacterAdded:Connect(function()
