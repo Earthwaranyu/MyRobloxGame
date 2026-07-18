@@ -1,3 +1,4 @@
+local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -233,6 +234,28 @@ end
 
 function ShopController.Init()
 	buildUI()
+
+	-- Same class of bug as EmoteController: the R$ buy button only ever got
+	-- PromptRobuxPurchase started server-side -- nothing here found out when
+	-- the trail was actually granted, so "Buy" kept showing until the player
+	-- closed and reopened the shop. PurchaseGranted (see PurchaseService)
+	-- fires the moment the grant actually happens, not just when the dialog
+	-- closes (ProcessReceipt can lag slightly behind that), so this can't
+	-- show a stale "Buy" right after a purchase that already went through.
+	Net.GetRemoteEvent(RemoteNames.PurchaseGranted).OnClientEvent:Connect(function()
+		if panel.Visible then
+			ShopController.Refresh()
+		end
+	end)
+
+	-- VIP ownership is just an in-memory cache flip server-side (see
+	-- MonetizationService), no DataStore write to lag behind, so trusting
+	-- this prompt-finished event directly is safe here.
+	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(purchasedPlayer: Player, _gamePassId: number, wasPurchased: boolean)
+		if wasPurchased and purchasedPlayer == player and panel.Visible then
+			ShopController.Refresh()
+		end
+	end)
 end
 
 return ShopController

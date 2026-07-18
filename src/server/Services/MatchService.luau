@@ -88,6 +88,15 @@ local playerBusy: { [number]: boolean } = {}
 -- tracked here by userId instead.
 local botMatches: { [number]: { stageId: string, bot: BotService.BotHandle } } = {}
 
+-- Practice mode: same independent-of-the-shared-queue shape as botMatches
+-- (see above), but with no opponent at all -- just the player, the clock,
+-- and optionally their own ghost (GhostService) to race against. No Elo, no
+-- points (unlike a bot match, which still awards points -- practice is
+-- meant to stay a genuinely zero-stakes way to learn a stage), but real
+-- finish times DO still count for the actual leaderboard: there's no bot to
+-- make the time suspect, it's just the player racing the clock alone.
+local practiceMatches: { [number]: { stageId: string, startTime: number } } = {}
+
 -- Lightweight speed-hack guard: MovementService is now the sole authority
 -- over WalkSpeed, which closes the easy "just set WalkSpeed to 500" exploit,
 -- but a hacked client can still move its own character faster than that by
@@ -147,6 +156,8 @@ local raceOutcomeRemote: RemoteEvent
 local mapSelectedRemote: RemoteEvent
 local playerFellRemote: RemoteEvent
 local spectateStatusRemote: RemoteEvent
+local practiceCompleteRemote: RemoteEvent
+local queueRejectedRemote: RemoteEvent
 
 local tryStartCountdown: () -> ()
 local startSession: () -> ()
@@ -329,6 +340,25 @@ local function returnSpectatorToLobby(player: Player)
 	end
 end
 
+-- Sends every spectator the current list of still-racing Players (not just a
+-- count) so the client can let them pick who to watch and point their camera
+-- at that specific racer -- see SpectateController. Called any time
+-- session.participants changes while spectators exist: a finish, a quit, or
+-- a disconnect all need to keep every spectator's watch-list in sync,
+-- otherwise someone could end up "watching" a racer who already left.
+local function broadcastSpectatorRacers(session: Session)
+	if next(session.spectators) == nil then
+		return
+	end
+	local racers = {}
+	for _, racer in session.participants do
+		table.insert(racers, racer)
+	end
+	for _, spectator in session.spectators do
+		spectateStatusRemote:FireClient(spectator, racers)
+	end
+end
+
 function endSession()
 	if activeSession then
 		for _, spectator in activeSession.spectators do
@@ -351,6 +381,16 @@ function MatchService.Enqueue(player: Player)
 
 	for _, member in partyMembers do
 		if playerBusy[member.UserId] then
+			-- The caller's own client already guards against double-clicking
+			-- (see PlayButtonController's `busy` flag), so the only way to
+			-- land here is a DIFFERENT party member being busy -- something
+			-- the caller's client has no way to know on its own. Without this,
+			-- the caller's UI already optimistically shows "QUEUED..." the
+			-- instant they clicked and would be stuck there forever, since no
+			-- QueueStatusChanged/PreRaceCountdown/state change was ever coming.
+			if member ~= player then
+				queueRejectedRemote:FireClient(player, member.Name)
+			end
 			return
 		end
 	end
@@ -461,6 +501,68 @@ function MatchService.StartBotMatch(player: Player)
 	end)
 end
 
+-- Solo, no opponent at all -- shares the exact map-reveal/countdown pacing
+-- with the other two modes (same reasoning as StartBotMatch: the client-side
+-- UI needs no mode-specific handling), but where StartBotMatch hands off to
+-- a bot, this just starts the clock and lets the player race it alone. See
+-- finishPracticeMatch for what happens at the finish line, and
+-- GhostService/GhostController for the recorded-run playback this unlocks.
+function MatchService.StartPracticeMatch(player: Player)
+	local userId = player.UserId
+	if playerBusy[userId] then
+		return
+	end
+	playerBusy[userId] = true
+
+	local stageId = Stages[math.random(1, #Stages)].Id
+	playerRaceStage[userId] = stageId
+
+	queueStatusRemote:FireClient(player, Constants.Match.MatchingSeconds)
+	mapSelectedRemote:FireClient(player, stageId)
+
+	task.delay(Constants.Match.MatchingSeconds, function()
+		if not player.Parent or playerRaceStage[userId] ~= stageId then
+			return
+		end
+
+		local spawnCFrame = getStageSpawnCFrame(stageId)
+		if spawnCFrame then
+			teleportToStageSpawn(player, spawnCFrame)
+			lastCheckpoint[userId] = spawnCFrame
+		end
+		queueStatusRemote:FireClient(player, nil)
+		preRaceCountdownRemote:FireClient(player, Constants.Match.CountdownSeconds)
+
+		task.delay(Constants.Match.CountdownSeconds, function()
+			if not player.Parent or playerRaceStage[userId] ~= stageId then
+				return
+			end
+
+			if spawnCFrame then
+				teleportToStageSpawn(player, spawnCFrame)
+				lastCheckpoint[userId] = spawnCFrame
+			end
+			LobbyService.SetPlayerState(player, "Racing")
+			AbilityService.ResetDashCooldown(player)
+			racePositionRemote:FireClient(player, 1, 1)
+
+			practiceMatches[userId] = { stageId = stageId, startTime = os.clock() }
+
+			task.delay(Constants.Match.MaxDurationSeconds, function()
+				local match = practiceMatches[userId]
+				if not match or match.stageId ~= stageId then
+					return
+				end
+				practiceMatches[userId] = nil
+				playerRaceStage[userId] = nil
+				playerBusy[userId] = nil
+				lastCheckpoint[userId] = nil
+				LobbyService.SetPlayerState(player, "Lobby")
+			end)
+		end)
+	end)
+end
+
 function MatchService.PlayerReachedCheckpoint(player: Player, stageId: string, checkpointCFrame: CFrame)
 	local userId = player.UserId
 	if playerRaceStage[userId] ~= stageId then
@@ -520,6 +622,23 @@ local function finishBotMatch(player: Player, botMatch: { stageId: string, bot: 
 	raceOutcomeRemote:FireClient(player, { Won = true, Placement = 1, Total = 2 })
 end
 
+-- No points, no Elo (see the comment on practiceMatches for why) -- just the
+-- real finish time submitted to the real leaderboard, and a completion
+-- signal so the client can offer to save this run as its new ghost.
+local function finishPracticeMatch(player: Player, match: { stageId: string, startTime: number })
+	local userId = player.UserId
+	practiceMatches[userId] = nil
+	playerRaceStage[userId] = nil
+	playerBusy[userId] = nil
+	lastCheckpoint[userId] = nil
+	LobbyService.SetPlayerState(player, "Lobby")
+
+	local elapsed = os.clock() - match.startTime
+	LeaderboardService.SubmitTime(player, match.stageId, elapsed)
+
+	practiceCompleteRemote:FireClient(player, elapsed)
+end
+
 function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 	local userId = player.UserId
 	if playerRaceStage[userId] ~= stageId then
@@ -529,6 +648,12 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 	local botMatch = botMatches[userId]
 	if botMatch and botMatch.stageId == stageId then
 		finishBotMatch(player, botMatch)
+		return
+	end
+
+	local practiceMatch = practiceMatches[userId]
+	if practiceMatch and practiceMatch.stageId == stageId then
+		finishPracticeMatch(player, practiceMatch)
 		return
 	end
 
@@ -546,16 +671,10 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 	-- instead of yanking this player straight back to the lobby the instant
 	-- they cross the line. See MatchService.LeaveSpectate for bailing out
 	-- early, and endSession for the "round everyone up" once it's really over.
-	local racersLeft = 0
-	for _ in session.participants do
-		racersLeft += 1
-	end
-	if racersLeft > 0 then
+	if next(session.participants) ~= nil then
 		session.spectators[userId] = player
 		LobbyService.SetPlayerState(player, "Spectating")
-		for _, spectator in session.spectators do
-			spectateStatusRemote:FireClient(spectator, racersLeft)
-		end
+		broadcastSpectatorRacers(session)
 	else
 		LobbyService.SetPlayerState(player, "Lobby")
 	end
@@ -654,12 +773,17 @@ function MatchService.QuitMatch(player: Player)
 		botMatches[userId] = nil
 		BotService.DespawnBot(botMatch.bot)
 	end
+	practiceMatches[userId] = nil
 
 	local raceStageId = playerRaceStage[userId]
 	if raceStageId and activeSession and activeSession.stageId == raceStageId then
 		activeSession.participants[userId] = nil
 		if next(activeSession.participants) == nil then
 			endSession()
+		else
+			-- Anyone spectating this player specifically needs to know they're
+			-- gone (a quit is just as much "no longer racing" as a finish).
+			broadcastSpectatorRacers(activeSession)
 		end
 	end
 	playerRaceStage[userId] = nil
@@ -706,12 +830,15 @@ local function removePlayer(player: Player)
 		botMatches[userId] = nil
 		BotService.DespawnBot(botMatch.bot)
 	end
+	practiceMatches[userId] = nil
 
 	local raceStageId = playerRaceStage[userId]
 	if raceStageId and activeSession and activeSession.stageId == raceStageId then
 		activeSession.participants[userId] = nil
 		if next(activeSession.participants) == nil then
 			endSession()
+		else
+			broadcastSpectatorRacers(activeSession)
 		end
 	end
 	if activeSession then
@@ -731,13 +858,20 @@ function MatchService.Init()
 	mapSelectedRemote = Net.CreateRemoteEvent(RemoteNames.MapSelected)
 	playerFellRemote = Net.CreateRemoteEvent(RemoteNames.PlayerFell)
 	spectateStatusRemote = Net.CreateRemoteEvent(RemoteNames.SpectateStatus)
+	practiceCompleteRemote = Net.CreateRemoteEvent(RemoteNames.PracticeComplete)
+	queueRejectedRemote = Net.CreateRemoteEvent(RemoteNames.QueueRejected)
 	Players.PlayerRemoving:Connect(removePlayer)
 	startSpeedWatchdog()
 
+	-- mode: nil/"Real" -> shared queue, "Bots" -> solo vs. a bot, "Practice"
+	-- -> solo, no opponent at all. (Was a plain vsBots boolean before
+	-- Practice mode existed; a string reads better now that there are three.)
 	local requestQueueRemote = Net.CreateRemoteEvent(RemoteNames.RequestQueue)
-	requestQueueRemote.OnServerEvent:Connect(function(player: Player, vsBots: boolean?)
-		if vsBots then
+	requestQueueRemote.OnServerEvent:Connect(function(player: Player, mode: string?)
+		if mode == "Bots" then
 			MatchService.StartBotMatch(player)
+		elseif mode == "Practice" then
+			MatchService.StartPracticeMatch(player)
 		else
 			MatchService.Enqueue(player)
 		end

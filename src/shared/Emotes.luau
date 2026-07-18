@@ -14,10 +14,10 @@ local Emotes: { EmoteInfo } = {
 	{ Id = "Wave", Name = "Wave", Icon = "👋" },
 	{ Id = "Heart", Name = "Heart", Icon = "❤️" },
 	{ Id = "Cry", Name = "Cry", Icon = "😢" },
-	{ Id = "Cool", Name = "Cool", Icon = "😎", RobuxProductId = 0 },
-	{ Id = "LOL", Name = "LOL", Icon = "🤣", RobuxProductId = 0 }, -- the "hilarious one"
-	{ Id = "Dance", Name = "Dance", Icon = "💃", RobuxProductId = 0 },
-	{ Id = "Poop", Name = "Poop", Icon = "💩", RobuxProductId = 0 },
+	{ Id = "Cool", Name = "Cool", Icon = "😎", RobuxProductId = 3610510283 },
+	{ Id = "LOL", Name = "LOL", Icon = "🤣", RobuxProductId = 3610510496 }, -- the "hilarious one"
+	{ Id = "Dance", Name = "Dance", Icon = "💃", RobuxProductId = 3610510532 },
+	{ Id = "Poop", Name = "Poop", Icon = "💩", RobuxProductId = 3610510597 },
 }
 
 return Emotes

@@ -165,6 +165,15 @@ function EmoteController.Init()
 	buildUI()
 	refreshOwnership()
 
+	-- Ownership only used to get re-checked when the panel was opened, so a
+	-- purchase completing while it was already open (or between opens) left
+	-- the lock icon showing until the player closed and reopened the panel
+	-- themselves. PurchaseGranted (see PurchaseService) fires the moment the
+	-- server actually grants it -- not just when the purchase dialog closes,
+	-- which can happen slightly before the grant if refreshing off that
+	-- instead -- so this can't show stale "still locked" right after buying.
+	Net.GetRemoteEvent(RemoteNames.PurchaseGranted).OnClientEvent:Connect(refreshOwnership)
+
 	UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
 		if gameProcessed then
 			return

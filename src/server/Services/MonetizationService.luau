@@ -6,10 +6,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
--- Placeholder until a real Game Pass is created on the Creator Dashboard
--- (Monetization > Passes) and its id pasted in here -- UserOwnsGamePassAsync
--- is skipped entirely while this is 0, so nothing errors in the meantime.
-local VIP_GAMEPASS_ID = 0
+local VIP_GAMEPASS_ID = 1918580933
 
 local MonetizationService = {}
 MonetizationService.PointsMultiplier = 2

@@ -16,8 +16,10 @@ local player = Players.LocalPlayer
 local panel: CanvasGroup
 local entriesList: ScrollingFrame
 local tabSetters: { [string]: (boolean) -> () } = {}
+local scopeSetters: { [string]: (boolean) -> () } = {}
 
 local selectedStageId = Stages[1].Id
+local selectedScope = "Global" -- "Global" | "Friends"
 
 local MEDAL_COLOR = {
 	[1] = Color3.fromRGB(255, 209, 102),
@@ -78,8 +80,15 @@ local function refreshTabHighlight()
 	end
 end
 
+local function refreshScopeHighlight()
+	for scope, setActive in scopeSetters do
+		setActive(scope == selectedScope)
+	end
+end
+
 function LeaderboardController.Refresh()
-	local entries = Net.GetRemoteFunction(RemoteNames.GetLeaderboard):InvokeServer(selectedStageId)
+	local friendsOnly = selectedScope == "Friends"
+	local entries = Net.GetRemoteFunction(RemoteNames.GetLeaderboard):InvokeServer(selectedStageId, friendsOnly)
 
 	for _, child in entriesList:GetChildren() do
 		if not child:IsA("UIListLayout") then
@@ -88,7 +97,10 @@ function LeaderboardController.Refresh()
 	end
 
 	if #entries == 0 then
-		local emptyLabel = Widgets.Label("No times recorded yet.", UDim2.new(1, -16, 0, 32), UDim2.fromOffset(8, 0), {
+		local emptyText = if friendsOnly
+			then "None of your friends have a time here yet."
+			else "No times recorded yet."
+		local emptyLabel = Widgets.Label(emptyText, UDim2.new(1, -16, 0, 32), UDim2.fromOffset(8, 0), {
 			Color = Theme.Color.TextMuted,
 			Bold = false,
 		})
@@ -117,7 +129,7 @@ local function buildUI()
 	local toggleButton = Widgets.Button("Leaderboard", UDim2.fromOffset(220, 48), UDim2.fromOffset(10, 60))
 	toggleButton.Parent = screenGui
 
-	panel = Widgets.Panel(UDim2.fromOffset(360, 420), UDim2.fromOffset(10, 116))
+	panel = Widgets.Panel(UDim2.fromOffset(360, 454), UDim2.fromOffset(10, 116))
 	panel.Parent = screenGui
 
 	local title = Widgets.Label("LEADERBOARD", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 6), {
@@ -155,9 +167,38 @@ local function buildUI()
 	end
 	refreshTabHighlight()
 
+	local scopeRow = Instance.new("Frame")
+	scopeRow.Size = UDim2.new(1, -16, 0, 26)
+	scopeRow.Position = UDim2.fromOffset(8, 70)
+	scopeRow.BackgroundTransparency = 1
+	scopeRow.Parent = panel
+
+	local scopeLayout = Instance.new("UIListLayout")
+	scopeLayout.FillDirection = Enum.FillDirection.Horizontal
+	scopeLayout.Padding = UDim.new(0, 6)
+	scopeLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	scopeLayout.Parent = scopeRow
+
+	for i, scope in { "Global", "Friends" } do
+		local scopeButton, setActive = Widgets.Button(scope, UDim2.fromOffset(90, 26), UDim2.fromOffset(0, 0), {
+			Variant = "Tab",
+			TextSize = 13,
+		})
+		scopeButton.LayoutOrder = i
+		scopeButton.Parent = scopeRow
+		scopeSetters[scope] = setActive
+
+		scopeButton.MouseButton1Click:Connect(function()
+			selectedScope = scope
+			refreshScopeHighlight()
+			LeaderboardController.Refresh()
+		end)
+	end
+	refreshScopeHighlight()
+
 	entriesList = Instance.new("ScrollingFrame")
-	entriesList.Size = UDim2.new(1, -16, 1, -86)
-	entriesList.Position = UDim2.fromOffset(8, 78)
+	entriesList.Size = UDim2.new(1, -16, 1, -108)
+	entriesList.Position = UDim2.fromOffset(8, 100)
 	entriesList.BackgroundTransparency = 1
 	entriesList.BorderSizePixel = 0
 	entriesList.CanvasSize = UDim2.new(0, 0, 0, 0)

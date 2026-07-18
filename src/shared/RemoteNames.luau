@@ -27,4 +27,9 @@ return {
 	PartyUpdated = "PartyUpdated",
 	LeaveParty = "LeaveParty",
 	SpectateStatus = "SpectateStatus",
+	GetGhostRun = "GetGhostRun",
+	SubmitGhostRun = "SubmitGhostRun",
+	PracticeComplete = "PracticeComplete",
+	QueueRejected = "QueueRejected",
+	PurchaseGranted = "PurchaseGranted",
 }

@@ -23,6 +23,14 @@ return {
 		DashDurationSeconds = 0.18,
 	},
 
+	-- Ghost recording samples the racer's own position on a fixed clock
+	-- (rather than storing a timestamp per sample) so both the recorder and
+	-- the playback side can agree on "where was I at time t" from nothing
+	-- more than the sample's index in the array.
+	Ghost = {
+		SampleIntervalSeconds = 0.15,
+	},
+
 	Match = {
 		-- Brief matchmaking window before the map is picked and everyone is
 		-- teleported: touch a start line / click Play, wait a beat for other

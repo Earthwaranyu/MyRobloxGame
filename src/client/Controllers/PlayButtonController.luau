@@ -4,28 +4,37 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
+local Signal = require(Shared.Signal)
 
 local Widgets = require(script.Parent.Parent.Widgets)
 local MatchStateController = require(script.Parent.MatchStateController)
 
 -- Primary way to enter matchmaking (touching a physical start line still
 -- works too for the real-players queue, and feeds the exact same shared
--- queue -- see MatchService). "VS BOTS" is a second, independent entry
--- point into MatchService.StartBotMatch -- same RequestQueue remote, just
--- an extra boolean, since it's still fundamentally "start me a race."
+-- queue -- see MatchService). "VS BOTS" and "PRACTICE" are two more
+-- independent entry points (MatchService.StartBotMatch /
+-- StartPracticeMatch) into the same RequestQueue remote, just with a
+-- different mode string, since all three are still fundamentally "start me
+-- a race."
 local PlayButtonController = {}
+
+-- Exposed so GhostController knows whether the race that's about to start is
+-- a practice run (and should fetch/record a ghost) without needing its own
+-- copy of this button's click-handling logic.
+PlayButtonController.CurrentMode = nil :: string?
+PlayButtonController.ModeChanged = Signal.new()
 
 local player = Players.LocalPlayer
 
 local button: TextButton
 local botsButton: TextButton
--- True from the moment a queue attempt starts (either button) until the
--- player is actually back in the Lobby state after a race. Deliberately NOT
--- cleared by the QueueStatusChanged(nil) signal alone: that fires the
--- instant the group gets teleported to the chosen stage, but the player is
--- still in "Lobby" state (third-person) for the pre-race countdown that
--- follows, and clicking either button again during that gap would
--- double-queue them.
+local practiceButton: TextButton
+-- True from the moment a queue attempt starts (any button) until the player
+-- is actually back in the Lobby state after a race. Deliberately NOT cleared
+-- by the QueueStatusChanged(nil) signal alone: that fires the instant the
+-- group gets teleported to the chosen stage, but the player is still in
+-- "Lobby" state (third-person) for the pre-race countdown that follows, and
+-- clicking any button again during that gap would double-queue them.
 local busy = false
 
 local function refresh()
@@ -34,21 +43,27 @@ local function refresh()
 		button.Active = false
 		botsButton.Text = "QUEUED..."
 		botsButton.Active = false
+		practiceButton.Text = "QUEUED..."
+		practiceButton.Active = false
 	else
 		button.Text = "PLAY"
 		button.Active = true
 		botsButton.Text = "VS BOTS"
 		botsButton.Active = true
+		practiceButton.Text = "PRACTICE"
+		practiceButton.Active = true
 	end
 end
 
-local function startQueue(vsBots: boolean)
+local function startQueue(mode: string?)
 	if busy then
 		return
 	end
 	busy = true
+	PlayButtonController.CurrentMode = mode
+	PlayButtonController.ModeChanged:Fire(mode)
 	refresh()
-	Net.GetRemoteEvent(RemoteNames.RequestQueue):FireServer(vsBots)
+	Net.GetRemoteEvent(RemoteNames.RequestQueue):FireServer(mode)
 end
 
 local function buildUI()
@@ -62,18 +77,27 @@ local function buildUI()
 	})
 	button.Parent = screenGui
 	button.MouseButton1Click:Connect(function()
-		startQueue(false)
+		startQueue(nil)
 	end)
 
-	-- Sits just above PLAY, same width family but a touch smaller -- a
-	-- clearly secondary/optional way to race, not competing with it.
-	botsButton = Widgets.Button("VS BOTS", UDim2.fromOffset(190, 44), UDim2.new(0.5, -95, 1, -172), {
+	-- VS BOTS and PRACTICE share one row just above PLAY, side by side --
+	-- both clearly secondary/optional ways to race, not competing with it.
+	botsButton = Widgets.Button("VS BOTS", UDim2.fromOffset(145, 44), UDim2.new(0.5, -150, 1, -172), {
 		Variant = "Secondary",
-		TextSize = 18,
+		TextSize = 16,
 	})
 	botsButton.Parent = screenGui
 	botsButton.MouseButton1Click:Connect(function()
-		startQueue(true)
+		startQueue("Bots")
+	end)
+
+	practiceButton = Widgets.Button("PRACTICE", UDim2.fromOffset(145, 44), UDim2.new(0.5, 5, 1, -172), {
+		Variant = "Secondary",
+		TextSize = 16,
+	})
+	practiceButton.Parent = screenGui
+	practiceButton.MouseButton1Click:Connect(function()
+		startQueue("Practice")
 	end)
 end
 
@@ -82,6 +106,7 @@ function PlayButtonController.Init()
 	local visible = MatchStateController.CurrentState == "Lobby"
 	button.Visible = visible
 	botsButton.Visible = visible
+	practiceButton.Visible = visible
 
 	local queueRemote = Net.GetRemoteEvent(RemoteNames.QueueStatusChanged)
 	queueRemote.OnClientEvent:Connect(function(secondsRemaining: number?)
@@ -97,15 +122,36 @@ function PlayButtonController.Init()
 		refresh()
 	end)
 
+	-- Fires when a party member's own queue attempt was silently blocked by
+	-- MatchService because a DIFFERENT party member (this player) was already
+	-- busy -- see MatchService.Enqueue. Without this, that other player's
+	-- client would be stuck showing "QUEUED..." forever, since no
+	-- QueueStatusChanged/PreRaceCountdown/state change was ever coming for an
+	-- attempt the server never actually queued.
+	Net.GetRemoteEvent(RemoteNames.QueueRejected).OnClientEvent:Connect(function(busyMemberName: string)
+		busy = false
+		PlayButtonController.CurrentMode = nil
+		refresh()
+		button.Text = busyMemberName .. " is busy"
+		task.delay(2.5, function()
+			if not busy then
+				button.Text = "PLAY"
+			end
+		end)
+	end)
+
 	MatchStateController.StateChanged:Connect(function(state: string)
 		if state == "Racing" or state == "Spectating" then
 			button.Visible = false
 			botsButton.Visible = false
+			practiceButton.Visible = false
 		else
 			busy = false
+			PlayButtonController.CurrentMode = nil
 			refresh()
 			button.Visible = true
 			botsButton.Visible = true
+			practiceButton.Visible = true
 		end
 	end)
 end
