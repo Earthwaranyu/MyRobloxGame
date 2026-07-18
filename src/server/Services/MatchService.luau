@@ -12,6 +12,7 @@ local EloService = require(script.Parent.EloService)
 local LeaderboardService = require(script.Parent.LeaderboardService)
 local LobbyService = require(script.Parent.LobbyService)
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local WeatherService = require(script.Parent.WeatherService)
 
 -- Flow: touch a start line / click Play -> shared queue -> once the waiting
 -- window ends, roll a random stage and teleport everyone there (still
@@ -163,6 +164,7 @@ function beginRace(stageId: string, participants: { [number]: Player })
 		playerRaceStage[userId] = stageId
 		LobbyService.SetPlayerState(player, "Racing")
 	end
+	WeatherService.ApplyStageWeather(stageId)
 
 	local session: Session = {
 		stageId = stageId,
@@ -198,6 +200,7 @@ end
 
 function endSession()
 	activeSession = nil
+	WeatherService.RevertToLobby()
 	tryStartCountdown()
 end
 

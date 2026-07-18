@@ -159,6 +159,28 @@ local VARIANT_GRADIENT = {
 	Tab = { Theme.Color.PanelLight, Theme.Color.Panel },
 }
 
+local function lighten(color: Color3, amount: number): Color3
+	return color:Lerp(Color3.new(1, 1, 1), amount)
+end
+
+local function darken(color: Color3, amount: number): Color3
+	return color:Lerp(Color3.new(0, 0, 0), amount)
+end
+
+-- Chunky "candy button" gradient: a bright glossy highlight along the top
+-- fading through the base color into a darker band at the bottom, so the
+-- button reads as a pressable 3D pill instead of a flat rectangle.
+local function chunkyGradientColors(colors: { Color3 }): ColorSequence
+	return ColorSequence.new({
+		ColorSequenceKeypoint.new(0, lighten(colors[1], 0.25)),
+		ColorSequenceKeypoint.new(0.45, colors[1]),
+		ColorSequenceKeypoint.new(0.85, colors[2]),
+		ColorSequenceKeypoint.new(1, darken(colors[2], 0.3)),
+	})
+end
+
+local BUTTON_PRESS_SINK = UDim2.fromOffset(0, 3)
+
 -- Returns the button plus a setActive(isActive) setter (only meaningful for
 -- Variant = "Tab") so callers can restyle a tab's active state without
 -- rebuilding it. Instances can't hold custom fields, hence the second value.
@@ -187,15 +209,16 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	corner.CornerRadius = Theme.Corner.Button
 	corner.Parent = button
 
+	local colors = isActiveTab and VARIANT_GRADIENT.Primary or (VARIANT_GRADIENT[variant] or VARIANT_GRADIENT.Primary)
+
 	local stroke = Instance.new("UIStroke")
-	stroke.Color = Theme.Color.Stroke
-	stroke.Thickness = 1
-	stroke.Transparency = 0.5
+	stroke.Color = darken(colors[2], 0.45)
+	stroke.Thickness = 3
+	stroke.Transparency = 0.1
 	stroke.Parent = button
 
 	local gradient = Instance.new("UIGradient")
-	local colors = isActiveTab and VARIANT_GRADIENT.Primary or (VARIANT_GRADIENT[variant] or VARIANT_GRADIENT.Primary)
-	gradient.Color = ColorSequence.new(colors[1], colors[2])
+	gradient.Color = chunkyGradientColors(colors)
 	gradient.Rotation = 90
 	gradient.Parent = button
 
@@ -203,10 +226,16 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	scale.Scale = 1
 	scale.Parent = button
 
+	local originalPosition = position
+
 	local hovering = false
 	local function applyHoverScale()
 		local target = if hovering then 1.035 else 1
 		TweenService:Create(scale, Theme.Anim.Ease, { Scale = target }):Play()
+	end
+
+	local function releasePress()
+		TweenService:Create(button, Theme.Anim.Ease, { Position = originalPosition }):Play()
 	end
 
 	button.MouseEnter:Connect(function()
@@ -217,12 +246,15 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	button.MouseLeave:Connect(function()
 		hovering = false
 		applyHoverScale()
+		releasePress()
 	end)
 	button.MouseButton1Down:Connect(function()
 		TweenService:Create(scale, TweenInfo.new(0.08), { Scale = 0.96 }):Play()
+		TweenService:Create(button, TweenInfo.new(0.08), { Position = originalPosition + BUTTON_PRESS_SINK }):Play()
 	end)
 	button.MouseButton1Up:Connect(function()
 		applyHoverScale()
+		releasePress()
 	end)
 	button.MouseButton1Click:Connect(function()
 		Sounds.Play("Click")
@@ -232,8 +264,9 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 		local activeColors = VARIANT_GRADIENT.Primary
 		local inactiveColors = VARIANT_GRADIENT.Secondary
 		local target = if isActive then activeColors else inactiveColors
-		gradient.Color = ColorSequence.new(target[1], target[2])
-		stroke.Transparency = if isActive then 0.15 else 0.5
+		gradient.Color = chunkyGradientColors(target)
+		stroke.Color = darken(target[2], 0.45)
+		stroke.Transparency = if isActive then 0.1 else 0.35
 	end
 
 	return button, setActive

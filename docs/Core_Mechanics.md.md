@@ -4,6 +4,14 @@ Before joining any lobby to compete with other players. They are still in the th
 
 -There are many stages to play.
 
+-The stage are easy-medium-hard to play depend on each stage
+
+-Some of them are sunny, night, windy, cloudy
+
+-If the stage is windy or raining, add a sound effect of that sound too
+
+-Before player join the stage the game has a very fun exciting song, but when people join the real stage just have a normal atmosphere sound like rain, sunny, owl at night, windy, thunderstorm if cloudy (free song no copyright)
+
 -Press shift to run like Minecraft, if not pressing shift, they will be walking instead.
 
 -Increasing elo from 0 if they win. Decreasing elo if they lose.

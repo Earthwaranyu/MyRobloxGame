@@ -32,12 +32,18 @@ local WINDOW_HEIGHT = 120
 
 local CARD_COLOR_POOL = { Theme.Color.AccentA, Theme.Color.Warning, Theme.Color.Success, Theme.Color.Danger, Theme.Color.AccentB }
 
+local DIFFICULTY_COLOR = {
+	Easy = Theme.Color.Success,
+	Medium = Theme.Color.Warning,
+	Hard = Theme.Color.Danger,
+}
+
 local overlay: CanvasGroup
 local backdrop: Frame
 local window: Frame
 local reel: Frame
 
-local stageEntries: { { Id: string, Name: string, Color: Color3 } } = {}
+local stageEntries: { { Id: string, Name: string, Color: Color3, Difficulty: string } } = {}
 local pendingStageId: string? = nil
 local spinning = false
 
@@ -50,7 +56,7 @@ local function getStageEntry(stageId: string)
 	return nil
 end
 
-local function buildCard(entry: { Id: string, Name: string, Color: Color3 }, layoutOrder: number): Frame
+local function buildCard(entry: { Id: string, Name: string, Color: Color3, Difficulty: string }, layoutOrder: number): Frame
 	local card = Instance.new("Frame")
 	card.Size = UDim2.fromOffset(CARD_WIDTH, CARD_HEIGHT)
 	card.Position = UDim2.fromOffset((layoutOrder - 1) * STEP, (WINDOW_HEIGHT - CARD_HEIGHT) / 2)
@@ -76,12 +82,20 @@ local function buildCard(entry: { Id: string, Name: string, Color: Color3 }, lay
 	barCorner.Parent = bar
 	bar.Parent = card
 
-	local label = Widgets.Label(entry.Name, UDim2.new(1, -12, 1, -18), UDim2.fromOffset(6, 14), {
+	local label = Widgets.Label(entry.Name, UDim2.new(1, -12, 0, 46), UDim2.fromOffset(6, 16), {
 		Font = Theme.Font.Heading,
 		TextSize = 22,
 		Align = Enum.TextXAlignment.Center,
 	})
 	label.Parent = card
+
+	local difficultyLabel = Widgets.Label(entry.Difficulty:upper(), UDim2.new(1, -12, 0, 18), UDim2.fromOffset(6, 66), {
+		Font = Theme.Font.Body,
+		TextSize = 13,
+		Align = Enum.TextXAlignment.Center,
+		Color = DIFFICULTY_COLOR[entry.Difficulty] or Theme.Color.TextSecondary,
+	})
+	difficultyLabel.Parent = card
 
 	return card
 end
@@ -205,6 +219,7 @@ function MapRevealController.Init()
 			Id = stage.Id,
 			Name = stage.Name,
 			Color = CARD_COLOR_POOL[(i - 1) % #CARD_COLOR_POOL + 1],
+			Difficulty = stage.Difficulty,
 		})
 	end
 
