@@ -18,4 +18,7 @@ return {
 	PlayEmote = "PlayEmote",
 	EmotePlayed = "EmotePlayed",
 	PromptEmotePurchase = "PromptEmotePurchase",
+	SetSprintIntent = "SetSprintIntent",
+	ShowTutorial = "ShowTutorial",
+	RequestDash = "RequestDash",
 }

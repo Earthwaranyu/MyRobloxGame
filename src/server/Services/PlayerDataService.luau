@@ -28,6 +28,7 @@ local DEFAULT_PROFILE = {
 	DailyStreak = 0,
 	AwardedBadgeKeys = {},
 	OwnedEmotes = {},
+	HasSeenTutorial = false,
 }
 
 local PlayerDataService = {}

@@ -16,6 +16,18 @@ bed.Looped = true
 bed.Volume = 0
 bed.Parent = SoundService
 
+-- The "Music" SoundGroup is created server-side (AudioService) so Settings'
+-- volume slider can scale it; it's guaranteed to exist by the time anything
+-- here actually plays (a player has to load in and reach the lobby/a stage
+-- first), but resolving it via a non-blocking WaitForChild rather than at
+-- this synchronous module-load line avoids any chance of stalling the rest
+-- of the client's Loader.LoadAll pass on it.
+local musicGroup: SoundGroup? = nil
+task.spawn(function()
+	musicGroup = SoundService:WaitForChild("Music") :: SoundGroup
+	bed.SoundGroup = musicGroup
+end)
+
 local currentKey: string? = nil
 local activeTween: Tween? = nil
 
@@ -71,6 +83,7 @@ function Ambience.PlayOneShot(soundId: string, volume: number)
 	local sound = Instance.new("Sound")
 	sound.SoundId = soundId
 	sound.Volume = volume
+	sound.SoundGroup = musicGroup
 	sound.Parent = SoundService
 
 	local destroyed = false

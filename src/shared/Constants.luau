@@ -11,6 +11,18 @@ return {
 		TopCount = 100,
 	},
 
+	-- Free, universal, equal-for-everyone mobility tool -- not a random
+	-- pickup or a Robux-gated perk, on purpose: this game's whole identity is
+	-- a skill-based Elo ladder, and anything that makes race outcomes depend
+	-- on luck or spend instead of skill undermines that. A short-cooldown
+	-- dash raises the platforming skill ceiling (route choices, saving a
+	-- botched jump) without touching who's "allowed" to win.
+	Ability = {
+		DashCooldownSeconds = 4,
+		DashSpeed = 55,
+		DashDurationSeconds = 0.18,
+	},
+
 	Match = {
 		-- Brief matchmaking window before the map is picked and everyone is
 		-- teleported: touch a start line / click Play, wait a beat for other

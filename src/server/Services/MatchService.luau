@@ -9,6 +9,7 @@ local RemoteNames = require(Shared.RemoteNames)
 local Stages = require(Shared.Stages)
 local RankTiers = require(Shared.RankTiers)
 
+local AbilityService = require(script.Parent.AbilityService)
 local BadgeMilestoneService = require(script.Parent.BadgeMilestoneService)
 local BotService = require(script.Parent.BotService)
 local EloService = require(script.Parent.EloService)
@@ -81,6 +82,58 @@ local playerBusy: { [number]: boolean } = {}
 -- tracked here by userId instead.
 local botMatches: { [number]: { stageId: string, bot: BotService.BotHandle } } = {}
 
+-- Lightweight speed-hack guard: MovementService is now the sole authority
+-- over WalkSpeed, which closes the easy "just set WalkSpeed to 500" exploit,
+-- but a hacked client can still move its own character faster than that by
+-- setting CFrame/AssemblyLinearVelocity directly (Roblox lets the owning
+-- client drive its own character's physics). Sampling actual horizontal
+-- displacement over time and rubber-banding anyone moving implausibly fast
+-- catches that case too, without needing a full movement-replay system.
+-- Reuses PlayerFellOff as the correction: same "oops, back to checkpoint"
+-- UX a legitimate faller gets, so a cheater isn't tipped off that they were
+-- specifically caught.
+local SPEED_CHECK_INTERVAL = 1
+local MAX_HORIZONTAL_STUDS_PER_CHECK = Constants.SprintSpeed * 1.6 * SPEED_CHECK_INTERVAL
+
+-- nil means "no baseline yet, skip this check" -- deliberately cleared by
+-- every *forced* teleport in this module (race start/snap-back, fall/cheat
+-- recovery) so none of those ever get mistaken for illegitimate movement.
+local lastCheckedPosition: { [number]: Vector3 } = {}
+
+local function checkPlayerSpeed(player: Player, stageId: string)
+	local userId = player.UserId
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root then
+		return
+	end
+
+	local last = lastCheckedPosition[userId]
+	lastCheckedPosition[userId] = root.Position
+	if not last then
+		return
+	end
+
+	local horizontalDelta = Vector3.new(root.Position.X - last.X, 0, root.Position.Z - last.Z)
+	if horizontalDelta.Magnitude > MAX_HORIZONTAL_STUDS_PER_CHECK then
+		MatchService.PlayerFellOff(player, stageId)
+	end
+end
+
+local function startSpeedWatchdog()
+	task.spawn(function()
+		while true do
+			task.wait(SPEED_CHECK_INTERVAL)
+			for userId, stageId in playerRaceStage do
+				local player = Players:GetPlayerByUserId(userId)
+				if player then
+					checkPlayerSpeed(player, stageId)
+				end
+			end
+		end
+	end)
+end
+
 local queueStatusRemote: RemoteEvent
 local preRaceCountdownRemote: RemoteEvent
 local racePositionRemote: RemoteEvent
@@ -116,7 +169,10 @@ end
 -- Warps a participant to the stage's spawn regardless of where they wandered
 -- off to during the countdown, so everyone actually starts the race together.
 -- pcall'd so one player's stale/missing character can't abort session start
--- for everyone else in the loop that calls this.
+-- for everyone else in the loop that calls this. Every call site here is a
+-- forced teleport (race entry, anti-headstart snap-back, or return to
+-- lobby), so this is also the one place the speed-watchdog baseline gets
+-- cleared -- none of these jumps should ever be mistaken for cheating.
 local function teleportToStageSpawn(player: Player, spawnCFrame: CFrame)
 	pcall(function()
 		local character = player.Character
@@ -126,6 +182,7 @@ local function teleportToStageSpawn(player: Player, spawnCFrame: CFrame)
 			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
 		end
 	end)
+	lastCheckedPosition[player.UserId] = nil
 end
 
 function tryStartCountdown()
@@ -216,6 +273,7 @@ function beginRace(stageId: string, participants: { [number]: Player })
 			lastCheckpoint[userId] = spawnCFrame
 		end
 		LobbyService.SetPlayerState(player, "Racing")
+		AbilityService.ResetDashCooldown(player)
 	end
 	WeatherService.ApplyStageWeather(stageId)
 
@@ -317,6 +375,7 @@ function MatchService.StartBotMatch(player: Player)
 				lastCheckpoint[userId] = spawnCFrame
 			end
 			LobbyService.SetPlayerState(player, "Racing")
+			AbilityService.ResetDashCooldown(player)
 			racePositionRemote:FireClient(player, 1, 2)
 
 			local bot = BotService.SpawnBot(stageId)
@@ -395,6 +454,9 @@ function MatchService.PlayerFellOff(player: Player, stageId: string)
 			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
 		end
 	end)
+	-- This teleport itself must never be mistaken for movement on the next
+	-- speed check.
+	lastCheckedPosition[userId] = nil
 
 	playerFellRemote:FireClient(player)
 end
@@ -584,6 +646,7 @@ local function removePlayer(player: Player)
 	playerRaceStage[userId] = nil
 	playerBusy[userId] = nil
 	lastCheckpoint[userId] = nil
+	lastCheckedPosition[userId] = nil
 end
 
 function MatchService.Init()
@@ -594,6 +657,7 @@ function MatchService.Init()
 	mapSelectedRemote = Net.CreateRemoteEvent(RemoteNames.MapSelected)
 	playerFellRemote = Net.CreateRemoteEvent(RemoteNames.PlayerFell)
 	Players.PlayerRemoving:Connect(removePlayer)
+	startSpeedWatchdog()
 
 	local requestQueueRemote = Net.CreateRemoteEvent(RemoteNames.RequestQueue)
 	requestQueueRemote.OnServerEvent:Connect(function(player: Player, vsBots: boolean?)

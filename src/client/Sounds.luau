@@ -50,6 +50,15 @@ local PITCH = {
 	Fall = 0.6,
 }
 
+-- Resolved lazily (see Ambience.luau for why this is a non-blocking
+-- WaitForChild rather than a synchronous one at module-load time): the
+-- "SFX" SoundGroup is created server-side (AudioService) so Settings' SFX
+-- volume slider can scale every sound in this pool from one place.
+local sfxGroup: SoundGroup? = nil
+task.spawn(function()
+	sfxGroup = SoundService:WaitForChild("SFX") :: SoundGroup
+end)
+
 local pool: { [string]: Sound } = {}
 
 local function getSound(name: string): Sound?
@@ -68,6 +77,10 @@ local function getSound(name: string): Sound?
 		sound.Parent = SoundService
 		pool[name] = sound
 	end
+	-- Reapplied on every play (not just at creation) so a sound played
+	-- before sfxGroup finished resolving still gets grouped correctly the
+	-- next time it plays, instead of being stuck ungrouped forever.
+	sound.SoundGroup = sfxGroup
 	return sound
 end
 
