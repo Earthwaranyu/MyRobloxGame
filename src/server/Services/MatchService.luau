@@ -40,6 +40,12 @@ local pendingStageId: string? = nil
 local activeSession: Session? = nil
 
 local playerRaceStage: { [number]: string } = {}
+-- Most recent checkpoint each player has touched this stage visit, used to
+-- recover them in place after a fall instead of sending them all the way
+-- back to Platform_Start. Seeded with the stage spawn CFrame the moment
+-- they're teleported in, so falling before touching any checkpoint still
+-- recovers sensibly.
+local lastCheckpoint: { [number]: CFrame } = {}
 
 -- True from the moment a player is enqueued until they either finish their
 -- race or get force-reset (watchdog/disconnect). Separate from queuedSet
@@ -57,6 +63,7 @@ local preRaceCountdownRemote: RemoteEvent
 local racePositionRemote: RemoteEvent
 local raceOutcomeRemote: RemoteEvent
 local mapSelectedRemote: RemoteEvent
+local playerFellRemote: RemoteEvent
 
 local tryStartCountdown: () -> ()
 local startSession: () -> ()
@@ -128,8 +135,13 @@ function startSession()
 		queuedSet[player.UserId] = nil
 		if player.Parent then
 			participants[player.UserId] = player
+			-- Set as soon as they're teleported (not just once the race timer
+			-- starts) so fall-recovery already works during the pre-race
+			-- countdown, not only once CountdownSeconds elapses.
+			playerRaceStage[player.UserId] = stageId
 			if spawnCFrame then
 				teleportToStageSpawn(player, spawnCFrame)
+				lastCheckpoint[player.UserId] = spawnCFrame
 			end
 			queueStatusRemote:FireClient(player, nil)
 			preRaceCountdownRemote:FireClient(player, Constants.Match.CountdownSeconds)
@@ -160,8 +172,18 @@ function beginRace(stageId: string, participants: { [number]: Player })
 		return
 	end
 
+	-- CountdownSeconds is a free warm-up: players can already wander/practice
+	-- on the course, third-person, before the timer runs. So that head start
+	-- can't turn into a real advantage (or, worse, a checkpoint touched while
+	-- warming up letting a deliberate fall skip most of the course once the
+	-- timer starts), everyone gets snapped back to the spawn -- and their
+	-- checkpoint progress wiped -- at the exact moment racing actually begins.
+	local spawnCFrame = getStageSpawnCFrame(stageId)
 	for userId, player in validParticipants do
-		playerRaceStage[userId] = stageId
+		if spawnCFrame then
+			teleportToStageSpawn(player, spawnCFrame)
+			lastCheckpoint[userId] = spawnCFrame
+		end
 		LobbyService.SetPlayerState(player, "Racing")
 	end
 	WeatherService.ApplyStageWeather(stageId)
@@ -191,6 +213,7 @@ function beginRace(stageId: string, participants: { [number]: Player })
 		for _, straggler in session.participants do
 			playerRaceStage[straggler.UserId] = nil
 			playerBusy[straggler.UserId] = nil
+			lastCheckpoint[straggler.UserId] = nil
 			LobbyService.SetPlayerState(straggler, "Lobby")
 		end
 
@@ -222,6 +245,41 @@ function MatchService.Enqueue(player: Player)
 	end
 end
 
+function MatchService.PlayerReachedCheckpoint(player: Player, stageId: string, checkpointCFrame: CFrame)
+	local userId = player.UserId
+	if playerRaceStage[userId] ~= stageId then
+		return
+	end
+	lastCheckpoint[userId] = checkpointCFrame
+end
+
+-- Stages are elevated well above the ground now (see Stages.luau difficulty
+-- tiers), so a miss is only a fair "hard but fun" penalty if there's a fast
+-- way back up: teleport back to the last checkpoint touched (or the stage
+-- spawn if none yet) instead of leaving the player to walk all the way back.
+function MatchService.PlayerFellOff(player: Player, stageId: string)
+	local userId = player.UserId
+	if playerRaceStage[userId] ~= stageId then
+		return
+	end
+
+	local recoverTo = lastCheckpoint[userId] or getStageSpawnCFrame(stageId)
+	if not recoverTo then
+		return
+	end
+
+	pcall(function()
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if root then
+			root.CFrame = recoverTo + Vector3.new(0, 2, 0)
+			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+		end
+	end)
+
+	playerFellRemote:FireClient(player)
+end
+
 function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 	local userId = player.UserId
 	if playerRaceStage[userId] ~= stageId then
@@ -235,6 +293,7 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 
 	playerRaceStage[userId] = nil
 	playerBusy[userId] = nil
+	lastCheckpoint[userId] = nil
 	session.participants[userId] = nil
 	LobbyService.SetPlayerState(player, "Lobby")
 
@@ -299,6 +358,7 @@ local function removePlayer(player: Player)
 	end
 	playerRaceStage[userId] = nil
 	playerBusy[userId] = nil
+	lastCheckpoint[userId] = nil
 end
 
 function MatchService.Init()
@@ -307,6 +367,7 @@ function MatchService.Init()
 	racePositionRemote = Net.CreateRemoteEvent(RemoteNames.RacePositionChanged)
 	raceOutcomeRemote = Net.CreateRemoteEvent(RemoteNames.RaceOutcome)
 	mapSelectedRemote = Net.CreateRemoteEvent(RemoteNames.MapSelected)
+	playerFellRemote = Net.CreateRemoteEvent(RemoteNames.PlayerFell)
 	Players.PlayerRemoving:Connect(removePlayer)
 
 	local requestQueueRemote = Net.CreateRemoteEvent(RemoteNames.RequestQueue)

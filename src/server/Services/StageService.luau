@@ -11,6 +11,11 @@ local MatchService = require(script.Parent.MatchService)
 -- Every StartLine feeds the same shared queue regardless of which stage it
 -- belongs to -- MatchService rolls the actual stage at random once a
 -- countdown begins, so a StartLine touch only means "I want to race."
+--
+-- "Checkpoint" and "VoidZone" tagged parts (also carrying a "StageId"
+-- attribute) work the same way: touching a Checkpoint updates where a fall
+-- recovers you to, touching a VoidZone (a big trigger under each course,
+-- catching anyone who misses a jump) teleports you back there.
 local StageService = {}
 
 local function getStageId(part: Instance): string?
@@ -36,32 +41,48 @@ local function onFinishTouched(part: Instance, hit: BasePart)
 	MatchService.PlayerReachedFinish(player, stageId)
 end
 
-local function bindStart(part: Instance)
+local function onCheckpointTouched(part: Instance, hit: BasePart)
+	local player = Players:GetPlayerFromCharacter(hit.Parent)
+	local stageId = player and getStageId(part)
+	if not player or not stageId or not part:IsA("BasePart") then
+		return
+	end
+
+	MatchService.PlayerReachedCheckpoint(player, stageId, part.CFrame)
+end
+
+local function onVoidTouched(part: Instance, hit: BasePart)
+	local player = Players:GetPlayerFromCharacter(hit.Parent)
+	local stageId = player and getStageId(part)
+	if not player or not stageId then
+		return
+	end
+
+	MatchService.PlayerFellOff(player, stageId)
+end
+
+local function bindTouch(part: Instance, handler: (Instance, BasePart) -> ())
 	if part:IsA("BasePart") then
 		part.Touched:Connect(function(hit)
-			onStartTouched(part, hit)
+			handler(part, hit)
 		end)
 	end
 end
 
-local function bindFinish(part: Instance)
-	if part:IsA("BasePart") then
-		part.Touched:Connect(function(hit)
-			onFinishTouched(part, hit)
-		end)
+local function bindAll(tagName: string, handler: (Instance, BasePart) -> ())
+	for _, part in CollectionService:GetTagged(tagName) do
+		bindTouch(part, handler)
 	end
+	CollectionService:GetInstanceAddedSignal(tagName):Connect(function(part)
+		bindTouch(part, handler)
+	end)
 end
 
 function StageService.Init()
-	for _, part in CollectionService:GetTagged("StartLine") do
-		bindStart(part)
-	end
-	for _, part in CollectionService:GetTagged("FinishLine") do
-		bindFinish(part)
-	end
-
-	CollectionService:GetInstanceAddedSignal("StartLine"):Connect(bindStart)
-	CollectionService:GetInstanceAddedSignal("FinishLine"):Connect(bindFinish)
+	bindAll("StartLine", onStartTouched)
+	bindAll("FinishLine", onFinishTouched)
+	bindAll("Checkpoint", onCheckpointTouched)
+	bindAll("VoidZone", onVoidTouched)
 end
 
 return StageService

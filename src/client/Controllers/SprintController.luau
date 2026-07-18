@@ -4,8 +4,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local Constants = require(Shared.Constants)
+local Signal = require(Shared.Signal)
 
 local SprintController = {}
+
+-- Exposed so purely cosmetic client features (wind effect, etc.) can react
+-- to sprinting without re-implementing shift-key detection themselves.
+SprintController.Sprinting = false
+SprintController.SprintingChanged = Signal.new()
 
 local player = Players.LocalPlayer
 
@@ -18,6 +24,11 @@ local function setSprinting(isSprinting: boolean)
 	local humanoid = getHumanoid()
 	if humanoid then
 		humanoid.WalkSpeed = if isSprinting then Constants.SprintSpeed else Constants.WalkSpeed
+	end
+
+	if SprintController.Sprinting ~= isSprinting then
+		SprintController.Sprinting = isSprinting
+		SprintController.SprintingChanged:Fire(isSprinting)
 	end
 end
 

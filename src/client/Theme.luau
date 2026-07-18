@@ -30,7 +30,7 @@ Theme.Font = {
 
 Theme.Corner = {
 	Panel = UDim.new(0, 14),
-	Button = UDim.new(0, 16),
+	Button = UDim.new(1, 0),
 	Pill = UDim.new(1, 0),
 }
 

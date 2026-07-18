@@ -11,4 +11,5 @@ return {
 	EquipTrail = "EquipTrail",
 	GetProfile = "GetProfile",
 	GetLeaderboard = "GetLeaderboard",
+	PlayerFell = "PlayerFell",
 }

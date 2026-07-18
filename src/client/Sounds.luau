@@ -10,10 +10,13 @@ local Sounds = {}
 -- ("Temp read failed") despite being a commonly cited built-in path, so
 -- everything below sticks to the two rbxasset sounds verified to actually
 -- load: electronicpingshort.wav and switch3.wav. Distinct events are told
--- apart by volume/pitch instead of by sound file.
+-- apart by volume/pitch instead of by sound file. Click and Fall are the two
+-- exceptions -- real Creator Store SFX (Pro Sound Effects catalog, verified
+-- via insert_asset before wiring in) since they're heard constantly and
+-- deserve a nicer, more "squishy"/cartoony timbre than the generic ping.
 local IDS = {
 	Hover = "rbxasset://sounds/switch3.wav",
-	Click = "rbxasset://sounds/electronicpingshort.wav",
+	Click = "rbxassetid://9117834439", -- Pop Airy 16 (SFX), Pro Sound Effects
 	Tick = "rbxasset://sounds/electronicpingshort.wav",
 	Go = "rbxasset://sounds/electronicpingshort.wav",
 	Victory = "rbxasset://sounds/electronicpingshort.wav",
@@ -21,11 +24,12 @@ local IDS = {
 	Purchase = "rbxasset://sounds/electronicpingshort.wav",
 	RankUp = "rbxasset://sounds/electronicpingshort.wav",
 	Reveal = "rbxasset://sounds/switch3.wav",
+	Fall = "rbxasset://sounds/switch3.wav",
 }
 
 local VOLUME = {
 	Hover = 0.15,
-	Click = 0.35,
+	Click = 0.55,
 	Tick = 0.3,
 	Go = 0.7,
 	Victory = 0.7,
@@ -33,14 +37,17 @@ local VOLUME = {
 	Purchase = 0.45,
 	RankUp = 0.7,
 	Reveal = 0.55,
+	Fall = 0.45,
 }
 
 local PITCH = {
+	Click = 1.15,
 	Defeat = 0.7,
 	Go = 1.3,
 	Victory = 1.5,
 	RankUp = 1.8,
 	Reveal = 1.1,
+	Fall = 0.6,
 }
 
 local pool: { [string]: Sound } = {}

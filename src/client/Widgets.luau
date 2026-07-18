@@ -172,14 +172,64 @@ end
 -- button reads as a pressable 3D pill instead of a flat rectangle.
 local function chunkyGradientColors(colors: { Color3 }): ColorSequence
 	return ColorSequence.new({
-		ColorSequenceKeypoint.new(0, lighten(colors[1], 0.25)),
+		ColorSequenceKeypoint.new(0, lighten(colors[1], 0.35)),
 		ColorSequenceKeypoint.new(0.45, colors[1]),
 		ColorSequenceKeypoint.new(0.85, colors[2]),
-		ColorSequenceKeypoint.new(1, darken(colors[2], 0.3)),
+		ColorSequenceKeypoint.new(1, darken(colors[2], 0.35)),
 	})
 end
 
-local BUTTON_PRESS_SINK = UDim2.fromOffset(0, 3)
+local HOVER_SCALE_INFO = TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+-- Squishy toy feel: pressing puffs the button OUT bigger, not smaller.
+local PRESS_SCALE_INFO = TweenInfo.new(0.09, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local PRESS_SCALE_TARGET = 1.22
+local SPARK_COUNT = 6
+
+-- Tiny burst of dots flying out from the button's center on a successful
+-- click -- pure "juice", no gameplay meaning, just makes tapping it feel fun.
+local function spawnClickSparkles(button: TextButton, colors: { Color3 })
+	for i = 1, SPARK_COUNT do
+		local spark = Instance.new("Frame")
+		spark.AnchorPoint = Vector2.new(0.5, 0.5)
+		spark.Position = UDim2.fromScale(0.5, 0.5)
+		spark.Size = UDim2.fromOffset(7, 7)
+		spark.BackgroundColor3 = if i % 2 == 0 then Color3.new(1, 1, 1) else lighten(colors[1], 0.3)
+		spark.BorderSizePixel = 0
+		spark.ZIndex = 20
+		spark.Parent = button
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(1, 0)
+		corner.Parent = spark
+
+		local angle = (i - 1) / SPARK_COUNT * math.pi * 2 + math.random() * 0.5
+		local dist = 24 + math.random() * 14
+		local targetPos = UDim2.fromScale(0.5, 0.5) + UDim2.fromOffset(math.cos(angle) * dist, math.sin(angle) * dist)
+
+		TweenService:Create(spark, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Position = targetPos,
+			Size = UDim2.fromOffset(1, 1),
+			BackgroundTransparency = 1,
+		}):Play()
+
+		task.delay(0.5, function()
+			spark:Destroy()
+		end)
+	end
+end
+
+-- TextScaled recomputes glyph size continuously against the button's actual
+-- render bounds, which came out visibly blurry/soft compared to a fixed
+-- TextSize (confirmed by screenshot: PLAY, which always passed a fixed
+-- TextSize, stayed crisp while TextScaled buttons didn't). So every button
+-- now gets a fixed pixel size -- explicit via opts.TextSize, or derived from
+-- the button's offset height when the caller didn't specify one.
+local function defaultTextSize(size: UDim2): number
+	if size.Y.Offset > 0 then
+		return math.clamp(math.floor(size.Y.Offset * 0.52), 14, 32)
+	end
+	return 18
+end
 
 -- Returns the button plus a setActive(isActive) setter (only meaningful for
 -- Variant = "Tab") so callers can restyle a tab's active state without
@@ -192,18 +242,18 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	local button = Instance.new("TextButton")
 	button.Text = text
 	button.Size = size
-	button.Position = position
 	button.BackgroundColor3 = Theme.Color.AccentA
 	button.TextColor3 = Theme.Color.TextPrimary
+	-- Solid black outline behind the text guarantees it reads clearly no
+	-- matter how light/dark the gradient underneath gets.
+	button.TextStrokeColor3 = Color3.new(0, 0, 0)
+	button.TextStrokeTransparency = 0
 	button.Font = Theme.Font.Heading
-	button.TextSize = opts.TextSize or 16
-	button.TextScaled = opts.TextSize == nil
+	button.TextSize = opts.TextSize or defaultTextSize(size)
+	button.TextScaled = false
+	button.TextTruncate = Enum.TextTruncate.AtEnd
 	button.AutoButtonColor = false
 	button.BorderSizePixel = 0
-
-	local uiSizeConstraint = Instance.new("UITextSizeConstraint")
-	uiSizeConstraint.MaxTextSize = opts.TextSize or 20
-	uiSizeConstraint.Parent = button
 
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = Theme.Corner.Button
@@ -211,9 +261,19 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 
 	local colors = isActiveTab and VARIANT_GRADIENT.Primary or (VARIANT_GRADIENT[variant] or VARIANT_GRADIENT.Primary)
 
+	-- Sticker look: a thick near-white outer ring plus a thinner colored ring
+	-- just inside it, like a die-cut cartoon sticker instead of a flat panel.
+	local outerStroke = Instance.new("UIStroke")
+	outerStroke.Name = "OuterStroke"
+	outerStroke.Color = Color3.fromRGB(255, 255, 255)
+	outerStroke.Thickness = 2.5
+	outerStroke.Transparency = 0.05
+	outerStroke.Parent = button
+
 	local stroke = Instance.new("UIStroke")
+	stroke.Name = "InnerStroke"
 	stroke.Color = darken(colors[2], 0.45)
-	stroke.Thickness = 3
+	stroke.Thickness = 1.5
 	stroke.Transparency = 0.1
 	stroke.Parent = button
 
@@ -226,38 +286,66 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	scale.Scale = 1
 	scale.Parent = button
 
-	local originalPosition = position
+	-- Re-anchor to center so UIScale grows/shrinks the button symmetrically
+	-- instead of ballooning out from the top-left corner. This keeps the
+	-- exact same on-screen placement the caller asked for via `position`.
+	button.AnchorPoint = Vector2.new(0.5, 0.5)
+	local originalPosition = UDim2.new(
+		position.X.Scale + size.X.Scale / 2,
+		position.X.Offset + size.X.Offset / 2,
+		position.Y.Scale + size.Y.Scale / 2,
+		position.Y.Offset + size.Y.Offset / 2
+	)
+	button.Position = originalPosition
 
 	local hovering = false
-	local function applyHoverScale()
-		local target = if hovering then 1.035 else 1
-		TweenService:Create(scale, Theme.Anim.Ease, { Scale = target }):Play()
+	local pressed = false
+	local currentScaleTween: Tween? = nil
+
+	-- Text rendered at a non-1.0 UIScale comes out visibly blurry (confirmed:
+	-- a continuous idle "breathing" pulse used to live here and made every
+	-- button's label look permanently smeared), so the button now sits dead
+	-- still -- exactly Scale = 1 -- whenever it isn't actively being
+	-- hovered/pressed. Hover/press bumps are brief and settle back to 1, so
+	-- any blur during those is momentary rather than constant.
+	local function stopScaleTween()
+		if currentScaleTween then
+			currentScaleTween:Cancel()
+			currentScaleTween = nil
+		end
 	end
 
-	local function releasePress()
-		TweenService:Create(button, Theme.Anim.Ease, { Position = originalPosition }):Play()
+	local function settleScale(targetScale: number, info: TweenInfo)
+		stopScaleTween()
+		currentScaleTween = TweenService:Create(scale, info, { Scale = targetScale })
+		currentScaleTween:Play()
 	end
 
 	button.MouseEnter:Connect(function()
 		hovering = true
-		applyHoverScale()
+		if not pressed then
+			settleScale(1.08, HOVER_SCALE_INFO)
+		end
 		Sounds.Play("Hover")
 	end)
 	button.MouseLeave:Connect(function()
 		hovering = false
-		applyHoverScale()
-		releasePress()
+		pressed = false
+		settleScale(1, Theme.Anim.Pop)
 	end)
 	button.MouseButton1Down:Connect(function()
-		TweenService:Create(scale, TweenInfo.new(0.08), { Scale = 0.96 }):Play()
-		TweenService:Create(button, TweenInfo.new(0.08), { Position = originalPosition + BUTTON_PRESS_SINK }):Play()
+		pressed = true
+		stopScaleTween()
+		currentScaleTween = TweenService:Create(scale, PRESS_SCALE_INFO, { Scale = PRESS_SCALE_TARGET })
+		currentScaleTween:Play()
 	end)
 	button.MouseButton1Up:Connect(function()
-		applyHoverScale()
-		releasePress()
+		pressed = false
+		settleScale(if hovering then 1.08 else 1, Theme.Anim.Pop)
 	end)
 	button.MouseButton1Click:Connect(function()
 		Sounds.Play("Click")
+		spawnClickSparkles(button, colors)
 	end)
 
 	local function setActive(isActive: boolean)
