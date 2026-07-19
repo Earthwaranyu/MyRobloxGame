@@ -18,6 +18,8 @@ local PartyController = {}
 local player = Players.LocalPlayer
 
 local panel: CanvasGroup
+local openPanel: () -> ()
+local closePanel: () -> ()
 local inviteList: ScrollingFrame
 local rosterLabel: TextLabel
 local leaveButton: TextButton
@@ -26,11 +28,20 @@ local inviteToast: CanvasGroup
 local toastLabel: TextLabel
 local toastFromName: string? = nil
 
+-- Separate panel from inviteToast (not a shared/reused one) so an invite and
+-- a join request landing at the same moment don't clobber each other's
+-- pending-name state; positioned lower on screen so the two never overlap.
+local joinRequestToast: CanvasGroup
+local joinRequestLabel: TextLabel
+local joinRequestFromName: string? = nil
+
 local currentMembers: { string } = {}
 
 local requestInviteRemote: RemoteEvent
 local respondRemote: RemoteEvent
 local leaveRemote: RemoteEvent
+local requestJoinRemote: RemoteEvent
+local respondJoinRemote: RemoteEvent
 
 local function buildInviteRow(targetPlayer: Player, layoutOrder: number): Frame
 	local row = Instance.new("Frame")
@@ -128,6 +139,24 @@ local function showToast(fromName: string)
 	end)
 end
 
+local function hideJoinRequestToast()
+	joinRequestFromName = nil
+	Widgets.Close(joinRequestToast)
+end
+
+local function showJoinRequestToast(fromName: string)
+	joinRequestFromName = fromName
+	joinRequestLabel.Text = fromName .. " wants to join your party!"
+	Sounds.Play("Reveal")
+	Widgets.Open(joinRequestToast)
+
+	task.delay(12, function()
+		if joinRequestFromName == fromName then
+			hideJoinRequestToast()
+		end
+	end)
+end
+
 local function buildUI()
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "PartyGui"
@@ -138,8 +167,11 @@ local function buildUI()
 	local toggleButton = Widgets.Button("Party", UDim2.fromOffset(140, 48), UDim2.fromOffset(240, 118))
 	toggleButton.Parent = screenGui
 
-	panel = Widgets.Panel(UDim2.fromOffset(360, 360), UDim2.new(0.5, -180, 0.5, -180))
-	panel.Parent = screenGui
+	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a
+	-- bare Widgets.Panel only closable via this one toggle button.
+	panel, openPanel, closePanel = Widgets.Modal("Party", UDim2.fromOffset(360, 360), UDim2.new(0.5, -180, 0.5, -180), {
+		DisplayOrder = 30,
+	})
 
 	local title = Widgets.Label("PARTY", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 6), {
 		TextSize = 20,
@@ -186,10 +218,10 @@ local function buildUI()
 
 	toggleButton.MouseButton1Click:Connect(function()
 		if panel.Visible then
-			Widgets.Close(panel)
+			closePanel()
 		else
 			refreshInviteList()
-			Widgets.Open(panel)
+			openPanel()
 		end
 	end)
 
@@ -230,6 +262,38 @@ local function buildUI()
 		respondRemote:FireServer(false)
 		hideToast()
 	end)
+
+	-- Join-request toast (profile card's "Request to Join Party"), positioned
+	-- well below inviteToast so the two can never overlap if both land at once.
+	joinRequestToast = Widgets.Panel(UDim2.fromOffset(360, 130), UDim2.new(0.5, -180, 0.24, 150))
+	joinRequestToast.Parent = toastGui
+
+	joinRequestLabel = Widgets.Label("", UDim2.new(1, -20, 0, 44), UDim2.fromOffset(10, 12), {
+		TextSize = 17,
+		Align = Enum.TextXAlignment.Center,
+	})
+	joinRequestLabel.TextWrapped = true
+	joinRequestLabel.Parent = joinRequestToast
+
+	local joinAcceptButton = Widgets.Button("Accept", UDim2.fromOffset(150, 40), UDim2.fromOffset(20, 78), {
+		Variant = "Success",
+		TextSize = 15,
+	})
+	joinAcceptButton.Parent = joinRequestToast
+	joinAcceptButton.MouseButton1Click:Connect(function()
+		respondJoinRemote:FireServer(true)
+		hideJoinRequestToast()
+	end)
+
+	local joinDeclineButton = Widgets.Button("Decline", UDim2.fromOffset(150, 40), UDim2.fromOffset(190, 78), {
+		Variant = "Danger",
+		TextSize = 15,
+	})
+	joinDeclineButton.Parent = joinRequestToast
+	joinDeclineButton.MouseButton1Click:Connect(function()
+		respondJoinRemote:FireServer(false)
+		hideJoinRequestToast()
+	end)
 end
 
 function PartyController.Init()
@@ -238,8 +302,11 @@ function PartyController.Init()
 	requestInviteRemote = Net.GetRemoteEvent(RemoteNames.RequestPartyInvite)
 	respondRemote = Net.GetRemoteEvent(RemoteNames.RespondToPartyInvite)
 	leaveRemote = Net.GetRemoteEvent(RemoteNames.LeaveParty)
+	requestJoinRemote = Net.GetRemoteEvent(RemoteNames.RequestJoinParty)
+	respondJoinRemote = Net.GetRemoteEvent(RemoteNames.RespondToJoinRequest)
 
 	Net.GetRemoteEvent(RemoteNames.PartyInviteReceived).OnClientEvent:Connect(showToast)
+	Net.GetRemoteEvent(RemoteNames.JoinRequestReceived).OnClientEvent:Connect(showJoinRequestToast)
 
 	Net.GetRemoteEvent(RemoteNames.PartyUpdated).OnClientEvent:Connect(function(names: { string })
 		currentMembers = names

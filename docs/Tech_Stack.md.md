@@ -1,4 +1,6 @@
 
-Server scripts go in src/Server.
+Server scripts go in src/server.
 
-Client scripts go in src/Client.
+Client scripts go in src/client.
+
+Shared modules (used by both) go in src/shared.

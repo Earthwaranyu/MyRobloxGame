@@ -97,6 +97,26 @@ local botMatches: { [number]: { stageId: string, bot: BotService.BotHandle } } =
 -- make the time suspect, it's just the player racing the clock alone.
 local practiceMatches: { [number]: { stageId: string, startTime: number } } = {}
 
+-- Private 1v1 challenge (see MatchService.RequestDuel/RespondToDuel), from the
+-- profile card's "Request 1v1" button. Same independent-of-the-shared-queue
+-- shape as botMatches/practiceMatches above (a real race between two SPECIFIC
+-- people must never pick up a third stranger from the shared queue, and must
+-- never fight the shared queue's own race for the single global session
+-- slot) -- but unlike those two, a duel carries the exact same stakes as a
+-- real ranked race (Elo, points, Wins/Losses): see finishDuelMatch. Both
+-- participants' userIds key into the SAME table so either side's finish/quit
+-- can see (and mutate) shared state like `winner`.
+type DuelMatch = {
+	stageId: string,
+	players: { [number]: Player }, -- userId -> Player, removed as each side finishes/leaves
+	startTime: number,
+	winner: Player?,
+}
+local duelMatches: { [number]: DuelMatch } = {}
+
+local DUEL_REQUEST_TTL = 30
+local pendingDuelRequests: { [number]: { fromUserId: number, expiresAt: number } } = {} -- toUserId -> request
+
 -- Lightweight speed-hack guard: MovementService is now the sole authority
 -- over WalkSpeed, which closes the easy "just set WalkSpeed to 500" exploit,
 -- but a hacked client can still move its own character faster than that by
@@ -158,6 +178,8 @@ local playerFellRemote: RemoteEvent
 local spectateStatusRemote: RemoteEvent
 local practiceCompleteRemote: RemoteEvent
 local queueRejectedRemote: RemoteEvent
+local duelRequestReceivedRemote: RemoteEvent
+local duelCancelledRemote: RemoteEvent
 
 local tryStartCountdown: () -> ()
 local startSession: () -> ()
@@ -309,7 +331,7 @@ function beginRace(stageId: string, participants: { [number]: Player })
 			lastCheckpoint[userId] = spawnCFrame
 		end
 		LobbyService.SetPlayerState(player, "Racing")
-		AbilityService.ResetDashCooldown(player)
+		AbilityService.ResetCooldown(player)
 	end
 	WeatherService.ApplyStageWeather(stageId)
 
@@ -483,7 +505,7 @@ function MatchService.StartBotMatch(player: Player)
 				lastCheckpoint[userId] = spawnCFrame
 			end
 			LobbyService.SetPlayerState(player, "Racing")
-			AbilityService.ResetDashCooldown(player)
+			AbilityService.ResetCooldown(player)
 			racePositionRemote:FireClient(player, 1, 2)
 
 			local bot = BotService.SpawnBot(stageId)
@@ -573,7 +595,7 @@ function MatchService.StartPracticeMatch(player: Player)
 				lastCheckpoint[userId] = spawnCFrame
 			end
 			LobbyService.SetPlayerState(player, "Racing")
-			AbilityService.ResetDashCooldown(player)
+			AbilityService.ResetCooldown(player)
 			racePositionRemote:FireClient(player, 1, 1)
 
 			practiceMatches[userId] = { stageId = stageId, startTime = os.clock() }
@@ -669,6 +691,96 @@ local function finishPracticeMatch(player: Player, match: { stageId: string, sta
 	practiceCompleteRemote:FireClient(player, elapsed)
 end
 
+-- Elo/points/streak/badge bookkeeping for whoever just won a heat, against
+-- every opponent still racing at that instant. Shared by the real
+-- ranked-queue path (one winner, N still-racing opponents) and duels (see
+-- finishDuelMatch -- one winner, exactly one opponent) so this can't drift
+-- into two different scoring rules for what's supposed to be the same Elo
+-- ladder. Returns (winnerEloDelta, winStreak, streakBonus) for the caller's
+-- own RaceOutcome payload to the winner.
+local function settleWin(winner: Player, opponents: { Player }): (number, number, number)
+	local winnerDelta = 0
+	for _, opponent in opponents do
+		local delta, opponentDelta = EloService.ReportMatchResult(winner, opponent)
+		winnerDelta += delta
+		local opponentProfile = PlayerDataService.GetProfile(opponent)
+		if opponentProfile then
+			opponentProfile.WinStreak = 0
+			opponentProfile.Losses += 1
+		end
+		raceOutcomeRemote:FireClient(opponent, { Won = false, EloDelta = opponentDelta })
+	end
+
+	-- Points are awarded once per race won, not once per opponent beaten.
+	local winnerProfile = PlayerDataService.GetProfile(winner)
+	local winStreak, streakBonus = 0, 0
+	if winnerProfile then
+		local oldElo = winnerProfile.Elo - winnerDelta
+
+		winnerProfile.Wins += 1
+		winnerProfile.WinStreak += 1
+		winnerProfile.BestWinStreak = math.max(winnerProfile.BestWinStreak, winnerProfile.WinStreak)
+		winStreak = winnerProfile.WinStreak
+		streakBonus = streakBonusPoints(winStreak)
+		local multiplier = if MonetizationService.HasVIP(winner) then MonetizationService.PointsMultiplier else 1
+		winnerProfile.Points += (Constants.Match.PointsPerWin + streakBonus) * multiplier
+
+		BadgeMilestoneService.CheckWinMilestones(winner, winnerProfile)
+		local oldRank = RankTiers.GetRankForElo(oldElo)
+		local newRank = RankTiers.GetRankForElo(winnerProfile.Elo)
+		if newRank ~= oldRank then
+			BadgeMilestoneService.CheckRankMilestone(winner, winnerProfile, newRank)
+		end
+	end
+
+	return winnerDelta, winStreak, streakBonus
+end
+
+-- No Elo/streak/leaderboard-skew here (see finishBotMatch's comment above for
+-- why bot/practice stay zero-stakes) -- a duel carries the exact same stakes
+-- as a real ranked race, just against one specific opponent picked via the
+-- profile card instead of whoever else was in the shared queue. Weather is
+-- deliberately left alone (see MatchService.StartDuelMatch), matching how
+-- bot/practice matches already avoid touching the one global Lighting
+-- singleton while a real race might be using it for something else.
+local function finishDuelMatch(player: Player, match: DuelMatch)
+	local userId = player.UserId
+	match.players[userId] = nil
+	playerRaceStage[userId] = nil
+	playerBusy[userId] = nil
+	lastCheckpoint[userId] = nil
+	duelMatches[userId] = nil
+	LobbyService.SetPlayerState(player, "Lobby")
+
+	local elapsed = os.clock() - match.startTime
+	LeaderboardService.SubmitTime(player, match.stageId, elapsed)
+
+	local isWinner = not match.winner
+	if isWinner then
+		match.winner = player
+
+		local opponent: Player? = nil
+		for _, p in match.players do
+			opponent = p
+		end
+
+		if opponent then
+			local winnerDelta, winStreak, streakBonus = settleWin(player, { opponent })
+			raceOutcomeRemote:FireClient(player, {
+				Won = true,
+				Placement = 1,
+				EloDelta = winnerDelta,
+				WinStreak = winStreak,
+				StreakBonus = streakBonus,
+			})
+		end
+	else
+		-- Elo for this player was already settled when the opponent (the real
+		-- winner) finished first -- this is just their personal placement.
+		raceOutcomeRemote:FireClient(player, { Won = false, Placement = 2, Total = 2 })
+	end
+end
+
 function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 	local userId = player.UserId
 	if playerRaceStage[userId] ~= stageId then
@@ -684,6 +796,12 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 	local practiceMatch = practiceMatches[userId]
 	if practiceMatch and practiceMatch.stageId == stageId then
 		finishPracticeMatch(player, practiceMatch)
+		return
+	end
+
+	local duelMatch = duelMatches[userId]
+	if duelMatch and duelMatch.stageId == stageId then
+		finishDuelMatch(player, duelMatch)
 		return
 	end
 
@@ -725,40 +843,11 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 
 		-- Elo is settled once, at the moment the winner crosses the line, against
 		-- every opponent still racing at that instant (see the module comment).
-		-- A loss also breaks that opponent's win streak right here, the same
-		-- moment their Elo drops -- not whenever (if ever) they themselves
-		-- cross the finish line.
-		local winnerDelta = 0
+		local opponents = {}
 		for _, opponent in session.participants do
-			local delta, opponentDelta = EloService.ReportMatchResult(player, opponent)
-			winnerDelta += delta
-			local opponentProfile = PlayerDataService.GetProfile(opponent)
-			if opponentProfile then
-				opponentProfile.WinStreak = 0
-			end
-			raceOutcomeRemote:FireClient(opponent, { Won = false, EloDelta = opponentDelta })
+			table.insert(opponents, opponent)
 		end
-
-		-- Points are awarded once per race won, not once per opponent beaten.
-		local winnerProfile = PlayerDataService.GetProfile(player)
-		local winStreak, streakBonus = 0, 0
-		if winnerProfile then
-			local oldElo = winnerProfile.Elo - winnerDelta
-
-			winnerProfile.WinStreak += 1
-			winnerProfile.BestWinStreak = math.max(winnerProfile.BestWinStreak, winnerProfile.WinStreak)
-			winStreak = winnerProfile.WinStreak
-			streakBonus = streakBonusPoints(winStreak)
-			local multiplier = if MonetizationService.HasVIP(player) then MonetizationService.PointsMultiplier else 1
-			winnerProfile.Points += (Constants.Match.PointsPerWin + streakBonus) * multiplier
-
-			BadgeMilestoneService.CheckWinMilestones(player, winnerProfile)
-			local oldRank = RankTiers.GetRankForElo(oldElo)
-			local newRank = RankTiers.GetRankForElo(winnerProfile.Elo)
-			if newRank ~= oldRank then
-				BadgeMilestoneService.CheckRankMilestone(player, winnerProfile, newRank)
-			end
-		end
+		local winnerDelta, winStreak, streakBonus = settleWin(player, opponents)
 
 		raceOutcomeRemote:FireClient(player, {
 			Won = true,
@@ -775,6 +864,45 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 
 	if next(session.participants) == nil then
 		endSession()
+	end
+end
+
+-- A duel only ever has these two participants -- unlike a real race, there's
+-- no "still racing" third party to keep the match alive for, so if either
+-- side leaves while both are still actively racing, the whole duel is
+-- cancelled with no result for either (same "quitting costs no Elo" rule as
+-- a real race, just applied to both sides at once since there's no one left
+-- to legitimately win against). A no-op if the match was already decided
+-- (the caller already finished, or already quit) -- see the call sites.
+local function abandonDuel(player: Player)
+	local userId = player.UserId
+	local match = duelMatches[userId]
+	if not match then
+		return
+	end
+	duelMatches[userId] = nil
+
+	local opponent: Player? = nil
+	for otherId, p in match.players do
+		if otherId ~= userId then
+			opponent = p
+		end
+	end
+	if not opponent then
+		return
+	end
+
+	duelMatches[opponent.UserId] = nil
+	playerRaceStage[opponent.UserId] = nil
+	playerBusy[opponent.UserId] = nil
+	lastCheckpoint[opponent.UserId] = nil
+	if opponent.Parent then
+		LobbyService.SetPlayerState(opponent, "Lobby")
+		local lobbyCFrame = getLobbySpawnCFrame()
+		if lobbyCFrame then
+			teleportToStageSpawn(opponent, lobbyCFrame)
+		end
+		duelCancelledRemote:FireClient(opponent, player.Name)
 	end
 end
 
@@ -804,6 +932,7 @@ function MatchService.QuitMatch(player: Player)
 		BotService.DespawnBot(botMatch.bot)
 	end
 	practiceMatches[userId] = nil
+	abandonDuel(player)
 
 	local raceStageId = playerRaceStage[userId]
 	if raceStageId and activeSession and activeSession.stageId == raceStageId then
@@ -861,6 +990,8 @@ local function removePlayer(player: Player)
 		BotService.DespawnBot(botMatch.bot)
 	end
 	practiceMatches[userId] = nil
+	abandonDuel(player)
+	pendingDuelRequests[userId] = nil
 
 	local raceStageId = playerRaceStage[userId]
 	if raceStageId and activeSession and activeSession.stageId == raceStageId then
@@ -880,6 +1011,162 @@ local function removePlayer(player: Player)
 	lastCheckedPosition[userId] = nil
 end
 
+-- Private 1v1: same map-reveal/countdown pacing as every other mode (see
+-- StartBotMatch), but never touches `queue`/`activeSession` (see the module
+-- comment on `duelMatches`) and deliberately skips WeatherService.
+-- ApplyStageWeather -- exactly like bot/practice matches already do -- since
+-- Lighting is one global singleton shared by the whole server, and a duel
+-- fighting a concurrent real race over it would be a visible regression for
+-- whichever one loses that race.
+function MatchService.StartDuelMatch(playerA: Player, playerB: Player)
+	local stageId = Stages[math.random(1, #Stages)].Id
+	local userIdA, userIdB = playerA.UserId, playerB.UserId
+
+	playerBusy[userIdA] = true
+	playerBusy[userIdB] = true
+	playerRaceStage[userIdA] = stageId
+	playerRaceStage[userIdB] = stageId
+
+	queueStatusRemote:FireClient(playerA, Constants.Match.MatchingSeconds)
+	queueStatusRemote:FireClient(playerB, Constants.Match.MatchingSeconds)
+	mapSelectedRemote:FireClient(playerA, stageId)
+	mapSelectedRemote:FireClient(playerB, stageId)
+
+	-- Shared by both the reveal-end and countdown-end checks below: either
+	-- side quitting/disconnecting before the race actually starts cancels the
+	-- whole duel (see abandonDuel for the same rule once racing has begun).
+	local function releaseBoth()
+		playerRaceStage[userIdA] = nil
+		playerRaceStage[userIdB] = nil
+		playerBusy[userIdA] = nil
+		playerBusy[userIdB] = nil
+		lastCheckpoint[userIdA] = nil
+		lastCheckpoint[userIdB] = nil
+		if playerA.Parent then
+			LobbyService.SetPlayerState(playerA, "Lobby")
+			queueStatusRemote:FireClient(playerA, nil)
+		end
+		if playerB.Parent then
+			LobbyService.SetPlayerState(playerB, "Lobby")
+			queueStatusRemote:FireClient(playerB, nil)
+		end
+	end
+
+	task.delay(Constants.Match.MatchingSeconds, function()
+		if playerRaceStage[userIdA] ~= stageId or playerRaceStage[userIdB] ~= stageId then
+			releaseBoth()
+			return
+		end
+
+		local spawnCFrame = getStageSpawnCFrame(stageId)
+		if spawnCFrame then
+			teleportToStageSpawn(playerA, spawnCFrame)
+			teleportToStageSpawn(playerB, spawnCFrame)
+			lastCheckpoint[userIdA] = spawnCFrame
+			lastCheckpoint[userIdB] = spawnCFrame
+		end
+		queueStatusRemote:FireClient(playerA, nil)
+		queueStatusRemote:FireClient(playerB, nil)
+		preRaceCountdownRemote:FireClient(playerA, Constants.Match.CountdownSeconds)
+		preRaceCountdownRemote:FireClient(playerB, Constants.Match.CountdownSeconds)
+
+		task.delay(Constants.Match.CountdownSeconds, function()
+			if playerRaceStage[userIdA] ~= stageId or playerRaceStage[userIdB] ~= stageId then
+				releaseBoth()
+				return
+			end
+
+			-- Same anti-headstart snap-back as a real race (see beginRace).
+			if spawnCFrame then
+				teleportToStageSpawn(playerA, spawnCFrame)
+				teleportToStageSpawn(playerB, spawnCFrame)
+				lastCheckpoint[userIdA] = spawnCFrame
+				lastCheckpoint[userIdB] = spawnCFrame
+			end
+			LobbyService.SetPlayerState(playerA, "Racing")
+			LobbyService.SetPlayerState(playerB, "Racing")
+			AbilityService.ResetCooldown(playerA)
+			AbilityService.ResetCooldown(playerB)
+			racePositionRemote:FireClient(playerA, 1, 2)
+			racePositionRemote:FireClient(playerB, 1, 2)
+
+			local match: DuelMatch = {
+				stageId = stageId,
+				players = { [userIdA] = playerA, [userIdB] = playerB },
+				startTime = os.clock(),
+				winner = nil,
+			}
+			duelMatches[userIdA] = match
+			duelMatches[userIdB] = match
+
+			task.delay(Constants.Match.MaxDurationSeconds, function()
+				-- Watchdog: if neither side ever finishes (e.g. both AFK), don't
+				-- leave the pair stuck racing forever.
+				if duelMatches[userIdA] ~= match and duelMatches[userIdB] ~= match then
+					return
+				end
+				duelMatches[userIdA] = nil
+				duelMatches[userIdB] = nil
+				playerRaceStage[userIdA] = nil
+				playerRaceStage[userIdB] = nil
+				playerBusy[userIdA] = nil
+				playerBusy[userIdB] = nil
+				lastCheckpoint[userIdA] = nil
+				lastCheckpoint[userIdB] = nil
+				if playerA.Parent then
+					LobbyService.SetPlayerState(playerA, "Lobby")
+				end
+				if playerB.Parent then
+					LobbyService.SetPlayerState(playerB, "Lobby")
+				end
+			end)
+		end)
+	end)
+end
+
+-- Fired from the profile card's "Request 1v1". Silently drops (same
+-- philosophy as PartyService.createInvite) if either side is already mid-
+-- match -- there's nothing sensible to interrupt them with.
+function MatchService.RequestDuel(fromPlayer: Player, targetPlayer: Player)
+	if fromPlayer.UserId == targetPlayer.UserId then
+		return
+	end
+	if playerBusy[fromPlayer.UserId] or playerBusy[targetPlayer.UserId] then
+		return
+	end
+	pendingDuelRequests[targetPlayer.UserId] = { fromUserId = fromPlayer.UserId, expiresAt = os.clock() + DUEL_REQUEST_TTL }
+	duelRequestReceivedRemote:FireClient(targetPlayer, fromPlayer.Name)
+end
+
+function MatchService.RespondToDuel(respondingPlayer: Player, accepted: boolean)
+	local request = pendingDuelRequests[respondingPlayer.UserId]
+	pendingDuelRequests[respondingPlayer.UserId] = nil
+	if not request or os.clock() > request.expiresAt then
+		return
+	end
+
+	local challenger = Players:GetPlayerByUserId(request.fromUserId)
+	if not challenger then
+		return
+	end
+
+	if not accepted then
+		duelCancelledRemote:FireClient(challenger, respondingPlayer.Name)
+		return
+	end
+
+	-- Both sides may have gotten busy (queued, started another match) during
+	-- the time the request sat pending -- re-check right before actually
+	-- starting rather than trusting the snapshot from request time.
+	if playerBusy[respondingPlayer.UserId] or playerBusy[challenger.UserId] then
+		duelCancelledRemote:FireClient(challenger, respondingPlayer.Name)
+		duelCancelledRemote:FireClient(respondingPlayer, challenger.Name)
+		return
+	end
+
+	MatchService.StartDuelMatch(challenger, respondingPlayer)
+end
+
 function MatchService.Init()
 	queueStatusRemote = Net.CreateRemoteEvent(RemoteNames.QueueStatusChanged)
 	preRaceCountdownRemote = Net.CreateRemoteEvent(RemoteNames.PreRaceCountdown)
@@ -890,6 +1177,8 @@ function MatchService.Init()
 	spectateStatusRemote = Net.CreateRemoteEvent(RemoteNames.SpectateStatus)
 	practiceCompleteRemote = Net.CreateRemoteEvent(RemoteNames.PracticeComplete)
 	queueRejectedRemote = Net.CreateRemoteEvent(RemoteNames.QueueRejected)
+	duelRequestReceivedRemote = Net.CreateRemoteEvent(RemoteNames.DuelRequestReceived)
+	duelCancelledRemote = Net.CreateRemoteEvent(RemoteNames.DuelCancelled)
 	Players.PlayerRemoving:Connect(removePlayer)
 	startSpeedWatchdog()
 
@@ -911,6 +1200,22 @@ function MatchService.Init()
 	quitMatchRemote.OnServerEvent:Connect(function(player: Player)
 		MatchService.QuitMatch(player)
 		MatchService.LeaveSpectate(player)
+	end)
+
+	local requestDuelRemote = Net.CreateRemoteEvent(RemoteNames.RequestDuel)
+	requestDuelRemote.OnServerEvent:Connect(function(player: Player, targetUserId: number)
+		if typeof(targetUserId) ~= "number" then
+			return
+		end
+		local target = Players:GetPlayerByUserId(targetUserId)
+		if target then
+			MatchService.RequestDuel(player, target)
+		end
+	end)
+
+	local respondDuelRemote = Net.CreateRemoteEvent(RemoteNames.RespondToDuel)
+	respondDuelRemote.OnServerEvent:Connect(function(player: Player, accepted: boolean)
+		MatchService.RespondToDuel(player, accepted == true)
 	end)
 end
 

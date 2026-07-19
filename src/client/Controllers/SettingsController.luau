@@ -1,8 +1,11 @@
+local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local SoundService = game:GetService("SoundService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
+local Net = require(Shared.Net)
+local RemoteNames = require(Shared.RemoteNames)
 local Signal = require(Shared.Signal)
 
 local Theme = require(script.Parent.Parent.Theme)
@@ -21,7 +24,16 @@ SettingsController.Changed = Signal.new()
 local player = Players.LocalPlayer
 
 local panel: CanvasGroup
-local open = false
+local openPanel: () -> ()
+local closePanel: () -> ()
+
+-- Skip-gacha-animation preference: unlike Wind/volume above, this one IS
+-- server-persisted (see PlayerDataService.SkipGachaAnimationEnabled) and
+-- gated by actually owning the gamepass -- GachaController just trusts
+-- whatever the profile says rather than re-checking ownership itself.
+local skipGachaOwned = false
+local skipGachaEnabled = false
+local refreshSkipGachaRow: () -> ()
 
 local function setWindEffect(enabled: boolean, windSetActive: (boolean) -> ())
 	SettingsController.WindEffectEnabled = enabled
@@ -77,6 +89,57 @@ local function buildVolumeRow(panel: CanvasGroup, labelText: string, yOffset: nu
 	end)
 end
 
+-- actionSlot holds either a working ON/OFF toggle (owned) or a "Buy" prompt
+-- (not owned) -- rebuilt from scratch on ownership/enabled changes rather
+-- than trying to morph one button into the other.
+local function buildSkipGachaRow(panel: CanvasGroup, yOffset: number)
+	local rowLabel = Widgets.Label("Skip gacha pull animation", UDim2.new(1, -110, 0, 36), UDim2.fromOffset(8, yOffset), {
+		TextSize = 16,
+		Color = Theme.Color.TextSecondary,
+	})
+	rowLabel.Parent = panel
+
+	local actionSlot = Instance.new("Frame")
+	actionSlot.Name = "SkipGachaActionSlot"
+	actionSlot.Size = UDim2.fromOffset(90, 36)
+	actionSlot.Position = UDim2.new(1, -100, 0, yOffset)
+	actionSlot.BackgroundTransparency = 1
+	actionSlot.Parent = panel
+
+	refreshSkipGachaRow = function()
+		for _, child in actionSlot:GetChildren() do
+			child:Destroy()
+		end
+
+		if skipGachaOwned then
+			local toggleButton, setActive = Widgets.Button(if skipGachaEnabled then "ON" else "OFF", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), {
+				Variant = "Tab",
+				Active = skipGachaEnabled,
+				TextSize = 14,
+			})
+			toggleButton.Parent = actionSlot
+			setActive(skipGachaEnabled)
+
+			toggleButton.MouseButton1Click:Connect(function()
+				local requested = not skipGachaEnabled
+				local actual = Net.GetRemoteFunction(RemoteNames.SetSkipGachaAnimation):InvokeServer(requested)
+				skipGachaEnabled = actual
+				toggleButton.Text = if actual then "ON" else "OFF"
+				setActive(actual)
+			end)
+		else
+			local buyButton = Widgets.Button("Buy", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), {
+				Variant = "Secondary",
+				TextSize = 14,
+			})
+			buyButton.Parent = actionSlot
+			buyButton.MouseButton1Click:Connect(function()
+				Net.GetRemoteEvent(RemoteNames.PromptSkipGachaAnimationPurchase):FireServer()
+			end)
+		end
+	end
+end
+
 local function buildUI()
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "SettingsGui"
@@ -88,8 +151,11 @@ local function buildUI()
 	local toggleButton = Widgets.Button("Settings", UDim2.fromOffset(150, 48), UDim2.new(0, 10, 1, -68))
 	toggleButton.Parent = screenGui
 
-	panel = Widgets.Panel(UDim2.fromOffset(320, 234), UDim2.new(0, 10, 1, -310))
-	panel.Parent = screenGui
+	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a
+	-- bare Widgets.Panel only closable via this one toggle button.
+	panel, openPanel, closePanel = Widgets.Modal("Settings", UDim2.fromOffset(320, 274), UDim2.new(0, 10, 1, -350), {
+		DisplayOrder = 30,
+	})
 
 	local title = Widgets.Label("SETTINGS", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 6), {
 		TextSize = 20,
@@ -117,8 +183,9 @@ local function buildUI()
 
 	buildVolumeRow(panel, "Music volume", 92, "Music")
 	buildVolumeRow(panel, "SFX volume", 136, "SFX")
+	buildSkipGachaRow(panel, 180)
 
-	local howToPlayButton = Widgets.Button("How to Play", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 184), {
+	local howToPlayButton = Widgets.Button("How to Play", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 224), {
 		Variant = "Secondary",
 		TextSize = 16,
 	})
@@ -128,17 +195,40 @@ local function buildUI()
 	end)
 
 	toggleButton.MouseButton1Click:Connect(function()
-		open = not open
-		if open then
-			Widgets.Open(panel)
+		-- panel.Visible (not a separately-tracked bool) is the source of
+		-- truth here -- it stays correct even when the panel was closed via
+		-- the backdrop/✕ instead of this button (see Widgets.Modal).
+		if panel.Visible then
+			closePanel()
 		else
-			Widgets.Close(panel)
+			openPanel()
 		end
 	end)
 end
 
 function SettingsController.Init()
 	buildUI()
+
+	local status = Net.GetRemoteFunction(RemoteNames.GetMonetizationStatus):InvokeServer()
+	skipGachaOwned = (status and status.HasSkipGachaAnimation) or false
+
+	local profile = Net.GetRemoteFunction(RemoteNames.GetProfile):InvokeServer()
+	skipGachaEnabled = (profile and profile.SkipGachaAnimationEnabled) or false
+
+	refreshSkipGachaRow()
+
+	-- Gamepass ownership is just an in-memory cache flip server-side (see
+	-- MonetizationService), no DataStore write to lag behind, so re-checking
+	-- status right after a purchase finishes is safe (same reasoning
+	-- ShopController/GachaController use for their own gamepass refreshes).
+	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(purchasedPlayer: Player, _gamePassId: number, wasPurchased: boolean)
+		if not (wasPurchased and purchasedPlayer == player) then
+			return
+		end
+		local newStatus = Net.GetRemoteFunction(RemoteNames.GetMonetizationStatus):InvokeServer()
+		skipGachaOwned = (newStatus and newStatus.HasSkipGachaAnimation) or false
+		refreshSkipGachaRow()
+	end)
 end
 
 return SettingsController

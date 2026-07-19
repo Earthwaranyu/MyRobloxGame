@@ -20,6 +20,15 @@ local MovementService = {}
 local MIN_INTENT_INTERVAL = 0.05
 
 local lastIntentTime: { [number]: number } = {}
+-- Last-known "is shift held" per player, kept even while a speed override
+-- (see ApplySpeedOverride) is in control -- so the override can correctly
+-- hand WalkSpeed back to "sprinting" instead of blindly to the base walk
+-- speed, if the player toggled sprint while the override was active.
+local sprintIntent: { [number]: boolean } = {}
+-- Set only while an ability's timed speed effect (e.g. Surge) is running;
+-- applySprint checks this and skips writing WalkSpeed live so a sprint
+-- toggle mid-effect can't cut the boost short or fight it every frame.
+local speedOverrideUntil: { [number]: number } = {}
 
 local function getHumanoid(player: Player): Humanoid?
 	local character = player.Character
@@ -27,10 +36,45 @@ local function getHumanoid(player: Player): Humanoid?
 end
 
 local function applySprint(player: Player, isSprinting: boolean)
+	local userId = player.UserId
+	sprintIntent[userId] = isSprinting
+
+	local overrideUntil = speedOverrideUntil[userId]
+	if overrideUntil and os.clock() < overrideUntil then
+		return
+	end
+
 	local humanoid = getHumanoid(player)
 	if humanoid then
 		humanoid.WalkSpeed = if isSprinting then Constants.SprintSpeed else Constants.WalkSpeed
 	end
+end
+
+-- Called by AbilityService for a timed speed-changing effect (Surge). Takes
+-- over WalkSpeed for durationSeconds regardless of sprint toggles during that
+-- window (a power-up should feel uninterruptible), then hands it back to
+-- whatever the player's CURRENT sprint intent is -- not necessarily what it
+-- was when the override started, since they may have toggled shift mid-effect.
+function MovementService.ApplySpeedOverride(player: Player, speed: number, durationSeconds: number)
+	local humanoid = getHumanoid(player)
+	if not humanoid then
+		return
+	end
+
+	local userId = player.UserId
+	local deadline = os.clock() + durationSeconds
+	speedOverrideUntil[userId] = deadline
+	humanoid.WalkSpeed = speed
+
+	task.delay(durationSeconds, function()
+		-- Only revert if nothing newer (a second override) has since taken
+		-- over -- comparing against the stored deadline rather than a simple
+		-- boolean means a stale timer firing early can't cut off a fresher one.
+		if speedOverrideUntil[userId] == deadline then
+			speedOverrideUntil[userId] = nil
+			applySprint(player, sprintIntent[userId] or false)
+		end
+	end)
 end
 
 function MovementService.Init()
@@ -67,17 +111,21 @@ function MovementService.Init()
 	Players.PlayerAdded:Connect(function(player: Player)
 		disableShiftLock(player)
 		player.CharacterAdded:Connect(function()
+			speedOverrideUntil[player.UserId] = nil
 			applySprint(player, false)
 		end)
 	end)
 
 	Players.PlayerRemoving:Connect(function(player: Player)
 		lastIntentTime[player.UserId] = nil
+		sprintIntent[player.UserId] = nil
+		speedOverrideUntil[player.UserId] = nil
 	end)
 
 	for _, player in Players:GetPlayers() do
 		disableShiftLock(player)
 		player.CharacterAdded:Connect(function()
+			speedOverrideUntil[player.UserId] = nil
 			applySprint(player, false)
 		end)
 	end

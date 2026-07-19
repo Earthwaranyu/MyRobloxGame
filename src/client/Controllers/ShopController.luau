@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local Net = require(Shared.Net)
+local PointBundles = require(Shared.PointBundles)
 local RemoteNames = require(Shared.RemoteNames)
 local Trails = require(Shared.Trails)
 local RankTiers = require(Shared.RankTiers)
@@ -165,20 +166,28 @@ function ShopController.Refresh()
 	end
 end
 
+local openPanel: () -> ()
+local closePanel: () -> ()
+
 local function buildUI()
-	local screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "ShopGui"
-	screenGui.ResetOnSpawn = false
-	screenGui.Parent = player:WaitForChild("PlayerGui")
+	local toggleGui = Instance.new("ScreenGui")
+	toggleGui.Name = "ShopToggleGui"
+	toggleGui.ResetOnSpawn = false
+	toggleGui.Parent = player:WaitForChild("PlayerGui")
 
 	-- y = 60 clears Roblox's default top bar (chat/leaderboard/settings icons).
 	-- See LeaderboardController for why this is taller than it looks like it
 	-- needs to be.
 	local toggleButton = Widgets.Button("Shop", UDim2.fromOffset(130, 48), UDim2.new(1, -140, 0, 60))
-	toggleButton.Parent = screenGui
+	toggleButton.Parent = toggleGui
 
-	panel = Widgets.Panel(UDim2.fromOffset(380, 440), UDim2.new(1, -390, 0, 116))
-	panel.Parent = screenGui
+	-- Own ScreenGui + backdrop + close-X, not a bare Widgets.Panel toggled by
+	-- this one button -- a panel closable ONLY via the button that opened it
+	-- is a named player-facing complaint (no click-outside, no X). See
+	-- Widgets.Modal's doc comment for the DisplayOrder/ZIndex reasoning too.
+	panel, openPanel, closePanel = Widgets.Modal("Shop", UDim2.fromOffset(380, 440), UDim2.new(1, -390, 0, 116), {
+		DisplayOrder = 30,
+	})
 
 	local title = Widgets.Label("TRAIL SHOP", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 6), {
 		TextSize = 20,
@@ -206,9 +215,29 @@ local function buildUI()
 		Net.GetRemoteEvent(RemoteNames.PromptVIPPurchase):FireServer()
 	end)
 
+	local pointsHeader = Widgets.Label("GET POINTS", UDim2.new(1, -16, 0, 16), UDim2.fromOffset(8, 98), {
+		TextSize = 12,
+		Color = Theme.Color.TextMuted,
+	})
+	pointsHeader.Parent = panel
+
+	local BUNDLE_WIDTH = 116
+	for i, bundle in PointBundles do
+		local bundleButton = Widgets.Button(
+			bundle.Label .. " · R$",
+			UDim2.fromOffset(BUNDLE_WIDTH, 34),
+			UDim2.fromOffset(8 + (i - 1) * (BUNDLE_WIDTH + 8), 116),
+			{ Variant = "Secondary", TextSize = 13 }
+		)
+		bundleButton.Parent = panel
+		bundleButton.MouseButton1Click:Connect(function()
+			Net.GetRemoteEvent(RemoteNames.PromptPointsPurchase):FireServer(bundle.RobuxProductId)
+		end)
+	end
+
 	itemsList = Instance.new("ScrollingFrame")
-	itemsList.Size = UDim2.new(1, -16, 1, -132)
-	itemsList.Position = UDim2.fromOffset(8, 100)
+	itemsList.Size = UDim2.new(1, -16, 1, -190)
+	itemsList.Position = UDim2.fromOffset(8, 158)
 	itemsList.BackgroundTransparency = 1
 	itemsList.BorderSizePixel = 0
 	itemsList.CanvasSize = UDim2.new(0, 0, 0, 0)
@@ -224,9 +253,9 @@ local function buildUI()
 
 	toggleButton.MouseButton1Click:Connect(function()
 		if panel.Visible then
-			Widgets.Close(panel)
+			closePanel()
 		else
-			Widgets.Open(panel)
+			openPanel()
 			ShopController.Refresh()
 		end
 	end)

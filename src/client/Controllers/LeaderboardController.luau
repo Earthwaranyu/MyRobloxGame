@@ -14,6 +14,8 @@ local LeaderboardController = {}
 local player = Players.LocalPlayer
 
 local panel: CanvasGroup
+local openPanel: () -> ()
+local closePanel: () -> ()
 local entriesList: ScrollingFrame
 local tabSetters: { [string]: (boolean) -> () } = {}
 local scopeSetters: { [string]: (boolean) -> () } = {}
@@ -129,8 +131,11 @@ local function buildUI()
 	local toggleButton = Widgets.Button("Leaderboard", UDim2.fromOffset(220, 48), UDim2.fromOffset(10, 60))
 	toggleButton.Parent = screenGui
 
-	panel = Widgets.Panel(UDim2.fromOffset(360, 454), UDim2.fromOffset(10, 116))
-	panel.Parent = screenGui
+	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a
+	-- bare Widgets.Panel only closable via this one toggle button.
+	panel, openPanel, closePanel = Widgets.Modal("Leaderboard", UDim2.fromOffset(360, 454), UDim2.fromOffset(10, 116), {
+		DisplayOrder = 30,
+	})
 
 	local title = Widgets.Label("LEADERBOARD", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 6), {
 		TextSize = 20,
@@ -214,9 +219,9 @@ local function buildUI()
 
 	toggleButton.MouseButton1Click:Connect(function()
 		if panel.Visible then
-			Widgets.Close(panel)
+			closePanel()
 		else
-			Widgets.Open(panel)
+			openPanel()
 			LeaderboardController.Refresh()
 		end
 	end)

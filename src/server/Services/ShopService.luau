@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local Net = require(Shared.Net)
+local PointBundles = require(Shared.PointBundles)
 local RemoteNames = require(Shared.RemoteNames)
 local Trails = require(Shared.Trails)
 
@@ -91,9 +92,24 @@ function ShopService.Init()
 		end
 	end)
 
+	local promptPointsRemote = Net.CreateRemoteEvent(RemoteNames.PromptPointsPurchase)
+	promptPointsRemote.OnServerEvent:Connect(function(player: Player, productId: number)
+		if typeof(productId) ~= "number" then
+			return
+		end
+		-- Only ever prompts a product id that's actually a known bundle, so
+		-- this remote can't be used to prompt an arbitrary Developer Product.
+		for _, bundle in PointBundles do
+			if bundle.RobuxProductId == productId then
+				MarketplaceService:PromptProductPurchase(player, productId)
+				break
+			end
+		end
+	end)
+
 	-- Receipt granting for every Developer Product in the game lives in
 	-- PurchaseService (MarketplaceService.ProcessReceipt only takes one
-	-- assignment game-wide) -- this only ever prompts the purchase above.
+	-- assignment game-wide) -- this only ever prompts the purchases above.
 
 	Players.PlayerAdded:Connect(function(player)
 		player.CharacterAdded:Connect(function()

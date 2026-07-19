@@ -11,17 +11,9 @@ return {
 		TopCount = 100,
 	},
 
-	-- Free, universal, equal-for-everyone mobility tool -- not a random
-	-- pickup or a Robux-gated perk, on purpose: this game's whole identity is
-	-- a skill-based Elo ladder, and anything that makes race outcomes depend
-	-- on luck or spend instead of skill undermines that. A short-cooldown
-	-- dash raises the platforming skill ceiling (route choices, saving a
-	-- botched jump) without touching who's "allowed" to win.
-	Ability = {
-		DashCooldownSeconds = 4,
-		DashSpeed = 55,
-		DashDurationSeconds = 0.18,
-	},
+	-- Per-ability numbers (Dash's cooldown/speed/duration included) now live
+	-- in shared/Abilities.luau -- one table per ability instead of scattered
+	-- across Constants, since there are several abilities now, not just Dash.
 
 	-- Ghost recording samples the racer's own position on a fixed clock
 	-- (rather than storing a timestamp per sample) so both the recorder and

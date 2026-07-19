@@ -31,6 +31,8 @@ local EmoteController = {}
 local player = Players.LocalPlayer
 
 local panel: CanvasGroup
+local openPanel: () -> ()
+local closePanel: () -> ()
 local ownedEmotes: { [string]: boolean } = {}
 local tileLockLabels: { [string]: TextLabel } = {}
 
@@ -126,8 +128,11 @@ local function buildUI()
 	local toggleButton = Widgets.Button("Emotes", UDim2.fromOffset(140, 48), UDim2.fromOffset(240, 60))
 	toggleButton.Parent = screenGui
 
-	panel = Widgets.Panel(UDim2.fromOffset(400, 210), UDim2.new(0.5, -200, 0, 116))
-	panel.Parent = screenGui
+	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a
+	-- bare Widgets.Panel only closable via this one toggle button.
+	panel, openPanel, closePanel = Widgets.Modal("Emote", UDim2.fromOffset(400, 210), UDim2.new(0.5, -200, 0, 116), {
+		DisplayOrder = 30,
+	})
 
 	local title = Widgets.Label("EMOTES  (press 1-8 anytime)", UDim2.new(1, -16, 0, 24), UDim2.fromOffset(8, 6), {
 		TextSize = 15,
@@ -153,10 +158,10 @@ local function buildUI()
 
 	toggleButton.MouseButton1Click:Connect(function()
 		if panel.Visible then
-			Widgets.Close(panel)
+			closePanel()
 		else
 			refreshOwnership()
-			Widgets.Open(panel)
+			openPanel()
 		end
 	end)
 end

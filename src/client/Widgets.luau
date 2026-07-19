@@ -1,5 +1,6 @@
 -- Shared visual component factory. Keep this the only place that builds raw
 -- GuiObjects so every panel/button in the game shares one look and feel.
+local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 
 local Theme = require(script.Parent.Theme)
@@ -61,6 +62,152 @@ function Widgets.Panel(size: UDim2, position: UDim2, opts: PanelOpts?): CanvasGr
 	scale.Parent = frame
 
 	return frame
+end
+
+export type ModalOpts = {
+	-- ScreenGui.DisplayOrder for this modal's OWN ScreenGui. Every other
+	-- ScreenGui in the game (HUD buttons, other modals) lives at its own
+	-- DisplayOrder -- this is the ONLY thing that reliably controls stacking
+	-- BETWEEN ScreenGuis. (See the postmortem below for why ZIndex can't do
+	-- this job.) Defaults to 25, comfortably above the base HUD (which sits
+	-- at 0-20 across the rest of the game) but below the biggest
+	-- single-moment interrupts like TutorialGui (20)... actually higher, see
+	-- default below -- pass a bigger value for a modal that must sit above
+	-- another modal (e.g. a reveal popup opened from within a shop panel).
+	DisplayOrder: number?,
+	PanelOpts: PanelOpts?,
+}
+
+-- A fully self-contained modal: its own ScreenGui, a dimmed click-outside-to-
+-- close backdrop, the panel itself, and a close-✕ pinned to its top-right
+-- corner. Returns (panel, open, close) -- callers build their own content
+-- into `panel` same as a raw Widgets.Panel, then call open()/close() instead
+-- of Widgets.Open/Close directly (this also flips the backdrop).
+--
+-- Why every modal in the game should go through this instead of building its
+-- own backdrop+panel by hand (as GachaController's gacha/odds/reveal panels
+-- used to): every ScreenGui here has ZIndexBehavior.Global, which compares
+-- EVERY element in a ScreenGui's tree by its own absolute ZIndex -- a
+-- CanvasGroup child does NOT inherit or get "boosted" by its container's
+-- ZIndex. Setting a high ZIndex on the panel container while its actual
+-- content (labels, buttons) stays at the default ZIndex does nothing -- the
+-- content is still only ZIndex 1, so anything else in the SAME ScreenGui at
+-- ZIndex 2+ (like a backdrop) renders ON TOP of it, which looked exactly
+-- like "the panel is a solid black box." And separately, ZIndex never
+-- crosses ScreenGui boundaries at all -- only DisplayOrder does, which is
+-- why a modal needs its OWN ScreenGui in the first place (so it can sit
+-- above whatever DisplayOrder the base HUD's buttons happen to use) rather
+-- than trying to out-ZIndex them from inside a shared ScreenGui.
+function Widgets.Modal(name: string, size: UDim2, position: UDim2, opts: ModalOpts?): (CanvasGroup, () -> (), () -> ())
+	opts = opts or {}
+
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = name .. "ModalGui"
+	screenGui.ResetOnSpawn = false
+	screenGui.DisplayOrder = opts.DisplayOrder or 25
+	screenGui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+
+	local backdrop = Instance.new("Frame")
+	backdrop.Name = "Backdrop"
+	backdrop.Size = UDim2.fromScale(1, 1)
+	backdrop.BackgroundColor3 = Color3.new(0, 0, 0)
+	backdrop.BackgroundTransparency = 0.45
+	backdrop.BorderSizePixel = 0
+	backdrop.Visible = false
+	backdrop.Parent = screenGui
+
+	local panel = Widgets.Panel(size, position, opts.PanelOpts)
+	-- Frame/CanvasGroup.Active defaults to false, meaning by default a click
+	-- on the panel's own background (not one of its buttons) would fall
+	-- through to the backdrop underneath and immediately close the modal --
+	-- Active = true makes the panel itself absorb that click instead, so
+	-- only genuinely clicking OUTSIDE the panel triggers the backdrop.
+	panel.Active = true
+	panel.Parent = screenGui
+
+	-- Drawn from two crossed bars, not a text glyph -- a Unicode "✕" here
+	-- used to silently render as a missing-glyph box, since Roblox's Gotham
+	-- family doesn't have that particular symbol. Drawing the icon instead
+	-- of hoping a font supports it also means it exactly matches the game's
+	-- own red (Theme.Color.Danger, the same red already used for Leave
+	-- Party/Decline elsewhere) rather than whatever red an emoji font ships.
+	local closeButton = Instance.new("TextButton")
+	closeButton.Name = "CloseButton"
+	closeButton.Text = ""
+	closeButton.AutoButtonColor = false
+	closeButton.BackgroundColor3 = Theme.Color.Danger
+	closeButton.BorderSizePixel = 0
+	closeButton.Size = UDim2.fromOffset(32, 32)
+	closeButton.AnchorPoint = Vector2.new(1, 0)
+	closeButton.Position = UDim2.new(1, -10, 0, 10)
+	closeButton.Parent = panel
+
+	local closeButtonCorner = Instance.new("UICorner")
+	closeButtonCorner.CornerRadius = UDim.new(1, 0)
+	closeButtonCorner.Parent = closeButton
+
+	local closeScale = Instance.new("UIScale")
+	closeScale.Parent = closeButton
+
+	for _, rotation in { 45, -45 } do
+		local bar = Instance.new("Frame")
+		bar.AnchorPoint = Vector2.new(0.5, 0.5)
+		bar.Position = UDim2.fromScale(0.5, 0.5)
+		bar.Size = UDim2.fromOffset(16, 2.5)
+		bar.Rotation = rotation
+		bar.BackgroundColor3 = Color3.new(1, 1, 1)
+		bar.BorderSizePixel = 0
+		local barCorner = Instance.new("UICorner")
+		barCorner.CornerRadius = UDim.new(1, 0)
+		barCorner.Parent = bar
+		bar.Parent = closeButton
+	end
+
+	local function close()
+		Widgets.Close(panel)
+		backdrop.Visible = false
+	end
+
+	local function open()
+		backdrop.Visible = true
+		Widgets.Open(panel)
+	end
+
+	-- Same hover-pop/press-squish personality every other button in the
+	-- game has (see Widgets.Button) -- a static icon button next to
+	-- everything else's bounce reads as an afterthought, not part of the
+	-- same design.
+	closeButton.MouseEnter:Connect(function()
+		TweenService:Create(closeScale, Theme.Anim.Pop, { Scale = 1.12 }):Play()
+		Sounds.Play("Hover")
+	end)
+	closeButton.MouseLeave:Connect(function()
+		TweenService:Create(closeScale, Theme.Anim.Pop, { Scale = 1 }):Play()
+	end)
+	closeButton.MouseButton1Down:Connect(function()
+		TweenService:Create(closeScale, TweenInfo.new(0.08, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Scale = 0.85,
+		}):Play()
+	end)
+	closeButton.MouseButton1Up:Connect(function()
+		TweenService:Create(closeScale, Theme.Anim.Pop, { Scale = 1.12 }):Play()
+	end)
+	closeButton.MouseButton1Click:Connect(function()
+		Sounds.Play("Click")
+		close()
+	end)
+
+	-- Click/tap ANYWHERE the backdrop is still visible (i.e. outside the
+	-- panel, since the panel sits on top of it and now absorbs its own
+	-- clicks) closes the modal -- one of the three exits every modal should
+	-- have alongside the ✕ and whatever toggle button opened it.
+	backdrop.InputBegan:Connect(function(input: InputObject)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			close()
+		end
+	end)
+
+	return panel, open, close
 end
 
 -- Open/Close can be called back-to-back (e.g. a race that finishes almost
