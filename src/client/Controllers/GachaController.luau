@@ -749,6 +749,21 @@ local function buildRevealOverlay()
 		{ DisplayOrder = 32 }
 	)
 
+	-- continueButton below explicitly calls GachaController.Refresh() on its
+	-- own click, but that was the ONLY path that did -- the modal's built-in
+	-- close-X and click-outside-to-close (see Widgets.Modal) both just hide
+	-- the panel with no idea GachaController exists, so the main panel's
+	-- inventory list kept showing pre-pull ownership (no "Equip" button on
+	-- what you just got) until it was manually closed and reopened. Listening
+	-- for Visible itself flipping false catches every way this panel can
+	-- close -- X, click-outside, and Widgets.CloseAllModals forcing it shut
+	-- when a race starts -- in one place instead of chasing each call site.
+	revealPanel:GetPropertyChangedSignal("Visible"):Connect(function()
+		if not revealPanel.Visible then
+			GachaController.Refresh()
+		end
+	end)
+
 	local title = Widgets.Label("ABILITY PULL", UDim2.new(1, -20, 0, 26), UDim2.fromOffset(10, 10), {
 		TextSize = 18,
 		Align = Enum.TextXAlignment.Center,
@@ -885,7 +900,16 @@ function GachaController.Init()
 	-- exactly why "buy Lucky" kept showing even after a successful purchase --
 	-- this remote only fires AFTER the server-side cache write, so there's
 	-- nothing left to race.
-	Net.GetRemoteEvent(RemoteNames.MonetizationStatusChanged).OnClientEvent:Connect(refreshMonetizationButtons)
+	Net.GetRemoteEvent(RemoteNames.MonetizationStatusChanged).OnClientEvent:Connect(function()
+		refreshMonetizationButtons()
+
+		-- Buying Skip Animation auto-enables it server-side (see
+		-- MonetizationService) -- re-reading it here too so a pull started
+		-- right after that purchase already skips the animation instead of
+		-- needing a Settings visit or a panel reopen first.
+		local profile = Net.GetRemoteFunction(RemoteNames.GetProfile):InvokeServer()
+		skipAnimationEnabled = (profile and profile.SkipGachaAnimationEnabled) or false
+	end)
 end
 
 return GachaController

@@ -229,6 +229,14 @@ function SettingsController.Init()
 	Net.GetRemoteEvent(RemoteNames.MonetizationStatusChanged).OnClientEvent:Connect(function()
 		local newStatus = Net.GetRemoteFunction(RemoteNames.GetMonetizationStatus):InvokeServer()
 		skipGachaOwned = (newStatus and newStatus.HasSkipGachaAnimation) or false
+
+		-- Buying Skip Animation auto-enables it server-side (see
+		-- MonetizationService) -- re-reading the profile here too, not just
+		-- ownership, means the toggle shows ON immediately instead of only
+		-- after Settings is closed and reopened.
+		local newProfile = Net.GetRemoteFunction(RemoteNames.GetProfile):InvokeServer()
+		skipGachaEnabled = (newProfile and newProfile.SkipGachaAnimationEnabled) or false
+
 		refreshSkipGachaRow()
 	end)
 end

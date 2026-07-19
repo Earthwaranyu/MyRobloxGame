@@ -6,6 +6,8 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
+local PlayerDataService = require(script.Parent.PlayerDataService)
+
 -- Every gamepass in the game funnels through one small owned-cache/refresh/
 -- prompt setup below instead of three near-identical copies of the same
 -- MarketplaceService dance -- see GAMEPASS_IDS for the actual passes.
@@ -106,6 +108,24 @@ function MonetizationService.Init()
 				ownedCache[name][player.UserId] = true
 			end
 		end
+
+		-- Buying Skip Animation should immediately DO the thing it's for,
+		-- not leave the player to separately discover a Settings toggle
+		-- afterward -- they can still turn it back off there whenever they
+		-- want (see SettingsController's buildSkipGachaRow). Mirrors what
+		-- GachaService.handleSetSkipAnimation does for the manual toggle,
+		-- just triggered by the purchase itself. Lives here (not in
+		-- GachaService) so this can run synchronously in the same handler
+		-- that just updated ownedCache above, with no risk of the two
+		-- services' independent listeners on this same MarketplaceService
+		-- signal racing each other over connection order.
+		if gamePassId == GAMEPASS_IDS.SkipGachaAnimation then
+			local profile = PlayerDataService.GetProfile(player)
+			if profile then
+				profile.SkipGachaAnimationEnabled = true
+			end
+		end
+
 		statusChangedRemote:FireClient(player)
 	end)
 
