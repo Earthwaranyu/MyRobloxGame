@@ -51,7 +51,21 @@ function MovementService.Init()
 		applySprint(player, isSprinting)
 	end)
 
+	-- Roblox's own default control scheme ALSO binds Shift to toggle Shift
+	-- Lock (mouse-locked camera mode) -- both that and SprintController's
+	-- sprint binding fire on the same keypress since neither consumes the
+	-- input from the other, so on some platforms Shift ends up toggling
+	-- Shift Lock instead of (or as well as) sprinting. DevEnableMouseLock
+	-- removes Shift Lock as a feature entirely (the keybind AND its UI
+	-- toggle icon) -- settable from the server only (a client LocalScript
+	-- gets "Insufficient permissions" trying to set this directly), which is
+	-- fine here since it's a fixed, game-wide setting, not per-player state.
+	local function disableShiftLock(player: Player)
+		player.DevEnableMouseLock = false
+	end
+
 	Players.PlayerAdded:Connect(function(player: Player)
+		disableShiftLock(player)
 		player.CharacterAdded:Connect(function()
 			applySprint(player, false)
 		end)
@@ -62,6 +76,7 @@ function MovementService.Init()
 	end)
 
 	for _, player in Players:GetPlayers() do
+		disableShiftLock(player)
 		player.CharacterAdded:Connect(function()
 			applySprint(player, false)
 		end)

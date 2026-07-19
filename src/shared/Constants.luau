@@ -32,6 +32,14 @@ return {
 	},
 
 	Match = {
+		-- Not strict 1v1: a race is however many players (or a party) queue
+		-- within the matching window, no upper cap. Elo already extends
+		-- correctly to N players (the winner's gain is the sum of beating
+		-- each opponent still racing individually -- see PlayerReachedFinish),
+		-- and the spectate "pick who to watch" feature only really matters
+		-- once there's more than one racer left after the first finish. This
+		-- is just the floor: fewer than this and a race can't start at all.
+		MinPlayers = 2,
 		-- Brief matchmaking window before the map is picked and everyone is
 		-- teleported: touch a start line / click Play, wait a beat for other
 		-- players to join, then the case-opening reveal spins during the last

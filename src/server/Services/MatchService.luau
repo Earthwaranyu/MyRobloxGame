@@ -207,7 +207,13 @@ function tryStartCountdown()
 	if pendingCountdown or activeSession then
 		return
 	end
-	if #queue == 0 then
+	-- Below this, stay in "waiting" -- no countdown, no map reveal, nothing
+	-- teleported. This used to only check #queue == 0, which meant a single
+	-- solo player queuing would still get matched into a "race" against
+	-- nobody 3 seconds later: 0 Elo change (no real opponent to calculate
+	-- against) but full points AND win-streak credit, same as a real win --
+	-- a free, repeatable reward exploit, not just a UX gap.
+	if #queue < Constants.Match.MinPlayers then
 		return
 	end
 
@@ -230,7 +236,19 @@ function startSession()
 	local stageId = pendingStageId
 	pendingStageId = nil
 	countdownEndTime = nil
-	if #queued == 0 or not stageId then
+
+	if #queued < Constants.Match.MinPlayers or not stageId then
+		-- Dropped below the minimum during the matching window (someone in
+		-- queue quit) -- put whoever's left back in queue rather than
+		-- starting an under-strength (or solo) race; tryStartCountdown picks
+		-- it back up automatically on the next Enqueue.
+		for _, player in queued do
+			if player.Parent then
+				table.insert(queue, player)
+				queuedSet[player.UserId] = true
+				queueStatusRemote:FireClient(player, true)
+			end
+		end
 		return
 	end
 
@@ -405,9 +423,21 @@ function MatchService.Enqueue(player: Player)
 	tryStartCountdown()
 
 	if countdownEndTime and pendingStageId then
+		-- Either this call just started the countdown, or one was already
+		-- running when this party joined -- either way, this party specifically
+		-- needs the current countdown value (a `true` for "waiting" sent on
+		-- an earlier Enqueue call wouldn't have updated once someone else's
+		-- join pushed the queue over MinPlayers).
 		for _, member in partyMembers do
 			queueStatusRemote:FireClient(member, math.max(0, countdownEndTime - os.clock()))
 			mapSelectedRemote:FireClient(member, pendingStageId)
+		end
+	else
+		-- Below Constants.Match.MinPlayers -- queued, but no real countdown
+		-- yet. `true` (not a number) tells QueueStatusController to show a
+		-- static "waiting for players" state instead of a ticking countdown.
+		for _, member in partyMembers do
+			queueStatusRemote:FireClient(member, true)
 		end
 	end
 end

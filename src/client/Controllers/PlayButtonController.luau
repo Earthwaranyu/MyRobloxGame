@@ -37,14 +37,18 @@ local practiceButton: TextButton
 -- clicking any button again during that gap would double-queue them.
 local busy = false
 
+-- Buttons stay clickable while queued now (previously Active = false, a
+-- dead end with no way back out short of the whole StateChanged round-trip
+-- from actually starting a race) -- clicking any of them while busy cancels
+-- instead of queuing again.
 local function refresh()
 	if busy then
-		button.Text = "QUEUED..."
-		button.Active = false
-		botsButton.Text = "QUEUED..."
-		botsButton.Active = false
-		practiceButton.Text = "QUEUED..."
-		practiceButton.Active = false
+		button.Text = "CANCEL"
+		button.Active = true
+		botsButton.Text = "CANCEL"
+		botsButton.Active = true
+		practiceButton.Text = "CANCEL"
+		practiceButton.Active = true
 	else
 		button.Text = "PLAY"
 		button.Active = true
@@ -66,6 +70,28 @@ local function startQueue(mode: string?)
 	Net.GetRemoteEvent(RemoteNames.RequestQueue):FireServer(mode)
 end
 
+-- QuitMatch already handles both "still sitting in the shared queue" and
+-- "already teleported to the stage for the pre-race countdown" -- see
+-- MatchService.QuitMatch -- so this one remote covers cancelling at any
+-- point before the race timer itself actually starts.
+local function cancelQueue()
+	if not busy then
+		return
+	end
+	Net.GetRemoteEvent(RemoteNames.QuitMatch):FireServer()
+	busy = false
+	PlayButtonController.CurrentMode = nil
+	refresh()
+end
+
+local function onButtonClicked(mode: string?)
+	if busy then
+		cancelQueue()
+	else
+		startQueue(mode)
+	end
+end
+
 local function buildUI()
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "PlayButtonGui"
@@ -77,7 +103,7 @@ local function buildUI()
 	})
 	button.Parent = screenGui
 	button.MouseButton1Click:Connect(function()
-		startQueue(nil)
+		onButtonClicked(nil)
 	end)
 
 	-- VS BOTS and PRACTICE share one row just above PLAY, side by side --
@@ -88,7 +114,7 @@ local function buildUI()
 	})
 	botsButton.Parent = screenGui
 	botsButton.MouseButton1Click:Connect(function()
-		startQueue("Bots")
+		onButtonClicked("Bots")
 	end)
 
 	practiceButton = Widgets.Button("PRACTICE", UDim2.fromOffset(145, 44), UDim2.new(0.5, 5, 1, -172), {
@@ -97,7 +123,7 @@ local function buildUI()
 	})
 	practiceButton.Parent = screenGui
 	practiceButton.MouseButton1Click:Connect(function()
-		startQueue("Practice")
+		onButtonClicked("Practice")
 	end)
 end
 

@@ -231,8 +231,12 @@ function MapRevealController.Init()
 	end)
 
 	local queueRemote = Net.GetRemoteEvent(RemoteNames.QueueStatusChanged)
-	queueRemote.OnClientEvent:Connect(function(secondsRemaining: number?)
-		if not secondsRemaining then
+	queueRemote.OnClientEvent:Connect(function(secondsRemaining: (number | boolean)?)
+		-- `true` means "queued, but MatchService.Constants.Match.MinPlayers
+		-- hasn't been met yet" (see QueueStatusController) -- no real
+		-- countdown running yet, so there's nothing to time the reveal spin
+		-- against until a number actually arrives.
+		if typeof(secondsRemaining) ~= "number" then
 			return
 		end
 

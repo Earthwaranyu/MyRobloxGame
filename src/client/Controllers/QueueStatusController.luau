@@ -152,7 +152,7 @@ function QueueStatusController.Init()
 	buildUI()
 
 	local remote = Net.GetRemoteEvent(RemoteNames.QueueStatusChanged)
-	remote.OnClientEvent:Connect(function(secondsRemaining: number?)
+	remote.OnClientEvent:Connect(function(secondsRemaining: (number | boolean)?)
 		if not secondsRemaining then
 			endTime = nil
 			lastShownSecond = nil
@@ -160,9 +160,21 @@ function QueueStatusController.Init()
 			return
 		end
 
+		if secondsRemaining == true then
+			-- Queued, but MatchService hasn't started a real matching window
+			-- yet (below Constants.Match.MinPlayers) -- static message, no
+			-- ticking number, until enough players actually join.
+			endTime = nil
+			lastShownSecond = nil
+			numberLabel.Text = ""
+			caption.Text = "WAITING FOR PLAYERS..."
+			container.Visible = true
+			return
+		end
+
 		phase = "Waiting"
 		caption.Text = "WAITING FOR PLAYERS"
-		endTime = os.clock() + secondsRemaining
+		endTime = os.clock() + (secondsRemaining :: number)
 		lastShownSecond = nil
 		container.Visible = true
 	end)
