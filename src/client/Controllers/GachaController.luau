@@ -9,6 +9,7 @@ local RarityColors = require(Shared.RarityColors)
 local RemoteNames = require(Shared.RemoteNames)
 
 local AbilityIcons = require(script.Parent.Parent.AbilityIcons)
+local CategoryIcons = require(script.Parent.Parent.CategoryIcons)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local Sounds = require(script.Parent.Parent.Sounds)
@@ -71,12 +72,6 @@ local luckyButton: TextButton
 -- made VIP's identical-looking fix work while Lucky's didn't: VIP's handler
 -- already had this same explicit ownership check, Lucky's never did.
 local luckyOwned = false
-
--- Drop-rate disclosure (see buildOddsPanel) -- Roblox requires exact odds for
--- any paid randomized virtual item to be shown, as percentages summing to
--- 100%, BEFORE purchase. This is a policy requirement, not a nice-to-have.
-local oddsPanel: CanvasGroup
-local openOddsPanel: () -> ()
 
 -- Reveal overlay (shared by both a single-pull spin and a 10-pull grid).
 local revealPanel: CanvasGroup
@@ -490,165 +485,6 @@ function GachaController.Refresh()
 	end
 end
 
-local function buildMainPanel()
-	-- Toggle button lives in its own small ScreenGui at the default
-	-- DisplayOrder (0), same layer as every other persistent HUD button
-	-- (Shop, Party, Play, ...) -- the PANEL itself is a separate Widgets.
-	-- Modal at a much higher DisplayOrder (see below) so it and its own
-	-- Odds/Reveal sub-panels always render above the base HUD.
-	local toggleGui = Instance.new("ScreenGui")
-	toggleGui.Name = "GachaToggleGui"
-	toggleGui.ResetOnSpawn = false
-	toggleGui.Parent = player:WaitForChild("PlayerGui")
-
-	-- Sits directly below ShopController's toggle button, same X, same
-	-- 8px-gap-below-a-48px-button convention used throughout this stack.
-	local toggleButton = Widgets.Button("Gacha", UDim2.fromOffset(130, 48), UDim2.new(1, -140, 0, 116))
-	toggleButton.Parent = toggleGui
-
-	panel, openMainPanel, closeMainPanel = Widgets.Modal(
-		"Gacha",
-		UDim2.fromOffset(400, 520),
-		UDim2.new(1, -410, 0, 116),
-		{ DisplayOrder = 30 }
-	)
-
-	local title = Widgets.Label("ABILITY GACHA", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 6), {
-		TextSize = 20,
-	})
-	title.Parent = panel
-
-	pointsLabel = Widgets.Label("", UDim2.new(1, -16, 0, 20), UDim2.fromOffset(8, 36), {
-		TextSize = 15,
-		Align = Enum.TextXAlignment.Right,
-		Color = Theme.Color.Warning,
-	})
-	pointsLabel.Parent = panel
-
-	luckyButton = Widgets.Button("🍀 Get Lucky — Better Odds", UDim2.new(1, -16, 0, 32), UDim2.fromOffset(8, 60), {
-		Variant = "Danger",
-		TextSize = 14,
-	})
-	luckyButton.Parent = panel
-	luckyButton.MouseButton1Click:Connect(function()
-		if not luckyOwned then
-			Net.GetRemoteEvent(RemoteNames.PromptLuckyPurchase):FireServer()
-		end
-	end)
-	local pullOneButton = Widgets.Button("Pull x1 — 1500 pts", UDim2.fromOffset(272, 36), UDim2.fromOffset(8, 98), {
-		Variant = "Primary",
-		TextSize = 14,
-	})
-	pullOneButton.Parent = panel
-	pullOneButton.MouseButton1Click:Connect(function()
-		local success, message = pullRemote:InvokeServer(1)
-		if not success then
-			pointsLabel.Text = message
-		end
-	end)
-
-	local robuxOneButton = Widgets.Button("R$", UDim2.fromOffset(96, 36), UDim2.fromOffset(288, 98), {
-		Variant = "Secondary",
-		TextSize = 14,
-	})
-	robuxOneButton.Parent = panel
-	robuxOneButton.MouseButton1Click:Connect(function()
-		promptRobuxRemote:FireServer(1)
-	end)
-
-	local pullTenButton = Widgets.Button("Pull x10 — 13500 pts", UDim2.fromOffset(272, 36), UDim2.fromOffset(8, 138), {
-		Variant = "Primary",
-		TextSize = 14,
-	})
-	pullTenButton.Parent = panel
-	pullTenButton.MouseButton1Click:Connect(function()
-		local success, message = pullRemote:InvokeServer(10)
-		if not success then
-			pointsLabel.Text = message
-		end
-	end)
-
-	local robuxTenButton = Widgets.Button("R$", UDim2.fromOffset(96, 36), UDim2.fromOffset(288, 138), {
-		Variant = "Secondary",
-		TextSize = 14,
-	})
-	robuxTenButton.Parent = panel
-	robuxTenButton.MouseButton1Click:Connect(function()
-		promptRobuxRemote:FireServer(10)
-	end)
-
-	-- Odds is always here; the Skip Animation unlock only shows up while it's
-	-- still unowned (see refreshSkipPurchaseRow) -- once owned, ON/OFF lives
-	-- in Settings instead (this panel just reads profile.
-	-- SkipGachaAnimationEnabled at pull time), so there's nothing left for
-	-- this row to show for it and Odds takes the full width back.
-	local actionRow = Instance.new("Frame")
-	actionRow.Name = "ActionRow"
-	actionRow.Size = UDim2.new(1, -16, 0, 32)
-	actionRow.Position = UDim2.fromOffset(8, 178)
-	actionRow.BackgroundTransparency = 1
-	actionRow.Parent = panel
-
-	refreshSkipPurchaseRow = function()
-		for _, child in actionRow:GetChildren() do
-			child:Destroy()
-		end
-
-		local oddsWidth = if skipGachaOwned then 384 else 184
-		local oddsButton = Widgets.Button("ℹ️ Odds", UDim2.fromOffset(oddsWidth, 32), UDim2.fromOffset(0, 0), {
-			Variant = "Secondary",
-			TextSize = 14,
-		})
-		oddsButton.Parent = actionRow
-		oddsButton.MouseButton1Click:Connect(function()
-			openOddsPanel()
-		end)
-
-		if not skipGachaOwned then
-			local buyButton = Widgets.Button("🔓 Unlock Skip", UDim2.fromOffset(192, 32), UDim2.fromOffset(192, 0), {
-				Variant = "Secondary",
-				TextSize = 13,
-			})
-			buyButton.Parent = actionRow
-			buyButton.MouseButton1Click:Connect(function()
-				Net.GetRemoteEvent(RemoteNames.PromptSkipGachaAnimationPurchase):FireServer()
-			end)
-		end
-	end
-	refreshSkipPurchaseRow()
-
-	local inventoryHeader = Widgets.Label("YOUR ABILITIES", UDim2.new(1, -16, 0, 20), UDim2.fromOffset(8, 216), {
-		TextSize = 13,
-		Color = Theme.Color.TextMuted,
-	})
-	inventoryHeader.Parent = panel
-
-	inventoryList = Instance.new("ScrollingFrame")
-	inventoryList.Size = UDim2.new(1, -16, 1, -246)
-	inventoryList.Position = UDim2.fromOffset(8, 240)
-	inventoryList.BackgroundTransparency = 1
-	inventoryList.BorderSizePixel = 0
-	inventoryList.CanvasSize = UDim2.new(0, 0, 0, 0)
-	inventoryList.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	inventoryList.ScrollBarThickness = 5
-	inventoryList.ScrollBarImageColor3 = Theme.Color.AccentA
-	inventoryList.Parent = panel
-
-	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, 6)
-	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Parent = inventoryList
-
-	toggleButton.MouseButton1Click:Connect(function()
-		if panel.Visible then
-			closeMainPanel()
-		else
-			openMainPanel()
-			GachaController.Refresh()
-		end
-	end)
-end
-
 local function buildOddsRow(info: Abilities.AbilityInfo, layoutOrder: number): Frame
 	local row = Instance.new("Frame")
 	row.LayoutOrder = layoutOrder
@@ -690,55 +526,240 @@ local function buildOddsRow(info: Abilities.AbilityInfo, layoutOrder: number): F
 	return row
 end
 
--- Roblox's Randomized Virtual Items policy requires exact drop-rate odds
--- (summing to 100%) to be shown BEFORE a paid randomized pull, not just
--- somewhere in the UI after the fact -- this is what the "ℹ️ Odds" button on
--- the main panel opens. Every pool ability's row here sums to 100% in both
--- the base and Lucky-boosted columns by construction (see Abilities.luau).
-local function buildOddsPanel()
-	-- 312 tall, not 360 -- the panel used to reserve an extra ~50px for a
-	-- redundant "Close" button sitting right below the modal's own close-✕
-	-- (see Widgets.Modal). Two ways to close the same panel one inch apart
-	-- reads as unconsidered, not as an extra convenience.
-	oddsPanel, openOddsPanel = Widgets.Modal(
-		"GachaOdds",
-		UDim2.fromOffset(420, 312),
-		UDim2.new(0.5, -210, 0.5, -156),
-		{ DisplayOrder = 31 }
+local function buildMainPanel()
+	-- Toggle button lives in its own small ScreenGui at the default
+	-- DisplayOrder (0), same layer as every other persistent HUD button
+	-- (Shop, Party, Play, ...) -- the PANEL itself is a separate Widgets.
+	-- Modal at a much higher DisplayOrder (see below) so it and its own
+	-- Reveal sub-panel always render above the base HUD.
+	local toggleGui = Instance.new("ScreenGui")
+	toggleGui.Name = "GachaToggleGui"
+	toggleGui.ResetOnSpawn = false
+	toggleGui.Parent = player:WaitForChild("PlayerGui")
+
+	-- Sits directly below ShopController's toggle button, same X, same
+	-- 8px-gap-below-a-48px-button convention used throughout this stack.
+	local toggleButton = Widgets.Button("Gacha", UDim2.fromOffset(130, 48), UDim2.new(1, -140, 0, 116))
+	toggleButton.Parent = toggleGui
+
+	local gachaScreenGui: ScreenGui
+	panel, openMainPanel, closeMainPanel, _, gachaScreenGui = Widgets.Modal(
+		"Gacha",
+		UDim2.fromOffset(400, 520),
+		UDim2.new(1, -410, 0, 116),
+		{ DisplayOrder = 30 }
 	)
 
-	local title = Widgets.Label("DROP RATES", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 8), {
-		TextSize = 20,
-		Align = Enum.TextXAlignment.Center,
-	})
-	title.Parent = oddsPanel
+	-- Ribbon replaces the old plain title label -- see Widgets.Ribbon. Sits
+	-- half-overlapping the panel's own top edge, like a hanging sign.
+	local ribbon = Widgets.Ribbon("ABILITY GACHA", UDim2.fromOffset(260, 40), UDim2.new(0.5, 0, 0, -20))
+	ribbon.Parent = panel
 
-	local subtitle = Widgets.Label(
+	pointsLabel = Widgets.Label("", UDim2.new(1, -70, 0, 20), UDim2.fromOffset(8, 26), {
+		TextSize = 16,
+		Align = Enum.TextXAlignment.Right,
+		Color = Theme.Candy.Gold.Face,
+	})
+	pointsLabel.Parent = panel
+
+	-- Left tab strip (Pulls / Inventory / Odds), sitting immediately outside
+	-- the panel's own left edge -- the reference image's category-strip
+	-- layout language, applied to this panel's own internal sections instead
+	-- of merging separate systems (Shop, Settings, ...) into one mega-panel.
+	local tabStrip, _selectTab, onTabSelected = Widgets.TabStrip({
+		{ Id = "Pulls", BuildIcon = function(holder, color)
+			CategoryIcons.Populate(holder, "Pulls", holder.AbsoluteSize.X, color)
+		end },
+		{ Id = "Inventory", BuildIcon = function(holder, color)
+			CategoryIcons.Populate(holder, "Inventory", holder.AbsoluteSize.X, color)
+		end },
+		{ Id = "Odds", BuildIcon = function(holder, color)
+			CategoryIcons.Populate(holder, "Odds", holder.AbsoluteSize.X, color)
+		end },
+	}, UDim2.new(1, -482, 0, 168))
+	tabStrip.Parent = gachaScreenGui
+	-- Starts hidden, then tracks panel.Visible for as long as the panel
+	-- exists -- covers every way the panel can close (✕, click-outside, and
+	-- Widgets.CloseAllModals forcing it shut on race start), not just the
+	-- toggle button that opened it. Same technique as the reveal panel's
+	-- own Visible listener (see buildRevealOverlay) fixing the equivalent
+	-- staleness class of bug.
+	tabStrip.Visible = panel.Visible
+	panel:GetPropertyChangedSignal("Visible"):Connect(function()
+		tabStrip.Visible = panel.Visible
+	end)
+
+	local pullsContent = Instance.new("Frame")
+	pullsContent.Name = "PullsContent"
+	pullsContent.Size = UDim2.new(1, -16, 1, -60)
+	pullsContent.Position = UDim2.fromOffset(8, 52)
+	pullsContent.BackgroundTransparency = 1
+	pullsContent.Parent = panel
+
+	local inventoryContent = Instance.new("Frame")
+	inventoryContent.Name = "InventoryContent"
+	inventoryContent.Size = UDim2.new(1, -16, 1, -60)
+	inventoryContent.Position = UDim2.fromOffset(8, 52)
+	inventoryContent.BackgroundTransparency = 1
+	inventoryContent.Visible = false
+	inventoryContent.Parent = panel
+
+	local oddsContent = Instance.new("Frame")
+	oddsContent.Name = "OddsContent"
+	oddsContent.Size = UDim2.new(1, -16, 1, -60)
+	oddsContent.Position = UDim2.fromOffset(8, 52)
+	oddsContent.BackgroundTransparency = 1
+	oddsContent.Visible = false
+	oddsContent.Parent = panel
+
+	onTabSelected(function(id: string)
+		pullsContent.Visible = id == "Pulls"
+		inventoryContent.Visible = id == "Inventory"
+		oddsContent.Visible = id == "Odds"
+	end)
+
+	luckyButton = Widgets.Button("🍀 Get Lucky — Better Odds", UDim2.new(1, 0, 0, 32), UDim2.fromOffset(0, 0), {
+		Variant = "Danger",
+		TextSize = 14,
+	})
+	luckyButton.Parent = pullsContent
+	luckyButton.MouseButton1Click:Connect(function()
+		if not luckyOwned then
+			Net.GetRemoteEvent(RemoteNames.PromptLuckyPurchase):FireServer()
+		end
+	end)
+	local pullOneButton = Widgets.Button("Pull x1 — 1500 pts", UDim2.fromOffset(272, 36), UDim2.fromOffset(0, 38), {
+		Variant = "Primary",
+		TextSize = 14,
+	})
+	pullOneButton.Parent = pullsContent
+	pullOneButton.MouseButton1Click:Connect(function()
+		local success, message = pullRemote:InvokeServer(1)
+		if not success then
+			pointsLabel.Text = message
+		end
+	end)
+
+	local robuxOneButton = Widgets.Button("R$", UDim2.fromOffset(96, 36), UDim2.fromOffset(280, 38), {
+		Variant = "Secondary",
+		TextSize = 14,
+	})
+	robuxOneButton.Parent = pullsContent
+	robuxOneButton.MouseButton1Click:Connect(function()
+		promptRobuxRemote:FireServer(1)
+	end)
+
+	local pullTenButton = Widgets.Button("Pull x10 — 13500 pts", UDim2.fromOffset(272, 36), UDim2.fromOffset(0, 78), {
+		Variant = "Primary",
+		TextSize = 14,
+	})
+	pullTenButton.Parent = pullsContent
+	pullTenButton.MouseButton1Click:Connect(function()
+		local success, message = pullRemote:InvokeServer(10)
+		if not success then
+			pointsLabel.Text = message
+		end
+	end)
+
+	local robuxTenButton = Widgets.Button("R$", UDim2.fromOffset(96, 36), UDim2.fromOffset(280, 78), {
+		Variant = "Secondary",
+		TextSize = 14,
+	})
+	robuxTenButton.Parent = pullsContent
+	robuxTenButton.MouseButton1Click:Connect(function()
+		promptRobuxRemote:FireServer(10)
+	end)
+
+	-- Full width now -- the "ℹ️ Odds" button that used to share this row got
+	-- replaced entirely by the Odds tab above, so there's nothing left to
+	-- split the row with once Skip Animation is unowned, and nothing to show
+	-- at all once it's owned (ON/OFF lives in Settings from then on).
+	local skipRow = Instance.new("Frame")
+	skipRow.Name = "SkipRow"
+	skipRow.Size = UDim2.new(1, 0, 0, 32)
+	skipRow.Position = UDim2.fromOffset(0, 118)
+	skipRow.BackgroundTransparency = 1
+	skipRow.Parent = pullsContent
+
+	refreshSkipPurchaseRow = function()
+		for _, child in skipRow:GetChildren() do
+			child:Destroy()
+		end
+		if skipGachaOwned then
+			return
+		end
+		local buyButton = Widgets.Button("🔓 Unlock Skip Animation", UDim2.new(1, 0, 1, 0), UDim2.fromOffset(0, 0), {
+			Variant = "Secondary",
+			TextSize = 14,
+		})
+		buyButton.Parent = skipRow
+		buyButton.MouseButton1Click:Connect(function()
+			Net.GetRemoteEvent(RemoteNames.PromptSkipGachaAnimationPurchase):FireServer()
+		end)
+	end
+	refreshSkipPurchaseRow()
+
+	local inventoryHeader = Widgets.Label("YOUR ABILITIES", UDim2.new(1, 0, 0, 20), UDim2.fromOffset(0, 0), {
+		TextSize = 13,
+		Color = Theme.Color.TextMuted,
+	})
+	inventoryHeader.Parent = inventoryContent
+
+	inventoryList = Instance.new("ScrollingFrame")
+	inventoryList.Size = UDim2.new(1, 0, 1, -26)
+	inventoryList.Position = UDim2.fromOffset(0, 26)
+	inventoryList.BackgroundTransparency = 1
+	inventoryList.BorderSizePixel = 0
+	inventoryList.CanvasSize = UDim2.new(0, 0, 0, 0)
+	inventoryList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	inventoryList.ScrollBarThickness = 5
+	inventoryList.ScrollBarImageColor3 = Theme.Color.AccentA
+	inventoryList.Parent = inventoryContent
+
+	local invLayout = Instance.new("UIListLayout")
+	invLayout.Padding = UDim.new(0, 6)
+	invLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	invLayout.Parent = inventoryList
+
+	-- Roblox's Randomized Virtual Items policy requires exact drop-rate odds
+	-- (summing to 100%) to be shown BEFORE a paid randomized pull -- this tab
+	-- is reachable from the main panel with no purchase in between, same
+	-- compliance guarantee the old separate popup gave, just one click away
+	-- via the tab strip instead of a second modal on top of this one.
+	local oddsSubtitle = Widgets.Label(
 		"Exact odds for every ability pull. Dash is never in the pool -- it's free for everyone.",
-		UDim2.new(1, -32, 0, 36),
-		UDim2.fromOffset(16, 38),
+		UDim2.new(1, 0, 0, 36),
+		UDim2.fromOffset(0, 0),
 		{ TextSize = 13, Color = Theme.Color.TextSecondary, Align = Enum.TextXAlignment.Center, Bold = false }
 	)
-	subtitle.TextWrapped = true
-	subtitle.Parent = oddsPanel
+	oddsSubtitle.TextWrapped = true
+	oddsSubtitle.Parent = oddsContent
 
-	local list = Instance.new("Frame")
-	list.Size = UDim2.new(1, -32, 0, 220)
-	list.Position = UDim2.fromOffset(16, 82)
-	list.BackgroundTransparency = 1
-	list.Parent = oddsPanel
+	local oddsList = Instance.new("Frame")
+	oddsList.Size = UDim2.new(1, 0, 1, -44)
+	oddsList.Position = UDim2.fromOffset(0, 44)
+	oddsList.BackgroundTransparency = 1
+	oddsList.Parent = oddsContent
 
-	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, 6)
-	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Parent = list
+	local oddsLayout = Instance.new("UIListLayout")
+	oddsLayout.Padding = UDim.new(0, 6)
+	oddsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	oddsLayout.Parent = oddsList
 
 	for i, info in Abilities do
 		if info.PullWeight then
-			buildOddsRow(info, i).Parent = list
+			buildOddsRow(info, i).Parent = oddsList
 		end
 	end
 
+	toggleButton.MouseButton1Click:Connect(function()
+		if panel.Visible then
+			closeMainPanel()
+		else
+			openMainPanel()
+			GachaController.Refresh()
+		end
+	end)
 end
 
 local function buildRevealOverlay()
@@ -877,7 +898,6 @@ function GachaController.Init()
 	promptRobuxRemote = Net.GetRemoteEvent(RemoteNames.PromptGachaRobuxPurchase)
 
 	buildMainPanel()
-	buildOddsPanel()
 	buildRevealOverlay()
 
 	-- Initial skipAnimationEnabled value -- SettingsController owns the

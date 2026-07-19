@@ -22,6 +22,31 @@ Theme.Color = {
 	TextMuted = Color3.fromRGB(120, 124, 148),
 }
 
+-- "Candy" palette: the bright, chunky, white-bordered mobile-game look every
+-- button/panel in the game was reskinned to (see Widgets.Button/Panel/Modal).
+-- Every entry is a Face/Shadow pair -- Shadow is the same hue darkened, used
+-- for the bevel strip along a button's bottom edge and a panel's drop-shadow,
+-- never a random unrelated color, so the "3D toy" look reads as one coherent
+-- material rather than mismatched layers.
+Theme.Candy = {
+	Purple = { Face = Color3.fromRGB(124, 88, 224), Shadow = Color3.fromRGB(74, 48, 156) },
+	PurpleDeep = { Face = Color3.fromRGB(88, 58, 176), Shadow = Color3.fromRGB(52, 32, 114) },
+	Green = { Face = Color3.fromRGB(97, 209, 84), Shadow = Color3.fromRGB(53, 148, 55) },
+	Blue = { Face = Color3.fromRGB(66, 176, 239), Shadow = Color3.fromRGB(36, 122, 181) },
+	Pink = { Face = Color3.fromRGB(255, 121, 176), Shadow = Color3.fromRGB(207, 66, 128) },
+	Red = { Face = Color3.fromRGB(255, 97, 97), Shadow = Color3.fromRGB(205, 54, 59) },
+	Gold = { Face = Color3.fromRGB(255, 199, 60), Shadow = Color3.fromRGB(219, 152, 28) },
+	Teal = { Face = Color3.fromRGB(53, 213, 194), Shadow = Color3.fromRGB(27, 155, 145) },
+	White = { Face = Color3.fromRGB(255, 255, 255), Shadow = Color3.fromRGB(205, 205, 220) },
+	-- Panel fill/backdrop -- a muted violet rather than a saturated button
+	-- color, so cards/buttons sitting on top of it still pop.
+	PanelFace = Color3.fromRGB(107, 86, 214),
+	PanelFaceLight = Color3.fromRGB(126, 106, 227),
+	PanelShadow = Color3.fromRGB(64, 48, 138),
+	Border = Color3.fromRGB(255, 255, 255),
+	TextOutline = Color3.fromRGB(40, 26, 82),
+}
+
 Theme.Font = {
 	Display = Enum.Font.GothamBlack,
 	Heading = Enum.Font.GothamBold,
@@ -34,9 +59,10 @@ Theme.Font = {
 }
 
 Theme.Corner = {
-	Panel = UDim.new(0, 14),
+	Panel = UDim.new(0, 24),
 	Button = UDim.new(1, 0),
 	Pill = UDim.new(1, 0),
+	Card = UDim.new(0, 18),
 }
 
 Theme.Anim = {

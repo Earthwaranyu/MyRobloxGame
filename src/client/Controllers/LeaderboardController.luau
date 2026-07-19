@@ -137,10 +137,8 @@ local function buildUI()
 		DisplayOrder = 30,
 	})
 
-	local title = Widgets.Label("LEADERBOARD", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 6), {
-		TextSize = 20,
-	})
-	title.Parent = panel
+	local ribbon = Widgets.Ribbon("LEADERBOARD", UDim2.fromOffset(230, 40), UDim2.new(0.5, 0, 0, -20))
+	ribbon.Parent = panel
 
 	-- y=44, not 36 -- the Stage tab row used to start early enough (36) to
 	-- graze the bottom-left corner of Widgets.Modal's close-✕ (which spans

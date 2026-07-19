@@ -213,6 +213,22 @@ local function handleEquip(player: Player, abilityId: string): (boolean, string)
 	end
 
 	profile.EquippedAbility = abilityId
+
+	-- AbilityController resets ITS OWN cooldown display to 0 the instant this
+	-- fires client-side, so the button reads "ready" right after equipping --
+	-- but lastAbilityUseTime here is keyed per-PLAYER, not per-ability, so
+	-- without this it kept whatever timestamp the PREVIOUSLY equipped
+	-- ability's last use set. Switching from a short-cooldown ability (say
+	-- Dash, 4s) to a long-cooldown one (Meteor Dash, 12s) shortly after using
+	-- the first meant onRequestAbility's cooldown check compared "seconds
+	-- since that old use" against the NEW ability's longer cooldown, silently
+	-- rejecting the very next press -- the client's flash still played
+	-- unconditionally (see AbilityController.tryUseAbility), but nothing
+	-- happened server-side, which is exactly the "flash but I didn't move"
+	-- report. Clearing it here keeps both sides' idea of "ready" in sync at
+	-- the one moment that actually changes it.
+	lastAbilityUseTime[player.UserId] = nil
+
 	abilityEquippedRemote:FireClient(player, abilityId)
 	return true, "Equipped"
 end

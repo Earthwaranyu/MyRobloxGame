@@ -30,11 +30,9 @@ local function updateButtonVisual(isSprinting: boolean)
 		return
 	end
 	if isSprinting then
-		button.BackgroundColor3 = Theme.Color.Success
-		button.TextColor3 = Color3.fromRGB(255, 255, 255)
+		Widgets.SetButtonColors(button, Theme.Candy.Green.Face, Theme.Candy.Green.Shadow, Color3.new(1, 1, 1))
 	else
-		button.BackgroundColor3 = READY_COLOR
-		button.TextColor3 = READY_TEXT_COLOR
+		Widgets.SetButtonColors(button, READY_COLOR, Theme.Candy.White.Shadow, READY_TEXT_COLOR)
 	end
 end
 

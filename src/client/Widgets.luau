@@ -49,13 +49,17 @@ export type LabelOpts = {
 
 -- Panels are CanvasGroups so Widgets.Open/Close can fade every descendant
 -- (text, rows, icons) as one unit instead of tweening each child.
+-- Candy panel: bright violet fill, thick white border -- the same "toy"
+-- material every button uses (see VARIANT_STYLE below), just bigger. opts.
+-- Color/StrokeColor still override it for a caller that genuinely needs a
+-- different tone (none currently do, kept for flexibility).
 function Widgets.Panel(size: UDim2, position: UDim2, opts: PanelOpts?): CanvasGroup
 	opts = opts or {}
 
 	local frame = Instance.new("CanvasGroup")
 	frame.Size = size
 	frame.Position = position
-	frame.BackgroundColor3 = opts.Color or Theme.Color.Panel
+	frame.BackgroundColor3 = opts.Color or Theme.Candy.PanelFace
 	frame.BorderSizePixel = 0
 	frame.Visible = false
 
@@ -64,15 +68,14 @@ function Widgets.Panel(size: UDim2, position: UDim2, opts: PanelOpts?): CanvasGr
 	corner.Parent = frame
 
 	local gradient = Instance.new("UIGradient")
-	gradient.Color = ColorSequence.new(Theme.Color.PanelLight, Theme.Color.Panel)
+	gradient.Color = ColorSequence.new(Theme.Candy.PanelFaceLight, Theme.Candy.PanelFace)
 	gradient.Rotation = 90
 	gradient.Parent = frame
 
 	local stroke = Instance.new("UIStroke")
 	stroke.Name = "Border"
-	stroke.Color = opts.StrokeColor or Theme.Color.Stroke
-	stroke.Thickness = 1.5
-	stroke.Transparency = 0.35
+	stroke.Color = opts.StrokeColor or Theme.Candy.Border
+	stroke.Thickness = 4
 	stroke.Parent = frame
 
 	local scale = Instance.new("UIScale")
@@ -81,6 +84,63 @@ function Widgets.Panel(size: UDim2, position: UDim2, opts: PanelOpts?): CanvasGr
 	scale.Parent = frame
 
 	return frame
+end
+
+-- Banner-style panel title -- a gold rounded bar with the same bevel-strip/
+-- white-border candy treatment as everything else, sat across a panel's top
+-- edge (callers typically position it slightly ABOVE the panel's own top,
+-- like a hanging sign, e.g. y = panel's y minus half the ribbon's height).
+-- A plain Widgets.Label still works fine for anything that doesn't want the
+-- banner treatment -- this is additive, not a replacement.
+function Widgets.Ribbon(text: string, size: UDim2, position: UDim2): Frame
+	local ribbon = Instance.new("Frame")
+	ribbon.Name = "Ribbon"
+	ribbon.AnchorPoint = Vector2.new(0.5, 0)
+	ribbon.Size = size
+	ribbon.Position = position
+	ribbon.BackgroundColor3 = Theme.Candy.Gold.Face
+	ribbon.BorderSizePixel = 0
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(1, 0)
+	corner.Parent = ribbon
+
+	local border = Instance.new("UIStroke")
+	border.Color = Theme.Candy.Border
+	border.Thickness = 3
+	border.Parent = ribbon
+
+	local bevelMask = Instance.new("Frame")
+	bevelMask.Size = UDim2.fromScale(1, 1)
+	bevelMask.BackgroundTransparency = 1
+	bevelMask.ClipsDescendants = true
+	bevelMask.Parent = ribbon
+
+	local bevelMaskCorner = Instance.new("UICorner")
+	bevelMaskCorner.CornerRadius = UDim.new(1, 0)
+	bevelMaskCorner.Parent = bevelMask
+
+	local bevelStrip = Instance.new("Frame")
+	bevelStrip.AnchorPoint = Vector2.new(0.5, 1)
+	bevelStrip.Position = UDim2.fromScale(0.5, 1)
+	bevelStrip.Size = UDim2.new(1, 0, 0, 6)
+	bevelStrip.BackgroundColor3 = Theme.Candy.Gold.Shadow
+	bevelStrip.BorderSizePixel = 0
+	bevelStrip.Parent = bevelMask
+
+	local label = Instance.new("TextLabel")
+	label.Name = "Label"
+	label.BackgroundTransparency = 1
+	label.Size = UDim2.fromScale(1, 1)
+	label.Text = text
+	label.Font = Theme.Font.Button
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.TextStrokeColor3 = Theme.Candy.TextOutline
+	label.TextStrokeTransparency = 0
+	label.TextSize = 20
+	label.Parent = ribbon
+
+	return ribbon
 end
 
 export type ModalOpts = {
@@ -120,7 +180,7 @@ export type ModalOpts = {
 -- why a modal needs its OWN ScreenGui in the first place (so it can sit
 -- above whatever DisplayOrder the base HUD's buttons happen to use) rather
 -- than trying to out-ZIndex them from inside a shared ScreenGui.
-function Widgets.Modal(name: string, size: UDim2, position: UDim2, opts: ModalOpts?): (CanvasGroup, () -> (), () -> (), (boolean) -> ())
+function Widgets.Modal(name: string, size: UDim2, position: UDim2, opts: ModalOpts?): (CanvasGroup, () -> (), () -> (), (boolean) -> (), ScreenGui)
 	opts = opts or {}
 
 	local screenGui = Instance.new("ScreenGui")
@@ -157,9 +217,9 @@ function Widgets.Modal(name: string, size: UDim2, position: UDim2, opts: ModalOp
 	closeButton.Name = "CloseButton"
 	closeButton.Text = ""
 	closeButton.AutoButtonColor = false
-	closeButton.BackgroundColor3 = Theme.Color.Danger
+	closeButton.BackgroundColor3 = Theme.Candy.Red.Face
 	closeButton.BorderSizePixel = 0
-	closeButton.Size = UDim2.fromOffset(32, 32)
+	closeButton.Size = UDim2.fromOffset(34, 34)
 	closeButton.AnchorPoint = Vector2.new(1, 0)
 	closeButton.Position = UDim2.new(1, -10, 0, 10)
 	closeButton.Parent = panel
@@ -167,6 +227,14 @@ function Widgets.Modal(name: string, size: UDim2, position: UDim2, opts: ModalOp
 	local closeButtonCorner = Instance.new("UICorner")
 	closeButtonCorner.CornerRadius = UDim.new(1, 0)
 	closeButtonCorner.Parent = closeButton
+
+	-- Same thick white ring every candy button/panel has (see Widgets.Button/
+	-- Panel) -- a bare flat circle here would read as an afterthought next to
+	-- everything else's border treatment.
+	local closeButtonBorder = Instance.new("UIStroke")
+	closeButtonBorder.Color = Theme.Candy.Border
+	closeButtonBorder.Thickness = 2.5
+	closeButtonBorder.Parent = closeButton
 
 	local closeScale = Instance.new("UIScale")
 	closeScale.Parent = closeButton
@@ -245,7 +313,123 @@ function Widgets.Modal(name: string, size: UDim2, position: UDim2, opts: ModalOp
 
 	activeModals[panel] = close
 
-	return panel, open, close, setClickOutsideEnabled
+	-- 5th return (screenGui) is for a caller that needs to place something
+	-- OUTSIDE the panel's own rectangle but still at this modal's stacking
+	-- layer -- e.g. a Widgets.TabStrip sitting to the panel's left (see
+	-- GachaController). `panel` itself won't work as that parent: it's a
+	-- CanvasGroup, which clips its own descendants to its own bounds by
+	-- design (that's what makes Widgets.Open/Close's single fade-as-one-unit
+	-- trick work), so anything positioned outside the panel's rectangle as
+	-- its child would just be invisible. Most callers only need the first
+	-- four values and can ignore this one.
+	return panel, open, close, setClickOutsideEnabled, screenGui
+end
+
+export type TabDef = {
+	Id: string,
+	BuildIcon: ((Instance, Color3) -> ())?,
+}
+
+-- Left-side vertical strip of circular candy tab buttons -- the reference
+-- image's category strip (Pets/Passes/Wins/Boosts), used to switch between
+-- a panel's internal sections (see GachaController/ShopController). This
+-- widget only owns the STRIP's look and which tab is highlighted -- it has
+-- no idea what "selecting a tab" should show, that's entirely on the
+-- caller via onSelected. Meant to sit immediately to the LEFT of a
+-- Widgets.Modal panel, positioned by the caller like anything else here.
+function Widgets.TabStrip(tabs: { TabDef }, position: UDim2, opts: { Size: number?, Gap: number? }?): (Frame, (string) -> (), ((string) -> ()) -> ())
+	opts = opts or {}
+	local tabSize = opts.Size or 56
+	local gap = opts.Gap or 10
+
+	local strip = Instance.new("Frame")
+	strip.Name = "TabStrip"
+	strip.Size = UDim2.fromOffset(tabSize, math.max(0, #tabs * tabSize + (#tabs - 1) * gap))
+	strip.Position = position
+	strip.BackgroundTransparency = 1
+
+	local layout = Instance.new("UIListLayout")
+	layout.Padding = UDim.new(0, gap)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = strip
+
+	local buttons: { [string]: TextButton } = {}
+	local strokes: { [string]: UIStroke } = {}
+	local selected: string? = nil
+	local onSelectHandlers: { (string) -> () } = {}
+
+	local function applyHighlight()
+		for id, btn in buttons do
+			local isSelected = id == selected
+			local style = if isSelected then Theme.Candy.Gold else Theme.Candy.PurpleDeep
+			btn.BackgroundColor3 = style.Face
+			strokes[id].Thickness = if isSelected then 4 else 2.5
+		end
+	end
+
+	local function selectTab(id: string)
+		if selected == id or not buttons[id] then
+			return
+		end
+		selected = id
+		applyHighlight()
+		for _, handler in onSelectHandlers do
+			handler(id)
+		end
+	end
+
+	for i, tab in tabs do
+		local btn = Instance.new("TextButton")
+		btn.Name = "Tab_" .. tab.Id
+		btn.LayoutOrder = i
+		btn.Size = UDim2.fromOffset(tabSize, tabSize)
+		btn.Text = ""
+		btn.AutoButtonColor = false
+		btn.BackgroundColor3 = Theme.Candy.PurpleDeep.Face
+		btn.BorderSizePixel = 0
+		btn.Parent = strip
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(1, 0)
+		corner.Parent = btn
+
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = Theme.Candy.Border
+		stroke.Thickness = 2.5
+		stroke.Parent = btn
+
+		local iconHolder = Instance.new("Frame")
+		iconHolder.Size = UDim2.fromScale(0.62, 0.62)
+		iconHolder.Position = UDim2.fromScale(0.19, 0.19)
+		iconHolder.BackgroundTransparency = 1
+		iconHolder.Parent = btn
+
+		if tab.BuildIcon then
+			tab.BuildIcon(iconHolder, Color3.new(1, 1, 1))
+		end
+
+		buttons[tab.Id] = btn
+		strokes[tab.Id] = stroke
+
+		btn.MouseEnter:Connect(function()
+			Sounds.Play("Hover")
+		end)
+		btn.MouseButton1Click:Connect(function()
+			Sounds.Play("Click")
+			selectTab(tab.Id)
+		end)
+	end
+
+	if tabs[1] then
+		selected = tabs[1].Id
+		applyHighlight()
+	end
+
+	local function onSelected(handler: (string) -> ())
+		table.insert(onSelectHandlers, handler)
+	end
+
+	return strip, selectTab, onSelected
 end
 
 -- Open/Close can be called back-to-back (e.g. a race that finishes almost
@@ -336,22 +520,29 @@ function Widgets.Label(text: string, size: UDim2, position: UDim2, opts: LabelOp
 	return label
 end
 
--- Kept flat and plain on purpose: an earlier chunky-gradient/multi-stroke
--- version kept coming back blurry/hard-to-read in testing no matter which
--- color combination was tried, so this strips it down to the simplest thing
--- that can't introduce a rendering artifact -- one solid color, one text
--- color, nothing layered on top. "Cartoony" now comes entirely from the
--- shape (full-pill corners) and the squish/bounce motion, not the paint job.
+-- Chunky "candy" look: a bright face color, a darker same-hue bevel strip
+-- peeking out along the bottom edge (the classic mobile-game 3D-button
+-- look), and a thick white outer border -- see Theme.Candy for the
+-- Face/Shadow pairs every variant maps to below. An earlier chunky-gradient/
+-- multi-stroke attempt kept coming back blurry/hard-to-read in testing, but
+-- that was a multi-color-GRADIENT-on-text problem specifically -- a single
+-- solid face color plus a native TextStrokeColor3 outline (not a second
+-- layered label) stays exactly as crisp as the old flat style did.
 local WHITE = Color3.fromRGB(255, 255, 255)
 local NEAR_BLACK = Color3.fromRGB(24, 24, 28)
 
 local VARIANT_STYLE = {
-	Primary = { Color = Color3.fromRGB(20, 20, 24), Text = WHITE },
-	Secondary = { Color = WHITE, Text = NEAR_BLACK },
-	Success = { Color = Color3.fromRGB(45, 175, 100), Text = WHITE },
-	Danger = { Color = Color3.fromRGB(210, 70, 80), Text = WHITE },
+	Primary = { Face = Theme.Candy.Purple.Face, Shadow = Theme.Candy.Purple.Shadow, Text = WHITE },
+	Secondary = { Face = Theme.Candy.White.Face, Shadow = Theme.Candy.White.Shadow, Text = NEAR_BLACK },
+	Success = { Face = Theme.Candy.Green.Face, Shadow = Theme.Candy.Green.Shadow, Text = WHITE },
+	Danger = { Face = Theme.Candy.Red.Face, Shadow = Theme.Candy.Red.Shadow, Text = WHITE },
 }
 VARIANT_STYLE.Tab = VARIANT_STYLE.Secondary
+
+-- How far the bevel strip peeks out along the bottom edge -- big enough to
+-- read as "3D depth" at every button size used in the game, small enough to
+-- never eat into a short button's text.
+local BEVEL_DEPTH = 5
 
 local function lighten(color: Color3, amount: number): Color3
 	return color:Lerp(Color3.new(1, 1, 1), amount)
@@ -421,19 +612,70 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 
 	local button = Instance.new("TextButton")
 	button.Text = text
+	local effectiveTextSize = opts.TextSize or defaultTextSize(size)
 	button.Size = size
-	button.BackgroundColor3 = style.Color
+	button.BackgroundColor3 = style.Face
 	button.TextColor3 = style.Text
-	button.Font = Theme.Font.Button
-	button.TextSize = opts.TextSize or defaultTextSize(size)
+	-- GothamBlack (the heaviest cut) reads fine at the ~19px+ sizes most
+	-- buttons use, but confirmed via screenshot that smaller explicit sizes
+	-- (opts.TextSize = 13-14, used by denser rows like the gacha pull
+	-- buttons) came out visibly mushy with it -- GothamBold is one step
+	-- lighter and stays legible at that size instead.
+	button.Font = if effectiveTextSize >= 18 then Theme.Font.Button else Theme.Font.Heading
+	button.TextSize = effectiveTextSize
 	button.TextScaled = false
 	button.TextTruncate = Enum.TextTruncate.AtEnd
+	-- Native text outline (not a second layered label) -- keeps the "candy"
+	-- text look at zero extra render cost and zero risk of drifting out of
+	-- sync with whatever the caller sets button.Text to later. Confirmed via
+	-- screenshot that ANY visible stroke at this button's normal 14-16px
+	-- functional-text sizes (e.g. "Pull x1 — 1500 pts") made the text look
+	-- soft/muddy, while the same stroke at a bigger 20px+ size (Widgets.
+	-- Ribbon's banner text) stayed crisp -- legibility on functional UI text
+	-- wins over the decorative outline, so smaller text gets none at all.
+	button.TextStrokeColor3 = Theme.Candy.TextOutline
+	button.TextStrokeTransparency = if effectiveTextSize >= 18 then 0.35 else 1
 	button.AutoButtonColor = false
 	button.BorderSizePixel = 0
 
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = Theme.Corner.Button
 	corner.Parent = button
+
+	local border = Instance.new("UIStroke")
+	border.Name = "CandyBorder"
+	border.Color = Theme.Candy.Border
+	border.Thickness = 3
+	border.Parent = button
+
+	-- Bevel strip: a same-hue-darker rounded rectangle sitting along the
+	-- button's bottom edge, so it reads as a 3D drop-shadow lip. Originally
+	-- built as a full-width strip confined by a ClipsDescendants mask (so it
+	-- couldn't poke out past the pill's rounded corners) -- but every button
+	-- built that way came out with visibly garbled/muddy text specifically
+	-- when the button sat inside a CanvasGroup panel (confirmed via
+	-- screenshot: identical buttons on the plain-ScreenGui base HUD, outside
+	-- any CanvasGroup, stayed crisp). That combination -- a ClipsDescendants
+	-- frame nested inside a CanvasGroup -- reproduced consistently enough to
+	-- treat as a real engine quirk, not a fluke, so this avoids
+	-- ClipsDescendants entirely: the strip is inset from both edges by the
+	-- pill's own corner radius (+ a few px margin) so it naturally sits
+	-- within the rounded silhouette without ever needing to be clipped to it.
+	local buttonHeightPx = size.Y.Offset
+	local bevelInset = buttonHeightPx / 2 + 3
+
+	local bevelStrip = Instance.new("Frame")
+	bevelStrip.Name = "BevelStrip"
+	bevelStrip.AnchorPoint = Vector2.new(0.5, 1)
+	bevelStrip.Position = UDim2.fromScale(0.5, 1)
+	bevelStrip.Size = UDim2.new(1, -bevelInset * 2, 0, BEVEL_DEPTH)
+	bevelStrip.BackgroundColor3 = style.Shadow
+	bevelStrip.BorderSizePixel = 0
+	bevelStrip.Parent = button
+
+	local bevelCorner = Instance.new("UICorner")
+	bevelCorner.CornerRadius = UDim.new(0, 3)
+	bevelCorner.Parent = bevelStrip
 
 	local scale = Instance.new("UIScale")
 	scale.Scale = 1
@@ -498,16 +740,33 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	end)
 	button.MouseButton1Click:Connect(function()
 		Sounds.Play("Click")
-		spawnClickSparkles(button, style.Color)
+		spawnClickSparkles(button, style.Face)
 	end)
 
 	local function setActive(isActive: boolean)
 		local target = if isActive then VARIANT_STYLE.Primary else VARIANT_STYLE.Secondary
-		button.BackgroundColor3 = target.Color
+		button.BackgroundColor3 = target.Face
 		button.TextColor3 = target.Text
+		bevelStrip.BackgroundColor3 = target.Shadow
 	end
 
 	return button, setActive
+end
+
+-- For a caller that needs to swap a button's full color set at runtime
+-- beyond what setActive's Tab on/off toggle covers (e.g. AbilityController's
+-- ready/cooldown states, which used to poke button.BackgroundColor3
+-- directly) -- keeps the bevel strip in sync with the face color instead of
+-- it silently going stale, which is exactly what direct property pokes would
+-- do now that the "shadow" is a separate child instead of part of one flat
+-- color.
+function Widgets.SetButtonColors(button: TextButton, face: Color3, shadow: Color3, text: Color3)
+	button.BackgroundColor3 = face
+	button.TextColor3 = text
+	local strip = button:FindFirstChild("BevelStrip")
+	if strip then
+		(strip :: Frame).BackgroundColor3 = shadow
+	end
 end
 
 -- Small rounded chip, e.g. "Gold  1240 elo" in a corner HUD.

@@ -39,7 +39,10 @@ local readyAt = 0
 local currentAbility: Abilities.AbilityInfo = Abilities[1]
 
 local READY_COLOR = Color3.fromRGB(255, 255, 255)
+local READY_SHADOW_COLOR = Theme.Candy.White.Shadow
 local READY_TEXT_COLOR = Color3.fromRGB(24, 24, 28)
+local COOLDOWN_COLOR = Theme.Color.PanelLight
+local COOLDOWN_SHADOW_COLOR = Color3.fromRGB(20, 21, 30)
 
 local function getAbilityById(id: string): Abilities.AbilityInfo?
 	for _, info in Abilities do
@@ -56,13 +59,11 @@ local function updateButton()
 	local iconColor: Color3
 	if remaining > 0 then
 		button.Text = ("%s  %.1fs"):format(displayName, remaining)
-		button.BackgroundColor3 = Theme.Color.PanelLight
-		button.TextColor3 = Theme.Color.TextMuted
+		Widgets.SetButtonColors(button, COOLDOWN_COLOR, COOLDOWN_SHADOW_COLOR, Theme.Color.TextMuted)
 		iconColor = Theme.Color.TextMuted
 	else
 		button.Text = ("%s (Q)"):format(displayName)
-		button.BackgroundColor3 = READY_COLOR
-		button.TextColor3 = READY_TEXT_COLOR
+		Widgets.SetButtonColors(button, READY_COLOR, READY_SHADOW_COLOR, READY_TEXT_COLOR)
 		iconColor = READY_TEXT_COLOR
 	end
 	AbilityIcons.Populate(iconHolder, currentAbility.Id, 26, iconColor)
@@ -119,20 +120,42 @@ local function buildUI()
 	screenGui.ResetOnSpawn = false
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
-	-- Sits directly above the VS BOTS button (see PlayButtonController), same
-	-- 8px-gap convention used throughout this stack of bottom-center buttons.
-	button = Widgets.Button("DASH (Q)", UDim2.fromOffset(150, 44), UDim2.new(0.5, -75, 1, -224), {
+	-- 190 wide, not 150 -- 150 was sized for "DASH (Q)" alone; once Meteor
+	-- Dash (the longest name, plus a cooldown readout like "METEOR DASH
+	-- 4.0s") needed to share the button with an icon too, the old width left
+	-- no room for either and the two visibly overlapped (confirmed via
+	-- screenshot: the icon sat on top of "ME" in "METEOR"). Sits directly
+	-- above the VS BOTS button (see PlayButtonController), same 8px-gap
+	-- convention used throughout this stack of bottom-center buttons.
+	-- Left edge stays at -75 (unchanged from the original 150-wide button) --
+	-- SprintController's button sits immediately to the left with its own
+	-- right edge at -85, so the extra width needs to extend rightward only;
+	-- growing this symmetrically around the old center would push the left
+	-- edge to -95, eating into Sprint's button. 200 (not 190) because the
+	-- worst-case cooldown readout -- "METEOR DASH  12.0s", the longest name
+	-- paired with its own (longest) cooldown -- measured at 150.5px against
+	-- only 150px of available text width at 190, i.e. right at the
+	-- truncation edge with no real margin; 200 gives it breathing room.
+	button = Widgets.Button("DASH (Q)", UDim2.fromOffset(200, 44), UDim2.new(0.5, -75, 1, -224), {
 		Variant = "Secondary",
 		TextSize = 16,
 	})
 	button.Parent = screenGui
 	button.MouseButton1Click:Connect(tryUseAbility)
 
-	-- Left padding makes room for the icon without the button's own
-	-- (centered) text drifting under it -- the icon sits in the padding gap
-	-- rather than overlapping the label.
+	-- Left-aligned, not the Widgets.Button default of Center -- centering
+	-- text inside a padded box only reliably avoids the icon if the text is
+	-- shorter than the padded width; once truncation kicks in for a long
+	-- name+cooldown string the (already-shrunk) text still centers within
+	-- its own box and can still start before the icon's right edge. Left
+	-- alignment always starts exactly at the padding boundary, so it can
+	-- never drift backward into the icon's space regardless of text length.
+	button.TextXAlignment = Enum.TextXAlignment.Left
+
+	-- Icon spans x=8 to x=34 (8 + 26 wide) -- padding must clear that AND
+	-- leave a visible gap, not just avoid exact pixel overlap.
 	local padding = Instance.new("UIPadding")
-	padding.PaddingLeft = UDim.new(0, 28)
+	padding.PaddingLeft = UDim.new(0, 40)
 	padding.Parent = button
 
 	iconHolder = Instance.new("Frame")

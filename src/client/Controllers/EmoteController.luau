@@ -134,11 +134,15 @@ local function buildUI()
 		DisplayOrder = 30,
 	})
 
-	local title = Widgets.Label("EMOTES  (press 1-8 anytime)", UDim2.new(1, -16, 0, 24), UDim2.fromOffset(8, 6), {
-		TextSize = 15,
-		Color = Theme.Color.TextSecondary,
+	local ribbon = Widgets.Ribbon("EMOTES", UDim2.fromOffset(180, 40), UDim2.new(0.5, 0, 0, -20))
+	ribbon.Parent = panel
+
+	local hint = Widgets.Label("Press 1-8 anytime", UDim2.new(1, -16, 0, 16), UDim2.fromOffset(8, 6), {
+		TextSize = 12,
+		Color = Theme.Color.TextMuted,
+		Align = Enum.TextXAlignment.Center,
 	})
-	title.Parent = panel
+	hint.Parent = panel
 
 	local grid = Instance.new("Frame")
 	grid.Size = UDim2.new(1, -16, 1, -36)

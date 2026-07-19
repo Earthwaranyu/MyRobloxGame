@@ -152,10 +152,8 @@ local function buildUI()
 		DisplayOrder = 30,
 	})
 
-	local title = Widgets.Label("SETTINGS", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 6), {
-		TextSize = 20,
-	})
-	title.Parent = panel
+	local ribbon = Widgets.Ribbon("SETTINGS", UDim2.fromOffset(200, 40), UDim2.new(0.5, 0, 0, -20))
+	ribbon.Parent = panel
 
 	local rowLabel = Widgets.Label("Wind effect while sprinting", UDim2.new(1, -110, 0, 44), UDim2.fromOffset(8, 44), {
 		TextSize = 16,

@@ -8,6 +8,7 @@ local RemoteNames = require(Shared.RemoteNames)
 local Trails = require(Shared.Trails)
 local RankTiers = require(Shared.RankTiers)
 
+local CategoryIcons = require(script.Parent.Parent.CategoryIcons)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 
@@ -209,68 +210,105 @@ local function buildUI()
 	-- this one button -- a panel closable ONLY via the button that opened it
 	-- is a named player-facing complaint (no click-outside, no X). See
 	-- Widgets.Modal's doc comment for the DisplayOrder/ZIndex reasoning too.
-	panel, openPanel, closePanel = Widgets.Modal("Shop", UDim2.fromOffset(380, 440), UDim2.new(1, -390, 0, 116), {
+	local shopScreenGui: ScreenGui
+	panel, openPanel, closePanel, _, shopScreenGui = Widgets.Modal("Shop", UDim2.fromOffset(380, 460), UDim2.new(1, -390, 0, 116), {
 		DisplayOrder = 30,
 	})
 
-	local title = Widgets.Label("TRAIL SHOP", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 6), {
-		TextSize = 20,
-	})
-	title.Parent = panel
+	local ribbon = Widgets.Ribbon("TRAIL SHOP", UDim2.fromOffset(220, 40), UDim2.new(0.5, 0, 0, -20))
+	ribbon.Parent = panel
 
-	rankLabel = Widgets.Label("", UDim2.new(0.6, -16, 0, 20), UDim2.fromOffset(8, 38), {
+	rankLabel = Widgets.Label("", UDim2.new(0.6, -16, 0, 20), UDim2.fromOffset(8, 26), {
 		TextSize = 15,
 	})
 	rankLabel.Parent = panel
 
-	pointsLabel = Widgets.Label("", UDim2.new(0.4, -16, 0, 20), UDim2.new(0.6, 0, 0, 38), {
+	pointsLabel = Widgets.Label("", UDim2.new(0.4, -16, 0, 20), UDim2.new(0.6, 0, 0, 26), {
 		TextSize = 15,
 		Align = Enum.TextXAlignment.Right,
-		Color = Theme.Color.Warning,
+		Color = Theme.Candy.Gold.Face,
 	})
 	pointsLabel.Parent = panel
 
-	vipButton = Widgets.Button("👑 Get VIP — 2x Points Everywhere", UDim2.new(1, -16, 0, 32), UDim2.fromOffset(8, 62), {
+	-- Left tab strip (Trails / Points), same reference-image category-strip
+	-- layout language as GachaController's own tab strip -- see its doc
+	-- comment for why this is scoped to switching between THIS panel's own
+	-- sections rather than merging Shop/Gacha/Settings into one mega-panel.
+	local tabStrip, _selectTab, onTabSelected = Widgets.TabStrip({
+		{ Id = "Trails", BuildIcon = function(holder, color)
+			CategoryIcons.Populate(holder, "Trails", holder.AbsoluteSize.X, color)
+		end },
+		{ Id = "Points", BuildIcon = function(holder, color)
+			CategoryIcons.Populate(holder, "Points", holder.AbsoluteSize.X, color)
+		end },
+	}, UDim2.new(1, -462, 0, 168))
+	tabStrip.Parent = shopScreenGui
+	tabStrip.Visible = panel.Visible
+	panel:GetPropertyChangedSignal("Visible"):Connect(function()
+		tabStrip.Visible = panel.Visible
+	end)
+
+	local trailsContent = Instance.new("Frame")
+	trailsContent.Name = "TrailsContent"
+	trailsContent.Size = UDim2.new(1, -16, 1, -54)
+	trailsContent.Position = UDim2.fromOffset(8, 46)
+	trailsContent.BackgroundTransparency = 1
+	trailsContent.Parent = panel
+
+	local pointsContent = Instance.new("Frame")
+	pointsContent.Name = "PointsContent"
+	pointsContent.Size = UDim2.new(1, -16, 1, -54)
+	pointsContent.Position = UDim2.fromOffset(8, 46)
+	pointsContent.BackgroundTransparency = 1
+	pointsContent.Visible = false
+	pointsContent.Parent = panel
+
+	onTabSelected(function(id: string)
+		trailsContent.Visible = id == "Trails"
+		pointsContent.Visible = id == "Points"
+	end)
+
+	vipButton = Widgets.Button("👑 Get VIP — 2x Points Everywhere", UDim2.new(1, 0, 0, 32), UDim2.fromOffset(0, 0), {
 		Variant = "Danger",
 		TextSize = 14,
 	})
-	vipButton.Parent = panel
+	vipButton.Parent = pointsContent
 	vipButton.MouseButton1Click:Connect(function()
 		if not vipOwned then
 			Net.GetRemoteEvent(RemoteNames.PromptVIPPurchase):FireServer()
 		end
 	end)
 
-	local pointsHeader = Widgets.Label("GET POINTS", UDim2.new(1, -16, 0, 16), UDim2.fromOffset(8, 98), {
+	local pointsHeader = Widgets.Label("GET POINTS", UDim2.new(1, 0, 0, 16), UDim2.fromOffset(0, 40), {
 		TextSize = 12,
 		Color = Theme.Color.TextMuted,
 	})
-	pointsHeader.Parent = panel
+	pointsHeader.Parent = pointsContent
 
-	local BUNDLE_WIDTH = 116
+	local BUNDLE_WIDTH = 108
 	for i, bundle in PointBundles do
 		local bundleButton = Widgets.Button(
 			bundle.Label .. " · R$",
 			UDim2.fromOffset(BUNDLE_WIDTH, 34),
-			UDim2.fromOffset(8 + (i - 1) * (BUNDLE_WIDTH + 8), 116),
+			UDim2.fromOffset((i - 1) * (BUNDLE_WIDTH + 8), 58),
 			{ Variant = "Secondary", TextSize = 13 }
 		)
-		bundleButton.Parent = panel
+		bundleButton.Parent = pointsContent
 		bundleButton.MouseButton1Click:Connect(function()
 			Net.GetRemoteEvent(RemoteNames.PromptPointsPurchase):FireServer(bundle.RobuxProductId)
 		end)
 	end
 
 	itemsList = Instance.new("ScrollingFrame")
-	itemsList.Size = UDim2.new(1, -16, 1, -190)
-	itemsList.Position = UDim2.fromOffset(8, 158)
+	itemsList.Size = UDim2.new(1, 0, 1, 0)
+	itemsList.Position = UDim2.fromOffset(0, 0)
 	itemsList.BackgroundTransparency = 1
 	itemsList.BorderSizePixel = 0
 	itemsList.CanvasSize = UDim2.new(0, 0, 0, 0)
 	itemsList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	itemsList.ScrollBarThickness = 5
 	itemsList.ScrollBarImageColor3 = Theme.Color.AccentA
-	itemsList.Parent = panel
+	itemsList.Parent = trailsContent
 
 	local layout = Instance.new("UIListLayout")
 	layout.Padding = UDim.new(0, 6)

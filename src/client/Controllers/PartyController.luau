@@ -173,10 +173,8 @@ local function buildUI()
 		DisplayOrder = 30,
 	})
 
-	local title = Widgets.Label("PARTY", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 6), {
-		TextSize = 20,
-	})
-	title.Parent = panel
+	local ribbon = Widgets.Ribbon("PARTY", UDim2.fromOffset(180, 40), UDim2.new(0.5, 0, 0, -20))
+	ribbon.Parent = panel
 
 	rosterLabel = Widgets.Label("Playing solo -- invite someone below!", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 34), {
 		TextSize = 14,
