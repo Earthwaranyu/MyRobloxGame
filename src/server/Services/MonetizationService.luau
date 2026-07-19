@@ -10,7 +10,11 @@ local RemoteNames = require(Shared.RemoteNames)
 -- prompt setup below instead of three near-identical copies of the same
 -- MarketplaceService dance -- see GAMEPASS_IDS for the actual passes.
 local GAMEPASS_IDS: { [string]: number } = {
-	VIP = 3610509225,
+	-- Original ID (3610509225) never resolved via GetProductInfo -- confirmed
+	-- with the "Item not found in batch response" error -- it wasn't a real
+	-- gamepass at all, which is why VIP could never be purchased no matter
+	-- what the client-side code did. This one's confirmed valid and for sale.
+	VIP = 1918580933,
 	-- "Lucky" -- better gacha odds (see Abilities.luau's LuckyPullWeight and
 	-- GachaService).
 	Lucky = 1918173228,
@@ -79,6 +83,20 @@ function MonetizationService.Init()
 		refreshAll(player)
 	end
 
+	-- Every client-side controller (Gacha/Shop/Settings) that shows a "Buy X"
+	-- button ALSO listens for MarketplaceService.PromptGamePassPurchaseFinished
+	-- directly, to refresh itself the moment a purchase completes -- but that
+	-- signal fires independently client-side and server-side, with no
+	-- guaranteed ordering between "this server handler updates ownedCache" and
+	-- "the client's own copy of the event fires and re-queries
+	-- GetMonetizationStatus". A client query that lands first still sees the
+	-- pre-purchase cache and shows "Buy" again, which is exactly the "keeps
+	-- forcing me to buy it again and again" bug reported after the first
+	-- attempt at this fix (which only added the client-side re-query, not
+	-- this). Firing an explicit remote AFTER the cache write below guarantees
+	-- the client never re-queries before the server's own state is correct.
+	local statusChangedRemote = Net.CreateRemoteEvent(RemoteNames.MonetizationStatusChanged)
+
 	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gamePassId, wasPurchased)
 		if not wasPurchased then
 			return
@@ -88,6 +106,7 @@ function MonetizationService.Init()
 				ownedCache[name][player.UserId] = true
 			end
 		end
+		statusChangedRemote:FireClient(player)
 	end)
 
 	wirePromptRemote(RemoteNames.PromptVIPPurchase, "VIP")

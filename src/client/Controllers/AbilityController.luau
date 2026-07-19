@@ -9,6 +9,7 @@ local Net = require(Shared.Net)
 local RarityColors = require(Shared.RarityColors)
 local RemoteNames = require(Shared.RemoteNames)
 
+local AbilityIcons = require(script.Parent.Parent.AbilityIcons)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local MatchStateController = require(script.Parent.MatchStateController)
@@ -28,6 +29,7 @@ local AbilityController = {}
 local player = Players.LocalPlayer
 
 local button: TextButton
+local iconHolder: Frame
 local requestAbilityRemote: RemoteEvent
 local flashFrame: Frame
 local readyAt = 0
@@ -51,15 +53,19 @@ end
 local function updateButton()
 	local remaining = readyAt - os.clock()
 	local displayName = currentAbility.Name:upper()
+	local iconColor: Color3
 	if remaining > 0 then
 		button.Text = ("%s  %.1fs"):format(displayName, remaining)
 		button.BackgroundColor3 = Theme.Color.PanelLight
 		button.TextColor3 = Theme.Color.TextMuted
+		iconColor = Theme.Color.TextMuted
 	else
 		button.Text = ("%s (Q)"):format(displayName)
 		button.BackgroundColor3 = READY_COLOR
 		button.TextColor3 = READY_TEXT_COLOR
+		iconColor = READY_TEXT_COLOR
 	end
+	AbilityIcons.Populate(iconHolder, currentAbility.Id, 26, iconColor)
 end
 
 -- How strong/long the flash is per rarity -- a free Common ability still
@@ -121,6 +127,21 @@ local function buildUI()
 	})
 	button.Parent = screenGui
 	button.MouseButton1Click:Connect(tryUseAbility)
+
+	-- Left padding makes room for the icon without the button's own
+	-- (centered) text drifting under it -- the icon sits in the padding gap
+	-- rather than overlapping the label.
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0, 28)
+	padding.Parent = button
+
+	iconHolder = Instance.new("Frame")
+	iconHolder.Name = "AbilityIconHolder"
+	iconHolder.AnchorPoint = Vector2.new(0, 0.5)
+	iconHolder.Position = UDim2.new(0, 8, 0.5, 0)
+	iconHolder.Size = UDim2.fromOffset(26, 26)
+	iconHolder.BackgroundTransparency = 1
+	iconHolder.Parent = button
 
 	local flashGui = Instance.new("ScreenGui")
 	flashGui.Name = "DashFlashGui"

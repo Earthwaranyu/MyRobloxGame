@@ -8,6 +8,25 @@ local Sounds = require(script.Parent.Sounds)
 
 local Widgets = {}
 
+-- Every modal ever created (see Widgets.Modal), so something outside this
+-- module can force them all shut at once -- see Widgets.CloseAllModals.
+-- Weak-keyed so a modal whose ScreenGui gets destroyed can still be GC'd.
+local activeModals: { [CanvasGroup]: () -> () } = setmetatable({}, { __mode = "k" }) :: any
+
+-- Closes every currently-open modal panel (Shop, Gacha, Party, Settings,
+-- Emotes, Leaderboard, ProfileCard, ...) in one shot. Used by
+-- ModalAutoCloseController when a queued race actually starts -- leaving
+-- ANY of these open across that transition covers the player's screen right
+-- as the race they're now supposed to be playing begins, with no way to see
+-- (or react to) it short of manually finding the ✕.
+function Widgets.CloseAllModals()
+	for panel, close in activeModals do
+		if panel.Visible then
+			close()
+		end
+	end
+end
+
 export type PanelOpts = {
 	Color: Color3?,
 	StrokeColor: Color3?,
@@ -80,9 +99,12 @@ export type ModalOpts = {
 
 -- A fully self-contained modal: its own ScreenGui, a dimmed click-outside-to-
 -- close backdrop, the panel itself, and a close-✕ pinned to its top-right
--- corner. Returns (panel, open, close) -- callers build their own content
--- into `panel` same as a raw Widgets.Panel, then call open()/close() instead
--- of Widgets.Open/Close directly (this also flips the backdrop).
+-- corner. Returns (panel, open, close, setClickOutsideEnabled) -- callers
+-- build their own content into `panel` same as a raw Widgets.Panel, then
+-- call open()/close() instead of Widgets.Open/Close directly (this also
+-- flips the backdrop). setClickOutsideEnabled(false) is for a modal that's
+-- mid-ceremony rather than idly browsable (see its own doc comment below);
+-- most callers never need to touch it.
 --
 -- Why every modal in the game should go through this instead of building its
 -- own backdrop+panel by hand (as GachaController's gacha/odds/reveal panels
@@ -98,7 +120,7 @@ export type ModalOpts = {
 -- why a modal needs its OWN ScreenGui in the first place (so it can sit
 -- above whatever DisplayOrder the base HUD's buttons happen to use) rather
 -- than trying to out-ZIndex them from inside a shared ScreenGui.
-function Widgets.Modal(name: string, size: UDim2, position: UDim2, opts: ModalOpts?): (CanvasGroup, () -> (), () -> ())
+function Widgets.Modal(name: string, size: UDim2, position: UDim2, opts: ModalOpts?): (CanvasGroup, () -> (), () -> (), (boolean) -> ())
 	opts = opts or {}
 
 	local screenGui = Instance.new("ScreenGui")
@@ -200,14 +222,30 @@ function Widgets.Modal(name: string, size: UDim2, position: UDim2, opts: ModalOp
 	-- Click/tap ANYWHERE the backdrop is still visible (i.e. outside the
 	-- panel, since the panel sits on top of it and now absorbs its own
 	-- clicks) closes the modal -- one of the three exits every modal should
-	-- have alongside the ✕ and whatever toggle button opened it.
+	-- have alongside the ✕ and whatever toggle button opened it. Can be
+	-- switched off at runtime (see setClickOutsideEnabled) for a modal that's
+	-- mid-ceremony rather than idly browsable -- e.g. a gacha reveal playing
+	-- a ~30s sequence of pulls, where an impatient/accidental tap anywhere on
+	-- screen used to dismiss the whole thing with no way back to see the
+	-- result. The ✕ still always works either way -- that's a deliberate
+	-- exit, not a stray tap.
+	local clickOutsideEnabled = true
 	backdrop.InputBegan:Connect(function(input: InputObject)
+		if not clickOutsideEnabled then
+			return
+		end
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			close()
 		end
 	end)
 
-	return panel, open, close
+	local function setClickOutsideEnabled(enabled: boolean)
+		clickOutsideEnabled = enabled
+	end
+
+	activeModals[panel] = close
+
+	return panel, open, close, setClickOutsideEnabled
 end
 
 -- Open/Close can be called back-to-back (e.g. a race that finishes almost

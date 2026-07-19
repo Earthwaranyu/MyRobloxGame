@@ -50,4 +50,5 @@ return {
 	GachaPullResult = "GachaPullResult",
 	PromptPointsPurchase = "PromptPointsPurchase",
 	SetSkipGachaAnimation = "SetSkipGachaAnimation",
+	MonetizationStatusChanged = "MonetizationStatusChanged",
 }

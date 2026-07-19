@@ -116,15 +116,23 @@ local function applyDashEffect(root: BasePart, direction: Vector3, info: Abiliti
 	playAbilitySound(root, info.Kind)
 end
 
--- A one-time AssemblyLinearVelocity set gets overridden almost immediately by
--- the Humanoid's own grounded-state physics -- ChangeState to Jumping first
--- (same trick BotService.jumpToward uses) so the engine treats this as an
--- actual jump in progress instead of stomping the velocity back to zero next
--- physics step.
-local function applyHopEffect(humanoid: Humanoid, root: BasePart, info: Abilities.AbilityInfo)
-	humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-	local velocity = root.AssemblyLinearVelocity
-	root.AssemblyLinearVelocity = Vector3.new(velocity.X, info.UpwardBoost or 0, velocity.Z)
+-- A player's own character has CLIENT-side network ownership of its
+-- physics, so a one-time server-side `root.AssemblyLinearVelocity = ...`
+-- write (what this used to do, plus a ChangeState(Jumping) borrowed from
+-- BotService.jumpToward) gets silently overridden by the client's own
+-- simulation almost immediately -- that trick only works for BotService's
+-- bots because those are server-owned NPCs with no client fighting back.
+-- BodyVelocity is a real physics CONSTRAINT rather than a property write, so
+-- it keeps winning for as long as it exists regardless of who owns the
+-- part's simulation -- same reasoning applyDashEffect's lift already relies
+-- on, just Y-only here so it never fights horizontal movement.
+local function applyHopEffect(root: BasePart, info: Abilities.AbilityInfo)
+	local bodyVelocity = Instance.new("BodyVelocity")
+	bodyVelocity.MaxForce = Vector3.new(0, 1e5, 0)
+	bodyVelocity.Velocity = Vector3.new(0, info.UpwardBoost or 0, 0)
+	bodyVelocity.Parent = root
+	Debris:AddItem(bodyVelocity, 0.15) -- brief upward kick, then gravity takes over and arcs it back down like a real jump
+
 	playAbilitySound(root, info.Kind)
 end
 
@@ -173,7 +181,7 @@ local function onRequestAbility(player: Player)
 
 	if info.Kind == "Hop" then
 		lastAbilityUseTime[userId] = now
-		applyHopEffect(humanoid, root, info)
+		applyHopEffect(root, info)
 		return
 	end
 

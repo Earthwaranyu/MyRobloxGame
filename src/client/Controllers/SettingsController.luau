@@ -1,4 +1,3 @@
-local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local SoundService = game:GetService("SoundService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -89,9 +88,10 @@ local function buildVolumeRow(panel: CanvasGroup, labelText: string, yOffset: nu
 	end)
 end
 
--- actionSlot holds either a working ON/OFF toggle (owned) or a "Buy" prompt
--- (not owned) -- rebuilt from scratch on ownership/enabled changes rather
--- than trying to morph one button into the other.
+-- Only ever shows the ON/OFF toggle, and only once the gamepass is actually
+-- owned -- unlocking it happens in the Gacha panel instead (right next to
+-- the feature it affects), not here. If it's not owned yet, this row simply
+-- doesn't exist rather than showing a disabled/purchasable placeholder.
 local function buildSkipGachaRow(panel: CanvasGroup, yOffset: number)
 	local rowLabel = Widgets.Label("Skip gacha pull animation", UDim2.new(1, -110, 0, 36), UDim2.fromOffset(8, yOffset), {
 		TextSize = 16,
@@ -107,36 +107,31 @@ local function buildSkipGachaRow(panel: CanvasGroup, yOffset: number)
 	actionSlot.Parent = panel
 
 	refreshSkipGachaRow = function()
+		rowLabel.Visible = skipGachaOwned
+		actionSlot.Visible = skipGachaOwned
+
 		for _, child in actionSlot:GetChildren() do
 			child:Destroy()
 		end
-
-		if skipGachaOwned then
-			local toggleButton, setActive = Widgets.Button(if skipGachaEnabled then "ON" else "OFF", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), {
-				Variant = "Tab",
-				Active = skipGachaEnabled,
-				TextSize = 14,
-			})
-			toggleButton.Parent = actionSlot
-			setActive(skipGachaEnabled)
-
-			toggleButton.MouseButton1Click:Connect(function()
-				local requested = not skipGachaEnabled
-				local actual = Net.GetRemoteFunction(RemoteNames.SetSkipGachaAnimation):InvokeServer(requested)
-				skipGachaEnabled = actual
-				toggleButton.Text = if actual then "ON" else "OFF"
-				setActive(actual)
-			end)
-		else
-			local buyButton = Widgets.Button("Buy", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), {
-				Variant = "Secondary",
-				TextSize = 14,
-			})
-			buyButton.Parent = actionSlot
-			buyButton.MouseButton1Click:Connect(function()
-				Net.GetRemoteEvent(RemoteNames.PromptSkipGachaAnimationPurchase):FireServer()
-			end)
+		if not skipGachaOwned then
+			return
 		end
+
+		local toggleButton, setActive = Widgets.Button(if skipGachaEnabled then "ON" else "OFF", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), {
+			Variant = "Tab",
+			Active = skipGachaEnabled,
+			TextSize = 14,
+		})
+		toggleButton.Parent = actionSlot
+		setActive(skipGachaEnabled)
+
+		toggleButton.MouseButton1Click:Connect(function()
+			local requested = not skipGachaEnabled
+			local actual = Net.GetRemoteFunction(RemoteNames.SetSkipGachaAnimation):InvokeServer(requested)
+			skipGachaEnabled = actual
+			toggleButton.Text = if actual then "ON" else "OFF"
+			setActive(actual)
+		end)
 	end
 end
 
@@ -202,6 +197,14 @@ local function buildUI()
 			closePanel()
 		else
 			openPanel()
+			-- Re-checked on every open, not just once at Init -- Monetization
+			-- Service's own ownership check is itself asynchronous
+			-- server-side, so if it hadn't resolved yet the very first time
+			-- Init() asked, this row would otherwise stay hidden forever for
+			-- someone who already owns the gamepass.
+			local status = Net.GetRemoteFunction(RemoteNames.GetMonetizationStatus):InvokeServer()
+			skipGachaOwned = (status and status.HasSkipGachaAnimation) or false
+			refreshSkipGachaRow()
 		end
 	end)
 end
@@ -217,14 +220,13 @@ function SettingsController.Init()
 
 	refreshSkipGachaRow()
 
-	-- Gamepass ownership is just an in-memory cache flip server-side (see
-	-- MonetizationService), no DataStore write to lag behind, so re-checking
-	-- status right after a purchase finishes is safe (same reasoning
-	-- ShopController/GachaController use for their own gamepass refreshes).
-	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(purchasedPlayer: Player, _gamePassId: number, wasPurchased: boolean)
-		if not (wasPurchased and purchasedPlayer == player) then
-			return
-		end
+	-- NOT MarketplaceService.PromptGamePassPurchaseFinished directly -- that
+	-- fires independently on the client and the server, with no guaranteed
+	-- ordering against the server actually updating its own ownedCache (see
+	-- MonetizationService's doc comment on statusChangedRemote). This remote
+	-- only fires AFTER that cache write, so the re-query below can never read
+	-- a stale "not owned" result.
+	Net.GetRemoteEvent(RemoteNames.MonetizationStatusChanged).OnClientEvent:Connect(function()
 		local newStatus = Net.GetRemoteFunction(RemoteNames.GetMonetizationStatus):InvokeServer()
 		skipGachaOwned = (newStatus and newStatus.HasSkipGachaAnimation) or false
 		refreshSkipGachaRow()

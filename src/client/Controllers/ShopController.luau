@@ -1,4 +1,3 @@
-local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -20,6 +19,8 @@ local panel: CanvasGroup
 local pointsLabel: TextLabel
 local rankLabel: TextLabel
 local itemsList: ScrollingFrame
+local vipButton: TextButton
+local vipOwned = false
 
 local function swatchColor(trail): Color3
 	if not trail.HasEffect or not trail.Color then
@@ -135,11 +136,34 @@ local function buildItemRow(trailId: string, trail, profile): Frame
 	return row
 end
 
+-- The button used to always say "Get VIP" and fire the SAME purchase prompt
+-- forever, even for a player who already owns it -- clicking it just kept
+-- re-opening Roblox's own purchase dialog with nothing in this UI ever
+-- reflecting that they'd already bought it. Re-checked here (not just once
+-- at Init) since MonetizationService's own ownership check is itself
+-- asynchronous server-side.
+local function refreshVipButton()
+	local status = Net.GetRemoteFunction(RemoteNames.GetMonetizationStatus):InvokeServer()
+	vipOwned = (status and status.HasVIP) or false
+
+	if vipOwned then
+		vipButton.Text = "👑 VIP Active — 2x Points Everywhere"
+		vipButton.Active = false
+		vipButton.AutoButtonColor = false
+	else
+		vipButton.Text = "👑 Get VIP — 2x Points Everywhere"
+		vipButton.Active = true
+		vipButton.AutoButtonColor = true
+	end
+end
+
 function ShopController.Refresh()
 	local profile = Net.GetRemoteFunction(RemoteNames.GetProfile):InvokeServer()
 	if not profile then
 		return
 	end
+
+	refreshVipButton()
 
 	local rankName = RankTiers.GetRankForElo(profile.Elo)
 	rankLabel.Text = ("%s  •  %d elo"):format(rankName, profile.Elo)
@@ -206,13 +230,15 @@ local function buildUI()
 	})
 	pointsLabel.Parent = panel
 
-	local vipButton = Widgets.Button("👑 Get VIP — 2x Points Everywhere", UDim2.new(1, -16, 0, 32), UDim2.fromOffset(8, 62), {
+	vipButton = Widgets.Button("👑 Get VIP — 2x Points Everywhere", UDim2.new(1, -16, 0, 32), UDim2.fromOffset(8, 62), {
 		Variant = "Danger",
 		TextSize = 14,
 	})
 	vipButton.Parent = panel
 	vipButton.MouseButton1Click:Connect(function()
-		Net.GetRemoteEvent(RemoteNames.PromptVIPPurchase):FireServer()
+		if not vipOwned then
+			Net.GetRemoteEvent(RemoteNames.PromptVIPPurchase):FireServer()
+		end
 	end)
 
 	local pointsHeader = Widgets.Label("GET POINTS", UDim2.new(1, -16, 0, 16), UDim2.fromOffset(8, 98), {
@@ -277,14 +303,15 @@ function ShopController.Init()
 		end
 	end)
 
-	-- VIP ownership is just an in-memory cache flip server-side (see
-	-- MonetizationService), no DataStore write to lag behind, so trusting
-	-- this prompt-finished event directly is safe here.
-	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(purchasedPlayer: Player, _gamePassId: number, wasPurchased: boolean)
-		if wasPurchased and purchasedPlayer == player and panel.Visible then
-			ShopController.Refresh()
-		end
-	end)
+	-- NOT MarketplaceService.PromptGamePassPurchaseFinished directly -- that
+	-- fires independently on the client and the server, with no guaranteed
+	-- ordering against the server actually updating its own ownedCache (see
+	-- MonetizationService's doc comment on statusChangedRemote). This remote
+	-- only fires AFTER that cache write, so refreshVipButton here can never
+	-- read a stale "not owned" result. Runs regardless of panel.Visible (the
+	-- button still exists, just off-screen) so it's correct the moment the
+	-- panel is next opened even if the purchase happened while it was closed.
+	Net.GetRemoteEvent(RemoteNames.MonetizationStatusChanged).OnClientEvent:Connect(refreshVipButton)
 end
 
 return ShopController

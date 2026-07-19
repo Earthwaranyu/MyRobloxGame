@@ -142,9 +142,15 @@ local function buildUI()
 	})
 	title.Parent = panel
 
+	-- y=44, not 36 -- the Stage tab row used to start early enough (36) to
+	-- graze the bottom-left corner of Widgets.Modal's close-✕ (which spans
+	-- 10-42 here), confirmed by an AbsolutePosition/AbsoluteSize scan: the
+	-- rightmost tab's top-right corner overlapped the button's bottom-left
+	-- by a real 32x6px, not just a harmless bounding-box graze like most of
+	-- that scan's other (false-positive) hits.
 	local tabRow = Instance.new("Frame")
 	tabRow.Size = UDim2.new(1, -16, 0, 30)
-	tabRow.Position = UDim2.fromOffset(8, 36)
+	tabRow.Position = UDim2.fromOffset(8, 44)
 	tabRow.BackgroundTransparency = 1
 	tabRow.Parent = panel
 
@@ -174,7 +180,7 @@ local function buildUI()
 
 	local scopeRow = Instance.new("Frame")
 	scopeRow.Size = UDim2.new(1, -16, 0, 26)
-	scopeRow.Position = UDim2.fromOffset(8, 70)
+	scopeRow.Position = UDim2.fromOffset(8, 78)
 	scopeRow.BackgroundTransparency = 1
 	scopeRow.Parent = panel
 
@@ -202,8 +208,8 @@ local function buildUI()
 	refreshScopeHighlight()
 
 	entriesList = Instance.new("ScrollingFrame")
-	entriesList.Size = UDim2.new(1, -16, 1, -108)
-	entriesList.Position = UDim2.fromOffset(8, 100)
+	entriesList.Size = UDim2.new(1, -16, 1, -116)
+	entriesList.Position = UDim2.fromOffset(8, 108)
 	entriesList.BackgroundTransparency = 1
 	entriesList.BorderSizePixel = 0
 	entriesList.CanvasSize = UDim2.new(0, 0, 0, 0)

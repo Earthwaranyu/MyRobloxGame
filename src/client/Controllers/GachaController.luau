@@ -8,6 +8,7 @@ local Net = require(Shared.Net)
 local RarityColors = require(Shared.RarityColors)
 local RemoteNames = require(Shared.RemoteNames)
 
+local AbilityIcons = require(script.Parent.Parent.AbilityIcons)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local Sounds = require(script.Parent.Parent.Sounds)
@@ -17,9 +18,11 @@ local Sounds = require(script.Parent.Parent.Sounds)
 -- ability card instead of a stage); a 10-pull runs that exact same reel-spin
 -- once per item, back to back (see startSequentialReveal) -- the full
 -- ceremony every time, not a shortcut, unless the player owns the Skip
--- Animation gamepass AND has it toggled on in Settings (see
--- SettingsController -- this file only ever reads profile.
--- SkipGachaAnimationEnabled, it doesn't own that preference).
+-- Animation gamepass AND has it toggled on in Settings -- unlocking it is
+-- still done here (see refreshSkipPurchaseRow), close to the feature it
+-- affects, but the ON/OFF preference itself lives in SettingsController
+-- alongside every other simple toggle; this file only ever reads profile.
+-- SkipGachaAnimationEnabled, it doesn't own that preference.
 local GachaController = {}
 
 local player = Players.LocalPlayer
@@ -60,6 +63,14 @@ local openMainPanel: () -> ()
 local closeMainPanel: () -> ()
 local pointsLabel: TextLabel
 local inventoryList: ScrollingFrame
+local luckyButton: TextButton
+-- Mirrors ShopController's vipOwned -- Active = false alone was assumed to
+-- be enough to block the click, but the click handler below fired
+-- unconditionally regardless of Active, so a stray/leftover click still
+-- re-prompted the purchase every time even once owned. This is what actually
+-- made VIP's identical-looking fix work while Lucky's didn't: VIP's handler
+-- already had this same explicit ownership check, Lucky's never did.
+local luckyOwned = false
 
 -- Drop-rate disclosure (see buildOddsPanel) -- Roblox requires exact odds for
 -- any paid randomized virtual item to be shown, as percentages summing to
@@ -71,8 +82,23 @@ local openOddsPanel: () -> ()
 local revealPanel: CanvasGroup
 local openRevealPanel: () -> ()
 local closeRevealPanel: () -> ()
+-- Off while a spin (or a 10-pull's sequential run of spins) is actually
+-- playing -- see playReveal/showSummary. Without this, an impatient or
+-- accidental tap anywhere on screen during the ~30s a 10-pull can take
+-- dismissed the whole reveal with no way to see what was actually pulled
+-- (the pull itself already happened server-side by the time the animation
+-- starts, so nothing was lost mechanically, but the player had no way to
+-- FIND OUT what they got short of manually checking the inventory list).
+local setRevealClickOutsideEnabled: (boolean) -> ()
 local reelWindow: Frame
 local reel: Frame
+-- Skip Animation's owner never sees the reel at all (see playReveal), which
+-- used to mean they never saw WHAT they got either -- the reel's frozen
+-- final card was the only place an icon ever showed, and that's exactly the
+-- window skipping the animation deletes. This sits in the same space the
+-- reel would have occupied and shows one icon per result instead, so
+-- skipping the ceremony doesn't also mean losing the "what did I get" payoff.
+local resultIconsRow: Frame
 local progressLabel: TextLabel
 local summaryLabel: TextLabel
 local continueButton: TextButton
@@ -82,6 +108,12 @@ local flashOverlay: Frame
 -- not tracked/toggled here at all -- SettingsController owns the toggle,
 -- this only ever reads whatever the profile says at pull time.
 local skipAnimationEnabled = false
+
+-- Whether the gamepass itself is owned (separate from whether it's
+-- currently toggled on) -- drives refreshSkipPurchaseRow, which shows the
+-- "Unlock Skip" button here only while this is false.
+local skipGachaOwned = false
+local refreshSkipPurchaseRow: () -> ()
 
 local pullRemote: RemoteFunction
 local promptRobuxRemote: RemoteEvent
@@ -138,6 +170,14 @@ local function buildReelCard(info: Abilities.AbilityInfo, layoutOrder: number): 
 	stroke.Thickness = 3
 	stroke.Transparency = 0.1
 	stroke.Parent = card
+
+	-- Fills the empty space above the name/rarity text -- the card used to
+	-- be pure text-on-color, which read fine for rarity but told you nothing
+	-- about what the ability actually DOES at a glance (a real player
+	-- complaint: "Idk what does sky hop really do"). Icon color matches the
+	-- card's own rarity tint rather than a fixed white/black.
+	local icon = AbilityIcons.Create(info.Id, 68, UDim2.fromOffset((CARD_WIDTH - 68) / 2, 16), RARITY_COLOR[info.Rarity] or Theme.Color.TextSecondary)
+	icon.Parent = card
 
 	local nameLabel = Widgets.Label(info.Name, UDim2.new(1, -12, 0, 60), UDim2.fromOffset(6, 96), {
 		TextSize = 18,
@@ -233,6 +273,24 @@ local function startSequentialReveal(results, onDone: () -> ())
 	playNext(1)
 end
 
+-- One rarity-tinted icon per result, laid out left to right in pull order --
+-- only ever shown for a Skip Animation reveal (see playReveal); the normal
+-- reel already leaves its final card's icon on screen through showSummary.
+local function populateResultIcons(results)
+	for _, child in resultIconsRow:GetChildren() do
+		if child.Name == "AbilityIcon" then
+			child:Destroy()
+		end
+	end
+
+	for i, r in results do
+		local info = getAbilityById(r.Id) or pool[1]
+		local icon = AbilityIcons.Create(info.Id, 44, UDim2.fromOffset(0, 0), RARITY_COLOR[info.Rarity] or Theme.Color.TextSecondary)
+		icon.LayoutOrder = i
+		icon.Parent = resultIconsRow
+	end
+end
+
 local function showSummary(results)
 	local newNames = {}
 	local dupeCount = 0
@@ -261,19 +319,30 @@ local function showSummary(results)
 	summaryLabel.Text = table.concat(lines, "\n")
 	summaryLabel.Visible = true
 	continueButton.Visible = true
+	-- The result is on screen and staying there now -- clicking outside is
+	-- safe again (equivalent to just clicking Continue).
+	setRevealClickOutsideEnabled(true)
 end
 
 local function playReveal(results)
 	summaryLabel.Visible = false
 	continueButton.Visible = false
 	progressLabel.Visible = false
+	resultIconsRow.Visible = false
 	openRevealPanel()
 
 	if skipAnimationEnabled then
 		reelWindow.Visible = false
+		populateResultIcons(results)
+		resultIconsRow.Visible = true
 		showSummary(results)
 		return
 	end
+
+	-- Locked for the duration of the actual spin(s) -- see
+	-- setRevealClickOutsideEnabled's declaration for why. showSummary turns
+	-- it back on once there's an actual result on screen to look at.
+	setRevealClickOutsideEnabled(false)
 
 	reelWindow.Visible = true
 	if #results == 1 then
@@ -311,7 +380,13 @@ local function buildInventoryRow(info: Abilities.AbilityInfo, profile): Frame
 	local owned = table.find(profile.OwnedAbilities, info.Id) ~= nil
 	local equipped = profile.EquippedAbility == info.Id
 
-	local nameLabel = Widgets.Label(info.Name, UDim2.new(0.55, -20, 0, 22), UDim2.fromOffset(22, 6), {
+	-- Sits in the gap between the rarity swatch and the name text -- same
+	-- rationale as the reel card's icon (see buildReelCard), just at
+	-- inventory-row scale.
+	local icon = AbilityIcons.Create(info.Id, 40, UDim2.fromOffset(16, 9), RARITY_COLOR[info.Rarity] or Theme.Color.TextMuted)
+	icon.Parent = row
+
+	local nameLabel = Widgets.Label(info.Name, UDim2.new(0.55, -62, 0, 22), UDim2.fromOffset(64, 6), {
 		TextSize = 16,
 	})
 	nameLabel.Parent = row
@@ -327,7 +402,7 @@ local function buildInventoryRow(info: Abilities.AbilityInfo, profile): Frame
 		subText = info.Rarity
 	end
 
-	local subLabel = Widgets.Label(subText, UDim2.new(0.55, -20, 0, 18), UDim2.fromOffset(22, 30), {
+	local subLabel = Widgets.Label(subText, UDim2.new(0.55, -62, 0, 18), UDim2.fromOffset(64, 30), {
 		TextSize = 13,
 		Bold = false,
 		Color = if equipped
@@ -366,6 +441,31 @@ local function buildInventoryRow(info: Abilities.AbilityInfo, profile): Frame
 	return row
 end
 
+-- Re-checks BOTH gamepasses in one remote call and updates both buttons --
+-- called from GachaController.Refresh() (panel open/equip/continue) AND
+-- directly from PromptGamePassPurchaseFinished below, so a purchase that
+-- completes while the panel is already open updates the button immediately
+-- instead of waiting for the next time Refresh() happens to run. Missing
+-- that second call site was exactly why "buy Lucky" kept showing even after
+-- a successful purchase -- Refresh() alone only reacts to being reopened.
+local function refreshMonetizationButtons()
+	local status = Net.GetRemoteFunction(RemoteNames.GetMonetizationStatus):InvokeServer()
+
+	skipGachaOwned = (status and status.HasSkipGachaAnimation) or false
+	refreshSkipPurchaseRow()
+
+	luckyOwned = (status and status.HasLucky) or false
+	if luckyOwned then
+		luckyButton.Text = "🍀 Lucky Active — Better Odds"
+		luckyButton.Active = false
+		luckyButton.AutoButtonColor = false
+	else
+		luckyButton.Text = "🍀 Get Lucky — Better Odds"
+		luckyButton.Active = true
+		luckyButton.AutoButtonColor = true
+	end
+end
+
 function GachaController.Refresh()
 	local profile = Net.GetRemoteFunction(RemoteNames.GetProfile):InvokeServer()
 	if not profile then
@@ -374,6 +474,8 @@ function GachaController.Refresh()
 
 	skipAnimationEnabled = profile.SkipGachaAnimationEnabled or false
 	pointsLabel.Text = ("%d points"):format(profile.Points)
+
+	refreshMonetizationButtons()
 
 	for _, child in inventoryList:GetChildren() do
 		if child:IsA("Frame") then
@@ -423,15 +525,16 @@ local function buildMainPanel()
 	})
 	pointsLabel.Parent = panel
 
-	local luckyButton = Widgets.Button("🍀 Get Lucky — Better Odds", UDim2.new(1, -16, 0, 32), UDim2.fromOffset(8, 60), {
+	luckyButton = Widgets.Button("🍀 Get Lucky — Better Odds", UDim2.new(1, -16, 0, 32), UDim2.fromOffset(8, 60), {
 		Variant = "Danger",
 		TextSize = 14,
 	})
 	luckyButton.Parent = panel
 	luckyButton.MouseButton1Click:Connect(function()
-		Net.GetRemoteEvent(RemoteNames.PromptLuckyPurchase):FireServer()
+		if not luckyOwned then
+			Net.GetRemoteEvent(RemoteNames.PromptLuckyPurchase):FireServer()
+		end
 	end)
-
 	local pullOneButton = Widgets.Button("Pull x1 — 1500 pts", UDim2.fromOffset(272, 36), UDim2.fromOffset(8, 98), {
 		Variant = "Primary",
 		TextSize = 14,
@@ -474,17 +577,45 @@ local function buildMainPanel()
 		promptRobuxRemote:FireServer(10)
 	end)
 
-	-- Skip Animation is now a Settings toggle (see SettingsController) --
-	-- this panel doesn't own that preference, it just reads whatever the
-	-- profile says at pull time.
-	local oddsButton = Widgets.Button("ℹ️ View Drop Rates", UDim2.new(1, -16, 0, 32), UDim2.fromOffset(8, 178), {
-		Variant = "Secondary",
-		TextSize = 14,
-	})
-	oddsButton.Parent = panel
-	oddsButton.MouseButton1Click:Connect(function()
-		openOddsPanel()
-	end)
+	-- Odds is always here; the Skip Animation unlock only shows up while it's
+	-- still unowned (see refreshSkipPurchaseRow) -- once owned, ON/OFF lives
+	-- in Settings instead (this panel just reads profile.
+	-- SkipGachaAnimationEnabled at pull time), so there's nothing left for
+	-- this row to show for it and Odds takes the full width back.
+	local actionRow = Instance.new("Frame")
+	actionRow.Name = "ActionRow"
+	actionRow.Size = UDim2.new(1, -16, 0, 32)
+	actionRow.Position = UDim2.fromOffset(8, 178)
+	actionRow.BackgroundTransparency = 1
+	actionRow.Parent = panel
+
+	refreshSkipPurchaseRow = function()
+		for _, child in actionRow:GetChildren() do
+			child:Destroy()
+		end
+
+		local oddsWidth = if skipGachaOwned then 384 else 184
+		local oddsButton = Widgets.Button("ℹ️ Odds", UDim2.fromOffset(oddsWidth, 32), UDim2.fromOffset(0, 0), {
+			Variant = "Secondary",
+			TextSize = 14,
+		})
+		oddsButton.Parent = actionRow
+		oddsButton.MouseButton1Click:Connect(function()
+			openOddsPanel()
+		end)
+
+		if not skipGachaOwned then
+			local buyButton = Widgets.Button("🔓 Unlock Skip", UDim2.fromOffset(192, 32), UDim2.fromOffset(192, 0), {
+				Variant = "Secondary",
+				TextSize = 13,
+			})
+			buyButton.Parent = actionRow
+			buyButton.MouseButton1Click:Connect(function()
+				Net.GetRemoteEvent(RemoteNames.PromptSkipGachaAnimationPurchase):FireServer()
+			end)
+		end
+	end
+	refreshSkipPurchaseRow()
 
 	local inventoryHeader = Widgets.Label("YOUR ABILITIES", UDim2.new(1, -16, 0, 20), UDim2.fromOffset(8, 216), {
 		TextSize = 13,
@@ -539,7 +670,10 @@ local function buildOddsRow(info: Abilities.AbilityInfo, layoutOrder: number): F
 	swatchCorner.Parent = swatch
 	swatch.Parent = row
 
-	local nameLabel = Widgets.Label(("%s (%s)"):format(info.Name, info.Rarity), UDim2.new(0.55, -16, 1, 0), UDim2.fromOffset(18, 0), {
+	local icon = AbilityIcons.Create(info.Id, 24, UDim2.new(0, 14, 0.5, -12), RARITY_COLOR[info.Rarity] or Theme.Color.TextMuted)
+	icon.Parent = row
+
+	local nameLabel = Widgets.Label(("%s (%s)"):format(info.Name, info.Rarity), UDim2.new(0.55, -42, 1, 0), UDim2.fromOffset(44, 0), {
 		TextSize = 14,
 	})
 	nameLabel.Parent = row
@@ -608,7 +742,7 @@ local function buildOddsPanel()
 end
 
 local function buildRevealOverlay()
-	revealPanel, openRevealPanel, closeRevealPanel = Widgets.Modal(
+	revealPanel, openRevealPanel, closeRevealPanel, setRevealClickOutsideEnabled = Widgets.Modal(
 		"GachaReveal",
 		UDim2.fromOffset(640, 380),
 		UDim2.new(0.5, -320, 0.5, -190),
@@ -654,7 +788,35 @@ local function buildRevealOverlay()
 	reel.BackgroundTransparency = 1
 	reel.Parent = reelWindow
 
-	summaryLabel = Widgets.Label("", UDim2.new(1, -40, 0, 60), UDim2.fromOffset(20, 300), {
+	-- Same footprint as reelWindow (see populateResultIcons) -- Skip
+	-- Animation swaps straight to this instead of ever showing the reel.
+	resultIconsRow = Instance.new("Frame")
+	resultIconsRow.Size = UDim2.fromOffset(WINDOW_WIDTH, CARD_HEIGHT)
+	resultIconsRow.Position = UDim2.new(0.5, -WINDOW_WIDTH / 2, 0, 58)
+	resultIconsRow.BackgroundTransparency = 1
+	resultIconsRow.Visible = false
+	resultIconsRow.Parent = revealPanel
+
+	local resultIconsLayout = Instance.new("UIListLayout")
+	resultIconsLayout.FillDirection = Enum.FillDirection.Horizontal
+	resultIconsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	resultIconsLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	resultIconsLayout.Padding = UDim.new(0, 8)
+	resultIconsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	resultIconsLayout.Parent = resultIconsRow
+
+	-- NOTE on the Y math below: Widgets.Button recenters whatever position/
+	-- size it's given around the button's own midpoint (see its doc
+	-- comment), but Widgets.Label does NOT -- a label's position is its
+	-- literal top-left corner. Mixing the two while eyeballing "should sit
+	-- below" spacing is exactly what let summaryLabel (was y=300, height 60,
+	-- so spans 300-360) and continueButton (was position 1,-56 + height 40,
+	-- which Widgets.Button turns into a CENTER at panelHeight-36 -- i.e. a
+	-- span of 324-364) silently overlap by 36px, with the button painting
+	-- over the bottom third of the summary text. Recomputed to leave a real
+	-- gap between the two spans instead of assuming naive top-left math for
+	-- both.
+	summaryLabel = Widgets.Label("", UDim2.new(1, -40, 0, 70), UDim2.fromOffset(20, 256), {
 		TextSize = 15,
 		Align = Enum.TextXAlignment.Center,
 	})
@@ -662,7 +824,10 @@ local function buildRevealOverlay()
 	summaryLabel.Visible = false
 	summaryLabel.Parent = revealPanel
 
-	continueButton = Widgets.Button("Continue", UDim2.fromOffset(180, 40), UDim2.new(0.5, -90, 1, -56), {
+	-- Span 334-374 (computed the same way -- position.Y.Scale*H + offset +
+	-- height/2 = the button's actual CENTER), leaving an 8px gap below
+	-- summaryLabel's 256-326 span instead of overlapping it.
+	continueButton = Widgets.Button("Continue", UDim2.fromOffset(180, 40), UDim2.new(0.5, -90, 1, -46), {
 		Variant = "Primary",
 		TextSize = 15,
 	})
@@ -701,12 +866,26 @@ function GachaController.Init()
 	buildRevealOverlay()
 
 	-- Initial skipAnimationEnabled value -- SettingsController owns the
-	-- toggle itself (and its own gamepass-ownership refresh); this only
-	-- ever needs to know the CURRENT preference before the first pull.
+	-- toggle itself; this only ever needs to know the CURRENT preference
+	-- before the first pull.
 	local profile = Net.GetRemoteFunction(RemoteNames.GetProfile):InvokeServer()
 	skipAnimationEnabled = (profile and profile.SkipGachaAnimationEnabled) or false
 
+	local status = Net.GetRemoteFunction(RemoteNames.GetMonetizationStatus):InvokeServer()
+	skipGachaOwned = (status and status.HasSkipGachaAnimation) or false
+	refreshSkipPurchaseRow()
+
 	Net.GetRemoteEvent(RemoteNames.GachaPullResult).OnClientEvent:Connect(playReveal)
+
+	-- NOT MarketplaceService.PromptGamePassPurchaseFinished directly -- that
+	-- signal fires independently on the client and on the server, with no
+	-- guaranteed ordering against the server updating its own ownedCache (see
+	-- MonetizationService's doc comment on statusChangedRemote). Querying
+	-- GetMonetizationStatus off the client's own copy of that event was
+	-- exactly why "buy Lucky" kept showing even after a successful purchase --
+	-- this remote only fires AFTER the server-side cache write, so there's
+	-- nothing left to race.
+	Net.GetRemoteEvent(RemoteNames.MonetizationStatusChanged).OnClientEvent:Connect(refreshMonetizationButtons)
 end
 
 return GachaController
