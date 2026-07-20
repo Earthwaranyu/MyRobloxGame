@@ -7,6 +7,7 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 local Signal = require(Shared.Signal)
 
+local MenuIcons = require(script.Parent.Parent.MenuIcons)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local TutorialController = require(script.Parent.TutorialController)
@@ -55,28 +56,44 @@ local function nextVolumeLevel(current: number): number
 	return VOLUME_LEVELS[1]
 end
 
+-- No "%" suffix -- isolated via A/B testing that Gotham's "%" glyph
+-- specifically renders soft/smeared at these button sizes (confirmed across
+-- GothamBlack, GothamBold, AND regular Gotham, and independent of the
+-- overall TextSize/button-width fixes applied elsewhere in this file, e.g.
+-- "100%" stayed blurry while the bare "100" right next to it was crisp) --
+-- a genuine Roblox font-rendering quirk with that one character, not
+-- something fixable via size/weight/stroke. The row's own label ("Music
+-- volume") already gives the number its meaning.
 local function formatVolume(level: number): string
 	if level <= 0 then
 		return "MUTED"
 	end
-	return ("%d%%"):format(math.floor(level * 100 + 0.5))
+	return tostring(math.floor(level * 100 + 0.5))
 end
 
 -- groupName is the SoundGroup AudioService creates server-side ("Music" or
 -- "SFX"); setting its Volume locally only changes what THIS client hears,
 -- same as any other client-side property override of a replicated instance.
 local function buildVolumeRow(panel: CanvasGroup, labelText: string, yOffset: number, groupName: string)
-	local rowLabel = Widgets.Label(labelText, UDim2.new(1, -110, 0, 36), UDim2.fromOffset(8, yOffset), {
+	local rowLabel = Widgets.Label(labelText, UDim2.new(1, -150, 0, 36), UDim2.fromOffset(8, yOffset), {
 		TextSize = 16,
 		Color = Theme.Color.TextSecondary,
 	})
 	rowLabel.Parent = panel
 
 	local level = 1
-	local volumeButton = Widgets.Button(formatVolume(level), UDim2.fromOffset(90, 32), UDim2.new(1, -100, 0, yOffset + 2), {
+	-- Explicit TextSize -- see windButton's comment: at this button's small
+	-- footprint, even defaultTextSize's own >=18 auto threshold still read
+	-- soft, and 24px was still visibly soft specifically for "MUTED"/"100%"
+	-- (denser multi-character strings need more headroom than "ON"/"OFF" do
+	-- at the same size -- see GachaController's Pull/Lucky comment for the
+	-- same pattern at a bigger scale). 28px + a 110px-wide button (up from
+	-- 90) is the confirmed-crisp combo from testing, and still comfortably
+	-- fits "MUTED", the longest string here.
+	local volumeButton = Widgets.Button(formatVolume(level), UDim2.fromOffset(110, 36), UDim2.new(1, -120, 0, yOffset), {
 		Variant = "Tab",
 		Active = true,
-		TextSize = 14,
+		TextSize = 28,
 	})
 	volumeButton.Parent = panel
 
@@ -93,7 +110,7 @@ end
 -- the feature it affects), not here. If it's not owned yet, this row simply
 -- doesn't exist rather than showing a disabled/purchasable placeholder.
 local function buildSkipGachaRow(panel: CanvasGroup, yOffset: number)
-	local rowLabel = Widgets.Label("Skip gacha pull animation", UDim2.new(1, -110, 0, 36), UDim2.fromOffset(8, yOffset), {
+	local rowLabel = Widgets.Label("Skip gacha pull animation", UDim2.new(1, -150, 0, 36), UDim2.fromOffset(8, yOffset), {
 		TextSize = 16,
 		Color = Theme.Color.TextSecondary,
 	})
@@ -101,8 +118,8 @@ local function buildSkipGachaRow(panel: CanvasGroup, yOffset: number)
 
 	local actionSlot = Instance.new("Frame")
 	actionSlot.Name = "SkipGachaActionSlot"
-	actionSlot.Size = UDim2.fromOffset(90, 36)
-	actionSlot.Position = UDim2.new(1, -100, 0, yOffset)
+	actionSlot.Size = UDim2.fromOffset(110, 36)
+	actionSlot.Position = UDim2.new(1, -120, 0, yOffset)
 	actionSlot.BackgroundTransparency = 1
 	actionSlot.Parent = panel
 
@@ -117,10 +134,11 @@ local function buildSkipGachaRow(panel: CanvasGroup, yOffset: number)
 			return
 		end
 
+		-- Explicit TextSize -- see windButton above.
 		local toggleButton, setActive = Widgets.Button(if skipGachaEnabled then "ON" else "OFF", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), {
 			Variant = "Tab",
 			Active = skipGachaEnabled,
-			TextSize = 14,
+			TextSize = 28,
 		})
 		toggleButton.Parent = actionSlot
 		setActive(skipGachaEnabled)
@@ -143,27 +161,38 @@ local function buildUI()
 
 	-- See LeaderboardController for why this is taller than it looks like it
 	-- needs to be.
-	local toggleButton = Widgets.Button("Settings", UDim2.fromOffset(150, 48), UDim2.new(0, 10, 1, -68))
+	local toggleButton = Widgets.Button("Settings", UDim2.fromOffset(150, 48), UDim2.new(0, 10, 1, -68), {
+		Icon = function(holder, color)
+			MenuIcons.Populate(holder, "Settings", color)
+		end,
+	})
 	toggleButton.Parent = screenGui
 
 	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a
 	-- bare Widgets.Panel only closable via this one toggle button.
-	panel, openPanel, closePanel = Widgets.Modal("Settings", UDim2.fromOffset(320, 274), UDim2.new(0, 10, 1, -350), {
+	-- Widened from 320 -- the row labels plus the now-bigger (110px, up from
+	-- 90) toggle/volume pills needed more room than 320 could fit without
+	-- truncating "Wind effect while sprinting"/"Skip gacha pull animation".
+	panel, openPanel, closePanel = Widgets.Modal("Settings", UDim2.fromOffset(360, 274), UDim2.new(0, 10, 1, -350), {
 		DisplayOrder = 30,
 	})
 
 	local ribbon = Widgets.Ribbon("SETTINGS", UDim2.fromOffset(200, 40), UDim2.new(0.5, 0, 0, -20))
 	ribbon.Parent = panel
 
-	local rowLabel = Widgets.Label("Wind effect while sprinting", UDim2.new(1, -110, 0, 44), UDim2.fromOffset(8, 44), {
+	local rowLabel = Widgets.Label("Wind effect while sprinting", UDim2.new(1, -150, 0, 44), UDim2.fromOffset(8, 44), {
 		TextSize = 16,
 		Color = Theme.Color.TextSecondary,
 	})
 	rowLabel.Parent = panel
 
-	local windButton, windSetActive = Widgets.Button("ON", UDim2.fromOffset(90, 36), UDim2.new(1, -100, 0, 44), {
+	-- Explicit TextSize + widened button (see buildVolumeRow's comment below
+	-- for the full story) -- matches the volume/skip-gacha toggles' sizing so
+	-- all the small pill buttons in this panel look consistent.
+	local windButton, windSetActive = Widgets.Button("ON", UDim2.fromOffset(110, 36), UDim2.new(1, -120, 0, 44), {
 		Variant = "Tab",
 		Active = true,
+		TextSize = 28,
 	})
 	windButton.Parent = panel
 	windSetActive(true)

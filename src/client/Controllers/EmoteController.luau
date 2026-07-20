@@ -7,6 +7,7 @@ local Emotes = require(Shared.Emotes)
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
+local MenuIcons = require(script.Parent.Parent.MenuIcons)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 
@@ -125,7 +126,11 @@ local function buildUI()
 	screenGui.ResetOnSpawn = false
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
-	local toggleButton = Widgets.Button("Emotes", UDim2.fromOffset(140, 48), UDim2.fromOffset(240, 60))
+	local toggleButton = Widgets.Button("Emotes", UDim2.fromOffset(140, 48), UDim2.fromOffset(240, 60), {
+		Icon = function(holder, color)
+			MenuIcons.Populate(holder, "Emotes", color)
+		end,
+	})
 	toggleButton.Parent = screenGui
 
 	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a

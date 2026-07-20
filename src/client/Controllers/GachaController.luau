@@ -539,7 +539,14 @@ local function buildMainPanel()
 
 	-- Sits directly below ShopController's toggle button, same X, same
 	-- 8px-gap-below-a-48px-button convention used throughout this stack.
-	local toggleButton = Widgets.Button("Gacha", UDim2.fromOffset(130, 48), UDim2.new(1, -140, 0, 116))
+	local toggleButton = Widgets.Button("Gacha", UDim2.fromOffset(130, 48), UDim2.new(1, -140, 0, 116), {
+		-- Reuses the same "Pulls" gift-box glyph this panel's own tab strip
+		-- already draws (see CategoryIcons) -- same concept, no need for a
+		-- second icon.
+		Icon = function(holder, color)
+			CategoryIcons.Populate(holder, "Pulls", holder.Size.X.Offset, color)
+		end,
+	})
 	toggleButton.Parent = toggleGui
 
 	local gachaScreenGui: ScreenGui
@@ -618,9 +625,20 @@ local function buildMainPanel()
 		oddsContent.Visible = id == "Odds"
 	end)
 
+	-- Explicit TextSize=26 -- player-reported and screenshot-reproduced: white
+	-- text at this Danger/Primary variant's normal ~14px functional-text size
+	-- renders visibly soft/smeared, while the SAME string in near-black
+	-- (Secondary variant, e.g. the R$ buttons next to Pull x1/x10) stays
+	-- crisp at that size. Just crossing defaultTextSize's own >=18 threshold
+	-- (19-21px here) turned out NOT to be enough on its own either -- still
+	-- confirmed soft via screenshot at that size, only reliably crisp from
+	-- ~26px up (the same size SPRINT's defaultTextSize already lands on,
+	-- confirmed crisp). 26 (not 28) specifically because 28 overflows
+	-- "Lucky Active — Better Odds" past this button's width -- see the
+	-- TextService margin check done during testing.
 	luckyButton = Widgets.Button("🍀 Get Lucky — Better Odds", UDim2.new(1, 0, 0, 32), UDim2.fromOffset(0, 0), {
 		Variant = "Danger",
-		TextSize = 14,
+		TextSize = 26,
 	})
 	luckyButton.Parent = pullsContent
 	luckyButton.MouseButton1Click:Connect(function()
@@ -628,9 +646,10 @@ local function buildMainPanel()
 			Net.GetRemoteEvent(RemoteNames.PromptLuckyPurchase):FireServer()
 		end
 	end)
+	-- See luckyButton's comment above -- same explicit crisp-text size.
 	local pullOneButton = Widgets.Button("Pull x1 — 1500 pts", UDim2.fromOffset(272, 36), UDim2.fromOffset(0, 38), {
 		Variant = "Primary",
-		TextSize = 14,
+		TextSize = 26,
 	})
 	pullOneButton.Parent = pullsContent
 	pullOneButton.MouseButton1Click:Connect(function()
@@ -640,9 +659,12 @@ local function buildMainPanel()
 		end
 	end)
 
+	-- R$ was already crisp at 14px (dark text on this Secondary variant's
+	-- white fill doesn't show the same softness white text does), but sized
+	-- to match pullOneButton's text instead of looking mismatched next to it.
 	local robuxOneButton = Widgets.Button("R$", UDim2.fromOffset(96, 36), UDim2.fromOffset(280, 38), {
 		Variant = "Secondary",
-		TextSize = 14,
+		TextSize = 26,
 	})
 	robuxOneButton.Parent = pullsContent
 	robuxOneButton.MouseButton1Click:Connect(function()
@@ -651,7 +673,7 @@ local function buildMainPanel()
 
 	local pullTenButton = Widgets.Button("Pull x10 — 13500 pts", UDim2.fromOffset(272, 36), UDim2.fromOffset(0, 78), {
 		Variant = "Primary",
-		TextSize = 14,
+		TextSize = 26,
 	})
 	pullTenButton.Parent = pullsContent
 	pullTenButton.MouseButton1Click:Connect(function()
@@ -663,7 +685,7 @@ local function buildMainPanel()
 
 	local robuxTenButton = Widgets.Button("R$", UDim2.fromOffset(96, 36), UDim2.fromOffset(280, 78), {
 		Variant = "Secondary",
-		TextSize = 14,
+		TextSize = 26,
 	})
 	robuxTenButton.Parent = pullsContent
 	robuxTenButton.MouseButton1Click:Connect(function()

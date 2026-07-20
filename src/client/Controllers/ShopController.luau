@@ -9,6 +9,7 @@ local Trails = require(Shared.Trails)
 local RankTiers = require(Shared.RankTiers)
 
 local CategoryIcons = require(script.Parent.Parent.CategoryIcons)
+local MenuIcons = require(script.Parent.Parent.MenuIcons)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 
@@ -203,7 +204,11 @@ local function buildUI()
 	-- y = 60 clears Roblox's default top bar (chat/leaderboard/settings icons).
 	-- See LeaderboardController for why this is taller than it looks like it
 	-- needs to be.
-	local toggleButton = Widgets.Button("Shop", UDim2.fromOffset(130, 48), UDim2.new(1, -140, 0, 60))
+	local toggleButton = Widgets.Button("Shop", UDim2.fromOffset(130, 48), UDim2.new(1, -140, 0, 60), {
+		Icon = function(holder, color)
+			MenuIcons.Populate(holder, "Shop", color)
+		end,
+	})
 	toggleButton.Parent = toggleGui
 
 	-- Own ScreenGui + backdrop + close-X, not a bare Widgets.Panel toggled by

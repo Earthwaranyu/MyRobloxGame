@@ -6,6 +6,7 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 local Signal = require(Shared.Signal)
 
+local MenuIcons = require(script.Parent.Parent.MenuIcons)
 local Widgets = require(script.Parent.Parent.Widgets)
 local MatchStateController = require(script.Parent.MatchStateController)
 
@@ -100,6 +101,9 @@ local function buildUI()
 
 	button = Widgets.Button("PLAY", UDim2.fromOffset(220, 64), UDim2.new(0.5, -110, 1, -120), {
 		TextSize = 28,
+		Icon = function(holder, color)
+			MenuIcons.Populate(holder, "Play", color)
+		end,
 	})
 	button.Parent = screenGui
 	button.MouseButton1Click:Connect(function()
@@ -111,6 +115,9 @@ local function buildUI()
 	botsButton = Widgets.Button("VS BOTS", UDim2.fromOffset(145, 44), UDim2.new(0.5, -150, 1, -172), {
 		Variant = "Secondary",
 		TextSize = 16,
+		Icon = function(holder, color)
+			MenuIcons.Populate(holder, "Bots", color)
+		end,
 	})
 	botsButton.Parent = screenGui
 	botsButton.MouseButton1Click:Connect(function()
@@ -120,6 +127,9 @@ local function buildUI()
 	practiceButton = Widgets.Button("PRACTICE", UDim2.fromOffset(145, 44), UDim2.new(0.5, 5, 1, -172), {
 		Variant = "Secondary",
 		TextSize = 16,
+		Icon = function(holder, color)
+			MenuIcons.Populate(holder, "Practice", color)
+		end,
 	})
 	practiceButton.Parent = screenGui
 	practiceButton.MouseButton1Click:Connect(function()

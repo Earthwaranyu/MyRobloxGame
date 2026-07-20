@@ -6,6 +6,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
+local MenuIcons = require(script.Parent.Parent.MenuIcons)
 local Widgets = require(script.Parent.Parent.Widgets)
 local MatchStateController = require(script.Parent.MatchStateController)
 
@@ -44,6 +45,9 @@ local function buildUI()
 	button = Widgets.Button("Leave Match (Backspace)", UDim2.fromOffset(230, 48), UDim2.new(0.5, 140, 0, 56), {
 		Variant = "Danger",
 		TextSize = 15,
+		Icon = function(holder, color)
+			MenuIcons.Populate(holder, "Exit", color)
+		end,
 	})
 	button.Visible = false
 	button.Parent = screenGui

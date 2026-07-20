@@ -5,6 +5,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
+local MenuIcons = require(script.Parent.Parent.MenuIcons)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local Sounds = require(script.Parent.Parent.Sounds)
@@ -164,7 +165,11 @@ local function buildUI()
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
 	-- Sits directly below EmoteController's toggle button, same X.
-	local toggleButton = Widgets.Button("Party", UDim2.fromOffset(140, 48), UDim2.fromOffset(240, 118))
+	local toggleButton = Widgets.Button("Party", UDim2.fromOffset(140, 48), UDim2.fromOffset(240, 118), {
+		Icon = function(holder, color)
+			MenuIcons.Populate(holder, "Party", color)
+		end,
+	})
 	toggleButton.Parent = screenGui
 
 	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a

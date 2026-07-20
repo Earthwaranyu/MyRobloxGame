@@ -6,6 +6,7 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 local Stages = require(Shared.Stages)
 
+local MenuIcons = require(script.Parent.Parent.MenuIcons)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 
@@ -128,7 +129,11 @@ local function buildUI()
 	-- rendered blurry/illegible in testing regardless of color/stroke tweaks
 	-- -- confirmed empirically that a taller button + bigger text is what
 	-- actually fixes it, not further contrast changes.
-	local toggleButton = Widgets.Button("Leaderboard", UDim2.fromOffset(220, 48), UDim2.fromOffset(10, 60))
+	local toggleButton = Widgets.Button("Leaderboard", UDim2.fromOffset(220, 48), UDim2.fromOffset(10, 60), {
+		Icon = function(holder, color)
+			MenuIcons.Populate(holder, "Leaderboard", color)
+		end,
+	})
 	toggleButton.Parent = screenGui
 
 	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a

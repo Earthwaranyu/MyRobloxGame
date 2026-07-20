@@ -2,6 +2,7 @@
 -- GuiObjects so every panel/button in the game shares one look and feel.
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
+local TextService = game:GetService("TextService")
 
 local Theme = require(script.Parent.Theme)
 local Sounds = require(script.Parent.Sounds)
@@ -37,6 +38,11 @@ export type ButtonOpts = {
 	Variant: ("Primary" | "Secondary" | "Success" | "Danger" | "Tab")?,
 	Active: boolean?,
 	TextSize: number?,
+	-- Optional leading glyph (see MenuIcons) -- the reference-image "every
+	-- button has its own icon" treatment for a HUD toggle/action button.
+	-- Receives an icon holder Frame and the button's own text color, so a
+	-- caller just does `MenuIcons.Populate(holder, "Shop", color)`.
+	Icon: ((Instance, Color3) -> ())?,
 }
 
 export type LabelOpts = {
@@ -600,6 +606,24 @@ local function defaultTextSize(size: UDim2): number
 	return 19
 end
 
+-- Shrinks downward from maxSize until `text` fits `availableWidth` at that
+-- font, floor 10px. Used by the icon+label path below -- an icon button's
+-- label has less width to work with than the same button's bare centered
+-- Text did, and hand-tuning a per-button width/position for every affected
+-- HUD button (several sit only px away from a hand-placed neighbor) is far
+-- more brittle than just letting the label ask "does this fit?" directly.
+local function fitTextSize(text: string, font: Enum.Font, maxSize: number, availableWidth: number, availableHeight: number): number
+	local size = maxSize
+	while size > 10 do
+		local bounds = TextService:GetTextSize(text, size, font, Vector2.new(1000, availableHeight))
+		if bounds.X <= availableWidth then
+			return size
+		end
+		size -= 1
+	end
+	return 10
+end
+
 -- Returns the button plus a setActive(isActive) setter (only meaningful for
 -- Variant = "Tab") so callers can restyle a tab's active state without
 -- rebuilding it. Instances can't hold custom fields, hence the second value.
@@ -647,6 +671,99 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	border.Color = Theme.Candy.Border
 	border.Thickness = 3
 	border.Parent = button
+
+	-- EVERY button's visible label is a separate child TextLabel, NOT
+	-- button.Text itself -- confirmed via extensive same-frame A/B screenshot
+	-- testing that Roblox's native TextButton.Text renders measurably
+	-- softer/blurrier than the IDENTICAL string (same size/font/stroke/
+	-- color) in a plain TextLabel, especially visible on longer multi-word
+	-- strings (e.g. "Pull x1 — 1500 pts") -- independent of TextSize, font
+	-- weight, stroke, or contrast, all of which were tried first. A
+	-- side-by-side clone of a real button next to a Label-based version of
+	-- the exact same string, captured in the same screenshot, showed the
+	-- Label version crisp and the native-Text version still soft. So this
+	-- isn't opt-in per button -- ALL of them get the Label now.
+	--
+	-- button.Text is kept driving the label via GetPropertyChangedSignal so
+	-- callers that mutate button.Text after creation (QuitMatchController's
+	-- Leave/Stop Watching swap, PlayButtonController's PLAY/CANCEL/"<name>
+	-- is busy" swap, SettingsController's ON/OFF toggles, ...) keep working
+	-- completely unchanged, with no edits needed at any call site.
+	local iconSize = 0
+	local iconInset = 0
+	if opts.Icon then
+		iconSize = math.clamp(math.floor(size.Y.Offset * 0.5), 16, 28)
+		iconInset = size.Y.Offset * 0.32
+
+		local iconHolder = Instance.new("Frame")
+		iconHolder.Name = "Icon"
+		iconHolder.AnchorPoint = Vector2.new(0, 0.5)
+		iconHolder.Position = UDim2.new(0, iconInset, 0.5, 0)
+		iconHolder.Size = UDim2.fromOffset(iconSize, iconSize)
+		iconHolder.BackgroundTransparency = 1
+		iconHolder.Parent = button
+
+		opts.Icon(iconHolder, style.Text)
+	end
+
+	local leftInset = if opts.Icon then iconInset + iconSize + 6 else 0
+	local rightInset = iconInset
+	local maxLabelTextSize = button.TextSize
+
+	-- Scale-sized buttons (e.g. the gacha/shop row action buttons, sized via
+	-- UDim2.fromScale) have no usable size.X.Offset here -- AbsoluteSize
+	-- isn't resolved yet since the button isn't parented/laid out at this
+	-- point in the constructor. Skip the shrink-to-fit for those (same as
+	-- before this change: rely on TextTruncate as the overflow safety net)
+	-- rather than feeding fitTextSize a bogus ~0 width, which would floor
+	-- every one of those buttons' text down to 10px.
+	local function computeLabelTextSize(labelText: string): number
+		if size.X.Offset <= 0 then
+			return maxLabelTextSize
+		end
+		local availableWidth = size.X.Offset - leftInset - rightInset
+		return fitTextSize(labelText, button.Font, maxLabelTextSize, availableWidth, math.max(size.Y.Offset, 20))
+	end
+
+	local label = Instance.new("TextLabel")
+	label.Name = "Label"
+	label.BackgroundTransparency = 1
+	label.Position = UDim2.fromOffset(leftInset, 0)
+	label.Size = UDim2.new(1, -(leftInset + rightInset), 1, 0)
+	label.Font = button.Font
+	label.TextColor3 = button.TextColor3
+	label.TextScaled = false
+	label.TextTruncate = Enum.TextTruncate.AtEnd
+	label.TextStrokeColor3 = button.TextStrokeColor3
+	label.TextStrokeTransparency = button.TextStrokeTransparency
+	label.TextXAlignment = Enum.TextXAlignment.Center
+	label.Text = button.Text
+	label.TextSize = computeLabelTextSize(button.Text)
+	label.Parent = button
+
+	button.Text = ""
+	-- A naive "set a syncing flag, clear button.Text, reset the flag" guard
+	-- does NOT work here: PropertyChangedSignal fires DEFERRED in this
+	-- engine (next resumption step, not immediately), so the flag is already
+	-- back to false by the time the signal from OUR OWN `button.Text = ""`
+	-- below actually fires -- that self-triggered firing then re-entered
+	-- this handler with newText = "" and overwrote the label with an empty
+	-- string (confirmed via screenshot: AbilityController's DASH button,
+	-- which updates button.Text every 0.1s on a cooldown, went completely
+	-- blank). Checking newText == "" instead sidesteps the deferred-timing
+	-- problem entirely: no caller in this codebase ever intentionally sets
+	-- button.Text to a literal empty string, so treating an empty incoming
+	-- value as "that's our own clear echoing back" is safe and needs no
+	-- synchronous flag at all.
+	button:GetPropertyChangedSignal("Text"):Connect(function()
+		local newText = button.Text
+		if newText == "" then
+			return
+		end
+		label.Text = newText
+		label.TextSize = computeLabelTextSize(newText)
+		button.Text = ""
+	end)
 
 	-- Bevel strip: a same-hue-darker rounded rectangle sitting along the
 	-- button's bottom edge, so it reads as a 3D drop-shadow lip. Originally
@@ -748,6 +865,9 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 		button.BackgroundColor3 = target.Face
 		button.TextColor3 = target.Text
 		bevelStrip.BackgroundColor3 = target.Shadow
+		if label then
+			label.TextColor3 = target.Text
+		end
 	end
 
 	return button, setActive
@@ -766,6 +886,10 @@ function Widgets.SetButtonColors(button: TextButton, face: Color3, shadow: Color
 	local strip = button:FindFirstChild("BevelStrip")
 	if strip then
 		(strip :: Frame).BackgroundColor3 = shadow
+	end
+	local label = button:FindFirstChild("Label")
+	if label then
+		(label :: TextLabel).TextColor3 = text
 	end
 end
 

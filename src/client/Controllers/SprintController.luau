@@ -70,10 +70,12 @@ local function buildUI()
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
 	-- Sits left of AbilityController's DASH button, mirrored spacing, so the
-	-- two read as one small ability bar.
+	-- two read as one small ability bar. No explicit TextSize (see
+	-- GachaController's Pull/Lucky buttons for why) -- letting
+	-- defaultTextSize's own >=18 threshold apply keeps this crisp instead of
+	-- soft.
 	button = Widgets.Button("SPRINT", UDim2.fromOffset(150, 44), UDim2.new(0.5, -235, 1, -224), {
 		Variant = "Secondary",
-		TextSize = 16,
 	})
 	button.Parent = screenGui
 

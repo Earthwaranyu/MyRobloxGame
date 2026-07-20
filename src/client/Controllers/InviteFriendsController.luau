@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local SocialService = game:GetService("SocialService")
 
+local MenuIcons = require(script.Parent.Parent.MenuIcons)
 local Widgets = require(script.Parent.Parent.Widgets)
 
 -- Native Roblox friend-invite prompt -- no external dependency, and every
@@ -18,6 +19,9 @@ local function buildUI()
 
 	local button = Widgets.Button("Invite Friends", UDim2.fromOffset(200, 48), UDim2.new(1, -210, 1, -68), {
 		Variant = "Success",
+		Icon = function(holder, color)
+			MenuIcons.Populate(holder, "Invite", color)
+		end,
 	})
 	button.Parent = screenGui
 
