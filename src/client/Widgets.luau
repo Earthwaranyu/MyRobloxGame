@@ -3,6 +3,7 @@
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local TextService = game:GetService("TextService")
+local UserInputService = game:GetService("UserInputService")
 
 local Theme = require(script.Parent.Theme)
 local Sounds = require(script.Parent.Sounds)
@@ -890,6 +891,120 @@ function Widgets.SetButtonColors(button: TextButton, face: Color3, shadow: Color
 	local label = button:FindFirstChild("Label")
 	if label then
 		(label :: TextLabel).TextColor3 = text
+	end
+end
+
+-- Draggable horizontal 0-1 slider -- track + proportional fill + a round
+-- thumb, matching the reference "volume mixer" look (see SettingsController's
+-- Music/SFX volume rows). Clicking anywhere on the (generously-sized, not
+-- just the thin visual track) hit area jumps the thumb there directly and
+-- starts a drag, rather than requiring a precise grab on a 6px-tall strip.
+-- Works with both mouse and touch. Returns the container Frame and a
+-- setValue(value) setter for a caller that needs to move it programmatically
+-- (e.g. syncing back to a value set elsewhere) without re-firing onChanged.
+function Widgets.Slider(size: UDim2, position: UDim2, initial: number, onChanged: (number) -> ()): (Frame, (number) -> ())
+	local container = Instance.new("Frame")
+	container.Name = "Slider"
+	container.Size = size
+	container.Position = position
+	container.BackgroundTransparency = 1
+	container.Active = true
+
+	local THUMB_SIZE = 20
+
+	-- Inset by half the thumb's own size on each side so the thumb's OWN
+	-- edges -- not just its center -- stay within the container's bounds at
+	-- the 0 and 1 extremes instead of poking out past them.
+	local track = Instance.new("Frame")
+	track.Name = "Track"
+	track.AnchorPoint = Vector2.new(0, 0.5)
+	track.Position = UDim2.new(0, THUMB_SIZE / 2, 0.5, 0)
+	track.Size = UDim2.new(1, -THUMB_SIZE, 0, 6)
+	track.BackgroundColor3 = Theme.Candy.PanelShadow
+	track.BorderSizePixel = 0
+	track.Parent = container
+
+	local trackCorner = Instance.new("UICorner")
+	trackCorner.CornerRadius = UDim.new(1, 0)
+	trackCorner.Parent = track
+
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.BackgroundColor3 = Theme.Candy.Green.Face
+	fill.BorderSizePixel = 0
+	fill.Parent = track
+
+	local fillCorner = Instance.new("UICorner")
+	fillCorner.CornerRadius = UDim.new(1, 0)
+	fillCorner.Parent = fill
+
+	-- Child of `track`, not `container` -- its Position is a 0-1 Scale
+	-- across the TRACK's own width, so it and `fill` (also sized as a Scale
+	-- of the track) can never drift out of sync with each other.
+	local thumb = Instance.new("Frame")
+	thumb.Name = "Thumb"
+	thumb.AnchorPoint = Vector2.new(0.5, 0.5)
+	thumb.Size = UDim2.fromOffset(THUMB_SIZE, THUMB_SIZE)
+	thumb.BackgroundColor3 = Color3.new(1, 1, 1)
+	thumb.BorderSizePixel = 0
+	thumb.ZIndex = 2
+	thumb.Parent = track
+
+	local thumbCorner = Instance.new("UICorner")
+	thumbCorner.CornerRadius = UDim.new(1, 0)
+	thumbCorner.Parent = thumb
+
+	local thumbStroke = Instance.new("UIStroke")
+	thumbStroke.Color = Theme.Candy.Green.Face
+	thumbStroke.Thickness = 3
+	thumbStroke.Parent = thumb
+
+	local value = 0
+	local function apply(v: number)
+		value = math.clamp(v, 0, 1)
+		fill.Size = UDim2.new(value, 0, 1, 0)
+		thumb.Position = UDim2.new(value, 0, 0.5, 0)
+	end
+	apply(initial)
+
+	local function isPointerInput(input: InputObject): boolean
+		return input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
+	end
+
+	local function updateFromScreenX(x: number)
+		local trackWidth = track.AbsoluteSize.X
+		if trackWidth <= 0 then
+			return
+		end
+		apply((x - track.AbsolutePosition.X) / trackWidth)
+		onChanged(value)
+	end
+
+	local dragging = false
+	container.InputBegan:Connect(function(input: InputObject)
+		if isPointerInput(input) then
+			dragging = true
+			updateFromScreenX(input.Position.X)
+		end
+	end)
+	-- Global, not container.InputChanged -- a fast drag routinely moves the
+	-- cursor off the (fairly small) container between frames, and a
+	-- per-object InputChanged stops firing the moment the cursor leaves its
+	-- bounds. Listening globally and gating on `dragging` keeps tracking the
+	-- drag anywhere on screen until the button/touch actually lifts.
+	UserInputService.InputChanged:Connect(function(input: InputObject)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			updateFromScreenX(input.Position.X)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input: InputObject)
+		if isPointerInput(input) then
+			dragging = false
+		end
+	end)
+
+	return container, function(v: number)
+		apply(v)
 	end
 end
 

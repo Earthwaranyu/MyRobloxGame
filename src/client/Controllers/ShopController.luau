@@ -152,10 +152,15 @@ local function refreshVipButton()
 		vipButton.Text = "👑 VIP Active — 2x Points Everywhere"
 		vipButton.Active = false
 		vipButton.AutoButtonColor = false
+		-- Green once active -- red is a "you should buy this" prompt color,
+		-- which reads wrong once the player already owns it (looks like an
+		-- error/urgent state rather than confirmation).
+		Widgets.SetButtonColors(vipButton, Theme.Candy.Green.Face, Theme.Candy.Green.Shadow, Color3.new(1, 1, 1))
 	else
 		vipButton.Text = "👑 Get VIP — 2x Points Everywhere"
 		vipButton.Active = true
 		vipButton.AutoButtonColor = true
+		Widgets.SetButtonColors(vipButton, Theme.Candy.Red.Face, Theme.Candy.Red.Shadow, Color3.new(1, 1, 1))
 	end
 end
 

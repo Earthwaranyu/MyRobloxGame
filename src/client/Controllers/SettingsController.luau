@@ -41,21 +41,6 @@ local function setWindEffect(enabled: boolean, windSetActive: (boolean) -> ())
 	SettingsController.Changed:Fire("WindEffect", enabled)
 end
 
--- Cycled rather than dragged: Widgets has no slider component, and a tap
--- target that cycles 100 -> 75 -> 50 -> 25 -> Muted needs nothing new to
--- build while still giving real control. Session-only, same as
--- WindEffectEnabled above -- not saved to the profile.
-local VOLUME_LEVELS = { 1, 0.75, 0.5, 0.25, 0 }
-
-local function nextVolumeLevel(current: number): number
-	for i, level in VOLUME_LEVELS do
-		if math.abs(level - current) < 0.01 then
-			return VOLUME_LEVELS[(i % #VOLUME_LEVELS) + 1]
-		end
-	end
-	return VOLUME_LEVELS[1]
-end
-
 -- No "%" suffix -- isolated via A/B testing that Gotham's "%" glyph
 -- specifically renders soft/smeared at these button sizes (confirmed across
 -- GothamBlack, GothamBold, AND regular Gotham, and independent of the
@@ -74,41 +59,36 @@ end
 -- groupName is the SoundGroup AudioService creates server-side ("Music" or
 -- "SFX"); setting its Volume locally only changes what THIS client hears,
 -- same as any other client-side property override of a replicated instance.
+-- Draggable Widgets.Slider (reference: a mobile OS volume-mixer slider) with
+-- a live percentage readout next to the row label, replacing the old
+-- click-to-cycle button now that Widgets actually has a slider component.
 local function buildVolumeRow(panel: CanvasGroup, labelText: string, yOffset: number, groupName: string)
-	local rowLabel = Widgets.Label(labelText, UDim2.new(1, -150, 0, 36), UDim2.fromOffset(8, yOffset), {
+	local rowLabel = Widgets.Label(labelText, UDim2.new(1, -60, 0, 20), UDim2.fromOffset(8, yOffset), {
 		TextSize = 16,
 		Color = Theme.Color.TextSecondary,
 	})
 	rowLabel.Parent = panel
 
-	local level = 1
-	-- Explicit TextSize -- see windButton's comment: at this button's small
-	-- footprint, even defaultTextSize's own >=18 auto threshold still read
-	-- soft, and 24px was still visibly soft specifically for "MUTED"/"100%"
-	-- (denser multi-character strings need more headroom than "ON"/"OFF" do
-	-- at the same size -- see GachaController's Pull/Lucky comment for the
-	-- same pattern at a bigger scale). 28px + a 110px-wide button (up from
-	-- 90) is the confirmed-crisp combo from testing, and still comfortably
-	-- fits "MUTED", the longest string here.
-	local volumeButton = Widgets.Button(formatVolume(level), UDim2.fromOffset(110, 36), UDim2.new(1, -120, 0, yOffset), {
-		Variant = "Tab",
-		Active = true,
-		TextSize = 28,
+	local valueLabel = Widgets.Label(formatVolume(1), UDim2.fromOffset(50, 20), UDim2.new(1, -58, 0, yOffset), {
+		TextSize = 16,
+		Align = Enum.TextXAlignment.Right,
+		Color = Theme.Color.TextSecondary,
 	})
-	volumeButton.Parent = panel
+	valueLabel.Parent = panel
 
-	volumeButton.MouseButton1Click:Connect(function()
-		level = nextVolumeLevel(level)
-		volumeButton.Text = formatVolume(level)
+	local slider = Widgets.Slider(UDim2.new(1, -16, 0, 28), UDim2.fromOffset(8, yOffset + 24), 1, function(value)
+		valueLabel.Text = formatVolume(value)
 		local group = SoundService:WaitForChild(groupName) :: SoundGroup
-		group.Volume = level
+		group.Volume = value
 	end)
+	slider.Parent = panel
 end
 
--- Only ever shows the ON/OFF toggle, and only once the gamepass is actually
--- owned -- unlocking it happens in the Gacha panel instead (right next to
--- the feature it affects), not here. If it's not owned yet, this row simply
--- doesn't exist rather than showing a disabled/purchasable placeholder.
+-- Always visible, owned or not -- unlike the old behavior (row didn't exist
+-- at all until owned), an unowned player now sees it permanently OFF, and
+-- tapping it prompts the same purchase flow the Gacha panel's buy row uses
+-- (see GachaController.refreshSkipPurchaseRow) instead of only being
+-- discoverable there.
 local function buildSkipGachaRow(panel: CanvasGroup, yOffset: number)
 	local rowLabel = Widgets.Label("Skip gacha pull animation", UDim2.new(1, -150, 0, 36), UDim2.fromOffset(8, yOffset), {
 		TextSize = 16,
@@ -124,13 +104,25 @@ local function buildSkipGachaRow(panel: CanvasGroup, yOffset: number)
 	actionSlot.Parent = panel
 
 	refreshSkipGachaRow = function()
-		rowLabel.Visible = skipGachaOwned
-		actionSlot.Visible = skipGachaOwned
-
 		for _, child in actionSlot:GetChildren() do
 			child:Destroy()
 		end
+
 		if not skipGachaOwned then
+			-- Permanently-OFF-looking button (Active=false gives it the same
+			-- muted "off" tab styling the real toggle uses) that prompts the
+			-- gamepass purchase instead of toggling anything -- there's
+			-- nothing to toggle until it's owned.
+			local buyButton, setActive = Widgets.Button("OFF", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), {
+				Variant = "Tab",
+				Active = false,
+				TextSize = 28,
+			})
+			buyButton.Parent = actionSlot
+			setActive(false)
+			buyButton.MouseButton1Click:Connect(function()
+				Net.GetRemoteEvent(RemoteNames.PromptSkipGachaAnimationPurchase):FireServer()
+			end)
 			return
 		end
 
@@ -171,9 +163,11 @@ local function buildUI()
 	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a
 	-- bare Widgets.Panel only closable via this one toggle button.
 	-- Widened from 320 -- the row labels plus the now-bigger (110px, up from
-	-- 90) toggle/volume pills needed more room than 320 could fit without
-	-- truncating "Wind effect while sprinting"/"Skip gacha pull animation".
-	panel, openPanel, closePanel = Widgets.Modal("Settings", UDim2.fromOffset(360, 274), UDim2.new(0, 10, 1, -350), {
+	-- 90) toggle pills needed more room than 320 could fit without truncating
+	-- "Wind effect while sprinting"/"Skip gacha pull animation". Taller than
+	-- before too (274 -> 320) -- the volume rows grew from one line to two
+	-- (label+value, then the slider below it) to fit Widgets.Slider.
+	panel, openPanel, closePanel = Widgets.Modal("Settings", UDim2.fromOffset(360, 320), UDim2.new(0, 10, 1, -396), {
 		DisplayOrder = 30,
 	})
 
@@ -203,11 +197,11 @@ local function buildUI()
 		setWindEffect(enabled, windSetActive)
 	end)
 
-	buildVolumeRow(panel, "Music volume", 92, "Music")
-	buildVolumeRow(panel, "SFX volume", 136, "SFX")
-	buildSkipGachaRow(panel, 180)
+	buildVolumeRow(panel, "Music volume", 96, "Music")
+	buildVolumeRow(panel, "SFX volume", 156, "SFX")
+	buildSkipGachaRow(panel, 216)
 
-	local howToPlayButton = Widgets.Button("How to Play", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 224), {
+	local howToPlayButton = Widgets.Button("How to Play", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 260), {
 		Variant = "Secondary",
 		TextSize = 16,
 	})

@@ -454,10 +454,14 @@ local function refreshMonetizationButtons()
 		luckyButton.Text = "🍀 Lucky Active — Better Odds"
 		luckyButton.Active = false
 		luckyButton.AutoButtonColor = false
+		-- Green once active -- see ShopController's VIP button for the same
+		-- treatment/reasoning.
+		Widgets.SetButtonColors(luckyButton, Theme.Candy.Green.Face, Theme.Candy.Green.Shadow, Color3.new(1, 1, 1))
 	else
 		luckyButton.Text = "🍀 Get Lucky — Better Odds"
 		luckyButton.Active = true
 		luckyButton.AutoButtonColor = true
+		Widgets.SetButtonColors(luckyButton, Theme.Candy.Red.Face, Theme.Candy.Red.Shadow, Color3.new(1, 1, 1))
 	end
 end
 

@@ -66,7 +66,7 @@ local function updateButton()
 		Widgets.SetButtonColors(button, READY_COLOR, READY_SHADOW_COLOR, READY_TEXT_COLOR)
 		iconColor = READY_TEXT_COLOR
 	end
-	AbilityIcons.Populate(iconHolder, currentAbility.Id, 26, iconColor)
+	AbilityIcons.Populate(iconHolder, currentAbility.Id, iconHolder.Size.X.Offset, iconColor)
 end
 
 -- How strong/long the flash is per rarity -- a free Common ability still
@@ -123,48 +123,39 @@ local function buildUI()
 	-- 190 wide, not 150 -- 150 was sized for "DASH (Q)" alone; once Meteor
 	-- Dash (the longest name, plus a cooldown readout like "METEOR DASH
 	-- 4.0s") needed to share the button with an icon too, the old width left
-	-- no room for either and the two visibly overlapped (confirmed via
-	-- screenshot: the icon sat on top of "ME" in "METEOR"). Sits directly
-	-- above the VS BOTS button (see PlayButtonController), same 8px-gap
-	-- convention used throughout this stack of bottom-center buttons.
-	-- Left edge stays at -75 (unchanged from the original 150-wide button) --
-	-- SprintController's button sits immediately to the left with its own
-	-- right edge at -85, so the extra width needs to extend rightward only;
-	-- growing this symmetrically around the old center would push the left
-	-- edge to -95, eating into Sprint's button. 200 (not 190) because the
-	-- worst-case cooldown readout -- "METEOR DASH  12.0s", the longest name
-	-- paired with its own (longest) cooldown -- measured at 150.5px against
-	-- only 150px of available text width at 190, i.e. right at the
-	-- truncation edge with no real margin; 200 gives it breathing room.
+	-- no room for either. Sits directly above the VS BOTS button (see
+	-- PlayButtonController), same 8px-gap convention used throughout this
+	-- stack of bottom-center buttons. Left edge stays at -75 (unchanged from
+	-- the original 150-wide button) -- SprintController's button sits
+	-- immediately to the left with its own right edge at -85, so the extra
+	-- width needs to extend rightward only; growing this symmetrically around
+	-- the old center would push the left edge to -95, eating into Sprint's
+	-- button. 200 (not 190) for extra breathing room around the worst-case
+	-- cooldown readout, "METEOR DASH  12.0s".
+	--
+	-- Icon goes through opts.Icon (Widgets.Button's standard icon+label
+	-- layout) instead of a hand-built iconHolder + UIPadding + TextXAlignment
+	-- -- that hand-built version predates opts.Icon and positioned the icon
+	-- independently of where the button's actual text renders, which after
+	-- Widgets.Button switched to rendering ALL text through a child Label
+	-- (see git log) left the icon and the now-centered Label overlapping
+	-- (confirmed via screenshot: the icon sat on top of "M" in "METEOR").
+	-- opts.Icon computes the label's left inset FROM the icon's real size/
+	-- position, so the two can never drift out of sync again.
 	button = Widgets.Button("DASH (Q)", UDim2.fromOffset(200, 44), UDim2.new(0.5, -75, 1, -224), {
 		Variant = "Secondary",
 		TextSize = 16,
+		Icon = function(holder, color)
+			AbilityIcons.Populate(holder, currentAbility.Id, holder.Size.X.Offset, color)
+		end,
 	})
 	button.Parent = screenGui
 	button.MouseButton1Click:Connect(tryUseAbility)
 
-	-- Left-aligned, not the Widgets.Button default of Center -- centering
-	-- text inside a padded box only reliably avoids the icon if the text is
-	-- shorter than the padded width; once truncation kicks in for a long
-	-- name+cooldown string the (already-shrunk) text still centers within
-	-- its own box and can still start before the icon's right edge. Left
-	-- alignment always starts exactly at the padding boundary, so it can
-	-- never drift backward into the icon's space regardless of text length.
-	button.TextXAlignment = Enum.TextXAlignment.Left
-
-	-- Icon spans x=8 to x=34 (8 + 26 wide) -- padding must clear that AND
-	-- leave a visible gap, not just avoid exact pixel overlap.
-	local padding = Instance.new("UIPadding")
-	padding.PaddingLeft = UDim.new(0, 40)
-	padding.Parent = button
-
-	iconHolder = Instance.new("Frame")
-	iconHolder.Name = "AbilityIconHolder"
-	iconHolder.AnchorPoint = Vector2.new(0, 0.5)
-	iconHolder.Position = UDim2.new(0, 8, 0.5, 0)
-	iconHolder.Size = UDim2.fromOffset(26, 26)
-	iconHolder.BackgroundTransparency = 1
-	iconHolder.Parent = button
+	-- The icon holder opts.Icon just built and parented onto `button`, named
+	-- "Icon" by Widgets.Button -- kept so updateButton() can redraw it
+	-- whenever the equipped ability or cooldown color changes.
+	iconHolder = button:FindFirstChild("Icon") :: Frame
 
 	local flashGui = Instance.new("ScreenGui")
 	flashGui.Name = "DashFlashGui"
