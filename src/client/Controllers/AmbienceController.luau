@@ -64,6 +64,19 @@ function AmbienceController.Init()
 		pendingStageId = stageId
 	end)
 
+	-- Player stays in the "Lobby" state for the whole pre-race countdown
+	-- (see MatchService.startSession -- the group is already teleported to
+	-- the stage but "Racing" only flips once the countdown hits zero), so
+	-- without this the lobby track would otherwise just keep playing under
+	-- the "RACE STARTING IN" ticker. Cutting the music out here instead lets
+	-- the countdown's own tick/GO! sounds land in silence -- easier to focus
+	-- on -- and applyState's crossfade into the race track takes over the
+	-- instant "Racing" actually fires.
+	local preRaceRemote = Net.GetRemoteEvent(RemoteNames.PreRaceCountdown)
+	preRaceRemote.OnClientEvent:Connect(function()
+		Ambience.StopBed()
+	end)
+
 	MatchStateController.StateChanged:Connect(function(state: string)
 		applyState(state)
 	end)
