@@ -295,8 +295,7 @@ function Widgets.Modal(name: string, size: UDim2, position: UDim2, opts: ModalOp
 	end)
 
 	-- Click/tap ANYWHERE the backdrop is still visible (i.e. outside the
-	-- panel, since the panel sits on top of it and now absorbs its own
-	-- clicks) closes the modal -- one of the three exits every modal should
+	-- panel) closes the modal -- one of the three exits every modal should
 	-- have alongside the ✕ and whatever toggle button opened it. Can be
 	-- switched off at runtime (see setClickOutsideEnabled) for a modal that's
 	-- mid-ceremony rather than idly browsable -- e.g. a gacha reveal playing
@@ -304,12 +303,34 @@ function Widgets.Modal(name: string, size: UDim2, position: UDim2, opts: ModalOp
 	-- screen used to dismiss the whole thing with no way back to see the
 	-- result. The ✕ still always works either way -- that's a deliberate
 	-- exit, not a stray tap.
+	--
+	-- panel.Active=true does NOT stop this InputBegan from also firing here
+	-- on plain (non-GuiButton) panel content -- confirmed in Studio that
+	-- Active only sinks clicks for actual TextButton/ImageButton children;
+	-- a bare Frame like Widgets.Slider (or even just clicking blank panel
+	-- background) still let the click through to the backdrop underneath,
+	-- closing Settings the instant you pressed down on the volume slider.
+	-- So this now explicitly ignores any press that lands inside the
+	-- panel's own rect instead of trusting Active to have already filtered
+	-- those out.
+	local function isWithinPanel(screenPos: Vector2): boolean
+		local topLeft = panel.AbsolutePosition
+		local size = panel.AbsoluteSize
+		return screenPos.X >= topLeft.X
+			and screenPos.X <= topLeft.X + size.X
+			and screenPos.Y >= topLeft.Y
+			and screenPos.Y <= topLeft.Y + size.Y
+	end
+
 	local clickOutsideEnabled = true
 	backdrop.InputBegan:Connect(function(input: InputObject)
 		if not clickOutsideEnabled then
 			return
 		end
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			if isWithinPanel(Vector2.new(input.Position.X, input.Position.Y)) then
+				return
+			end
 			close()
 		end
 	end)
