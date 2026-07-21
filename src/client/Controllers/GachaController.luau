@@ -63,7 +63,6 @@ local panel: CanvasGroup
 local openMainPanel: () -> ()
 local closeMainPanel: () -> ()
 local pointsLabel: TextLabel
-local inventoryList: ScrollingFrame
 local luckyButton: TextButton
 -- Mirrors ShopController's vipOwned -- Active = false alone was assumed to
 -- be enough to block the click, but the click handler below fired
@@ -352,90 +351,6 @@ local function playReveal(results)
 	end
 end
 
-local function buildInventoryRow(info: Abilities.AbilityInfo, profile): Frame
-	local row = Instance.new("Frame")
-	row.Size = UDim2.new(1, 0, 0, 58)
-	row.BackgroundColor3 = Theme.Color.PanelLight
-	row.BorderSizePixel = 0
-
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 10)
-	corner.Parent = row
-
-	local swatch = Instance.new("Frame")
-	swatch.Size = UDim2.new(0, 6, 1, -12)
-	swatch.Position = UDim2.fromOffset(6, 6)
-	swatch.BackgroundColor3 = RARITY_COLOR[info.Rarity] or Theme.Color.TextMuted
-	swatch.BorderSizePixel = 0
-	local swatchCorner = Instance.new("UICorner")
-	swatchCorner.CornerRadius = UDim.new(1, 0)
-	swatchCorner.Parent = swatch
-	swatch.Parent = row
-
-	local owned = table.find(profile.OwnedAbilities, info.Id) ~= nil
-	local equipped = profile.EquippedAbility == info.Id
-
-	-- Sits in the gap between the rarity swatch and the name text -- same
-	-- rationale as the reel card's icon (see buildReelCard), just at
-	-- inventory-row scale.
-	local icon = AbilityIcons.Create(info.Id, 40, UDim2.fromOffset(16, 9), RARITY_COLOR[info.Rarity] or Theme.Color.TextMuted)
-	icon.Parent = row
-
-	local nameLabel = Widgets.Label(info.Name, UDim2.new(0.55, -62, 0, 22), UDim2.fromOffset(64, 6), {
-		TextSize = 16,
-	})
-	nameLabel.Parent = row
-
-	local subText
-	if equipped then
-		subText = "Equipped"
-	elseif owned then
-		subText = "Owned"
-	elseif info.PullWeight then
-		subText = ("%s  ·  %d%% pull odds"):format(info.Rarity, info.PullWeight)
-	else
-		subText = info.Rarity
-	end
-
-	local subLabel = Widgets.Label(subText, UDim2.new(0.55, -62, 0, 18), UDim2.fromOffset(64, 30), {
-		TextSize = 13,
-		Bold = false,
-		Color = if equipped
-			then Theme.Color.Success
-			elseif owned then Theme.Color.TextSecondary
-			else RARITY_COLOR[info.Rarity] or Theme.Color.TextMuted,
-	})
-	subLabel.Parent = row
-
-	if owned then
-		local actionButton = Widgets.Button(if equipped then "Equipped" else "Equip", UDim2.fromScale(0.32, 0.66), UDim2.fromScale(0.65, 0.17), {
-			Variant = if equipped then "Success" else "Primary",
-			TextSize = 14,
-		})
-		actionButton.Parent = row
-		if equipped then
-			actionButton.Active = false
-			actionButton.AutoButtonColor = false
-		else
-			actionButton.MouseButton1Click:Connect(function()
-				local success = Net.GetRemoteFunction(RemoteNames.EquipAbility):InvokeServer(info.Id)
-				if success then
-					GachaController.Refresh()
-				end
-			end)
-		end
-	else
-		local lockedLabel = Widgets.Label("🔒 Locked", UDim2.fromScale(0.32, 0.66), UDim2.fromScale(0.65, 0.17), {
-			TextSize = 14,
-			Align = Enum.TextXAlignment.Center,
-			Color = Theme.Color.TextMuted,
-		})
-		lockedLabel.Parent = row
-	end
-
-	return row
-end
-
 -- Re-checks BOTH gamepasses in one remote call and updates both buttons --
 -- called from GachaController.Refresh() (panel open/equip/continue) AND
 -- directly from PromptGamePassPurchaseFinished below, so a purchase that
@@ -475,18 +390,6 @@ function GachaController.Refresh()
 	pointsLabel.Text = ("%d points"):format(profile.Points)
 
 	refreshMonetizationButtons()
-
-	for _, child in inventoryList:GetChildren() do
-		if child:IsA("Frame") then
-			child:Destroy()
-		end
-	end
-
-	for i, info in Abilities do
-		local row = buildInventoryRow(info, profile)
-		row.LayoutOrder = i
-		row.Parent = inventoryList
-	end
 end
 
 local function buildOddsRow(info: Abilities.AbilityInfo, layoutOrder: number): Frame
@@ -573,16 +476,16 @@ local function buildMainPanel()
 	})
 	pointsLabel.Parent = panel
 
-	-- Left tab strip (Pulls / Inventory / Odds), sitting immediately outside
-	-- the panel's own left edge -- the reference image's category-strip
-	-- layout language, applied to this panel's own internal sections instead
-	-- of merging separate systems (Shop, Settings, ...) into one mega-panel.
+	-- Left tab strip (Pulls / Odds), sitting immediately outside the panel's
+	-- own left edge -- the reference image's category-strip layout language,
+	-- applied to this panel's own internal sections instead of merging
+	-- separate systems (Shop, Settings, ...) into one mega-panel. Inventory
+	-- used to be a third tab here -- now its own standalone HUD button/panel
+	-- (see InventoryController) so equipping doesn't require detouring
+	-- through the gacha-pull panel to get there.
 	local tabStrip, _selectTab, onTabSelected = Widgets.TabStrip({
 		{ Id = "Pulls", BuildIcon = function(holder, color)
 			CategoryIcons.Populate(holder, "Pulls", holder.AbsoluteSize.X, color)
-		end },
-		{ Id = "Inventory", BuildIcon = function(holder, color)
-			CategoryIcons.Populate(holder, "Inventory", holder.AbsoluteSize.X, color)
 		end },
 		{ Id = "Odds", BuildIcon = function(holder, color)
 			CategoryIcons.Populate(holder, "Odds", holder.AbsoluteSize.X, color)
@@ -607,14 +510,6 @@ local function buildMainPanel()
 	pullsContent.BackgroundTransparency = 1
 	pullsContent.Parent = panel
 
-	local inventoryContent = Instance.new("Frame")
-	inventoryContent.Name = "InventoryContent"
-	inventoryContent.Size = UDim2.new(1, -16, 1, -60)
-	inventoryContent.Position = UDim2.fromOffset(8, 52)
-	inventoryContent.BackgroundTransparency = 1
-	inventoryContent.Visible = false
-	inventoryContent.Parent = panel
-
 	local oddsContent = Instance.new("Frame")
 	oddsContent.Name = "OddsContent"
 	oddsContent.Size = UDim2.new(1, -16, 1, -60)
@@ -625,7 +520,6 @@ local function buildMainPanel()
 
 	onTabSelected(function(id: string)
 		pullsContent.Visible = id == "Pulls"
-		inventoryContent.Visible = id == "Inventory"
 		oddsContent.Visible = id == "Odds"
 	end)
 
@@ -725,28 +619,6 @@ local function buildMainPanel()
 	end
 	refreshSkipPurchaseRow()
 
-	local inventoryHeader = Widgets.Label("YOUR ABILITIES", UDim2.new(1, 0, 0, 20), UDim2.fromOffset(0, 0), {
-		TextSize = 13,
-		Color = Theme.Color.TextMuted,
-	})
-	inventoryHeader.Parent = inventoryContent
-
-	inventoryList = Instance.new("ScrollingFrame")
-	inventoryList.Size = UDim2.new(1, 0, 1, -26)
-	inventoryList.Position = UDim2.fromOffset(0, 26)
-	inventoryList.BackgroundTransparency = 1
-	inventoryList.BorderSizePixel = 0
-	inventoryList.CanvasSize = UDim2.new(0, 0, 0, 0)
-	inventoryList.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	inventoryList.ScrollBarThickness = 5
-	inventoryList.ScrollBarImageColor3 = Theme.Color.AccentA
-	inventoryList.Parent = inventoryContent
-
-	local invLayout = Instance.new("UIListLayout")
-	invLayout.Padding = UDim.new(0, 6)
-	invLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	invLayout.Parent = inventoryList
-
 	-- Roblox's Randomized Virtual Items policy requires exact drop-rate odds
 	-- (summing to 100%) to be shown BEFORE a paid randomized pull -- this tab
 	-- is reachable from the main panel with no purchase in between, same
@@ -800,11 +672,11 @@ local function buildRevealOverlay()
 	-- own click, but that was the ONLY path that did -- the modal's built-in
 	-- close-X and click-outside-to-close (see Widgets.Modal) both just hide
 	-- the panel with no idea GachaController exists, so the main panel's
-	-- inventory list kept showing pre-pull ownership (no "Equip" button on
-	-- what you just got) until it was manually closed and reopened. Listening
-	-- for Visible itself flipping false catches every way this panel can
-	-- close -- X, click-outside, and Widgets.CloseAllModals forcing it shut
-	-- when a race starts -- in one place instead of chasing each call site.
+	-- points/monetization buttons kept showing stale pre-pull values until it
+	-- was manually closed and reopened. Listening for Visible itself flipping
+	-- false catches every way this panel can close -- X, click-outside, and
+	-- Widgets.CloseAllModals forcing it shut when a race starts -- in one
+	-- place instead of chasing each call site.
 	revealPanel:GetPropertyChangedSignal("Visible"):Connect(function()
 		if not revealPanel.Visible then
 			GachaController.Refresh()
