@@ -20,10 +20,9 @@ export type WeatherPreset = {
 		Glare: number,
 		Haze: number,
 	},
-	-- Looping ambient bed, e.g. birdsong or rain, played on loop while racing.
-	AmbientSoundId: string,
-	AmbientVolume: number,
-	-- Optional one-shot layered on top at random intervals (thunder, owl hoot).
+	-- Optional one-shot layered on top of the race music at random intervals
+	-- (thunder, owl hoot) -- the only audio a WeatherPreset drives now, since
+	-- Weather.Race's music track replaced the old continuous ambient bed.
 	AccentSoundId: string?,
 	AccentVolume: number?,
 	AccentIntervalMin: number?,
@@ -52,7 +51,15 @@ Weather.Lobby = {
 		Glare = 0.15,
 		Haze = 1,
 	},
-	MusicSoundId = "rbxassetid://9038571008",
+	MusicSoundId = "rbxassetid://9043769892", -- APM Music: "Throw Your Hands in the Air (c 60)"
+	MusicVolume = 0.4,
+}
+
+-- Plays instead of the stage's weather ambience while "Racing" (see
+-- AmbienceController) -- a deliberate step up in energy from Lobby's own
+-- track once the player actually loads into a stage.
+Weather.Race = {
+	MusicSoundId = "rbxassetid://9043277248", -- APM Music: "Race Machine"
 	MusicVolume = 0.4,
 }
 
@@ -75,8 +82,6 @@ Weather.Presets = {
 			Glare = 0.25,
 			Haze = 0.8,
 		},
-		AmbientSoundId = "rbxassetid://9112831284", -- Morning Birds
-		AmbientVolume = 0.3,
 	} :: WeatherPreset,
 
 	Stormy = {
@@ -97,8 +102,6 @@ Weather.Presets = {
 			Glare = 0,
 			Haze = 6,
 		},
-		AmbientSoundId = "rbxassetid://9112854469", -- Rain On Water
-		AmbientVolume = 0.45,
 		AccentSoundId = "rbxassetid://9120015808", -- Thunder And Rain
 		AccentVolume = 0.55,
 		AccentIntervalMin = 18,
@@ -123,8 +126,6 @@ Weather.Presets = {
 			Glare = 0.1,
 			Haze = 4,
 		},
-		AmbientSoundId = "rbxassetid://9125742262", -- Plasma Trails Constant Airy Whooshing Windy
-		AmbientVolume = 0.4,
 	} :: WeatherPreset,
 
 	Night = {
@@ -145,8 +146,6 @@ Weather.Presets = {
 			Glare = 0,
 			Haze = 2.2,
 		},
-		AmbientSoundId = "rbxassetid://9112764040", -- Crickets Canyon
-		AmbientVolume = 0.32,
 		AccentSoundId = "rbxassetid://9117182187", -- Owl Hooting
 		AccentVolume = 0.4,
 		AccentIntervalMin = 22,

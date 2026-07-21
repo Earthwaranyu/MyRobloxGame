@@ -1,8 +1,8 @@
--- Background music/weather-bed player. Separate from Sounds.luau (which is a
--- pool of short, fixed-id UI SFX): this deals with a single long-running
--- looped track that crossfades between the lobby's exciting song and
--- whichever stage's weather ambience is currently relevant, plus occasional
--- one-shot accents (thunder, an owl hoot) layered on top of it.
+-- Background music player. Separate from Sounds.luau (which is a pool of
+-- short, fixed-id UI SFX): this deals with a single long-running looped
+-- track that crossfades between the lobby's track and the race track (see
+-- AmbienceController), plus occasional weather one-shot accents (thunder, an
+-- owl hoot) layered on top of it.
 local TweenService = game:GetService("TweenService")
 local SoundService = game:GetService("SoundService")
 

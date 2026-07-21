@@ -8,10 +8,10 @@ local Weather = require(Shared.Weather)
 local Ambience = require(script.Parent.Parent.Ambience)
 local MatchStateController = require(script.Parent.MatchStateController)
 
--- Swaps the single music/ambience bed between the lobby's exciting song and
--- the current stage's weather atmosphere (rain, crickets, birdsong...) as the
--- player moves between "Lobby" and "Racing" (see MatchStateController). Also
--- drives the occasional thunder/owl one-shot accents layered on top.
+-- Swaps the single music bed between the lobby's track and an even more
+-- hyped-up race track as the player moves between "Lobby" and "Racing" (see
+-- MatchStateController). Also drives the occasional thunder/owl one-shot
+-- weather accents layered on top of whichever bed is currently playing.
 local AmbienceController = {}
 
 local pendingStageId: string? = nil
@@ -45,9 +45,11 @@ end
 
 local function applyState(state: string, fadeTime: number?)
 	if state == "Racing" then
+		Ambience.CrossfadeBed("race", Weather.Race.MusicSoundId, Weather.Race.MusicVolume, fadeTime)
+		-- Weather still drives the occasional thunder/owl accent, just not
+		-- the main bed anymore -- that's the race track now.
 		local preset = pendingStageId and Weather.GetForStage(pendingStageId)
 		if preset then
-			Ambience.CrossfadeBed("weather:" .. pendingStageId, preset.AmbientSoundId, preset.AmbientVolume, fadeTime)
 			startAccentLoop(preset)
 		end
 	else
