@@ -946,8 +946,8 @@ end
 -- Voluntary "Leave Match" -- no Elo/streak penalty (they didn't lose to
 -- anyone, they just left), just cleans them out of the queue/session exactly
 -- like a disconnect would (see removePlayer) and, since they're staying
--- connected, teleports them back to the lobby and flips their camera back to
--- third-person.
+-- connected, flips their camera back to third-person. Only teleports them
+-- back to the lobby spawn if they'd actually left it -- see wasOnStage below.
 function MatchService.QuitMatch(player: Player)
 	local userId = player.UserId
 	if not playerBusy[userId] then
@@ -982,6 +982,16 @@ function MatchService.QuitMatch(player: Player)
 			broadcastSpectatorRacers(activeSession)
 		end
 	end
+
+	-- lastCheckpoint only ever gets set at the exact moment a participant is
+	-- actually teleported onto a stage (every "enter stage" call site sets
+	-- it right alongside teleportToStageSpawn -- see startSession/
+	-- StartBotMatch/StartPracticeMatch/RequestDuel), so it's still nil here
+	-- if they cancelled during the brief "matching"/map-reveal window before
+	-- that teleport ever fires, or while just sitting in the shared queue.
+	-- Read it BEFORE clearing it just below.
+	local wasOnStage = lastCheckpoint[userId] ~= nil
+
 	playerRaceStage[userId] = nil
 	playerBusy[userId] = nil
 	lastCheckpoint[userId] = nil
@@ -992,9 +1002,16 @@ function MatchService.QuitMatch(player: Player)
 	setFrozen(player, false)
 	LobbyService.SetPlayerState(player, "Lobby")
 
-	local lobbyCFrame = getLobbySpawnCFrame()
-	if lobbyCFrame then
-		teleportToStageSpawn(player, lobbyCFrame)
+	-- Snapping to the lobby spawn only makes sense if they'd actually been
+	-- moved off of it -- otherwise (still queued, or cancelling during the
+	-- pre-teleport countdown) they never left wherever they clicked Play
+	-- from, and yanking them to the lobby spawn anyway was the bug: hitting
+	-- Cancel with no match found used to relocate you for no reason.
+	if wasOnStage then
+		local lobbyCFrame = getLobbySpawnCFrame()
+		if lobbyCFrame then
+			teleportToStageSpawn(player, lobbyCFrame)
+		end
 	end
 end
 
