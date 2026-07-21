@@ -225,6 +225,28 @@ local function teleportToStageSpawn(player: Player, spawnCFrame: CFrame)
 	lastCheckedPosition[player.UserId] = nil
 end
 
+-- Locks a participant fully in place for the pre-race countdown. Used to be
+-- a "free warm-up" (see startSession/beginRace's own comments) where players
+-- could already wander the course before the timer started -- now they're
+-- anchored instead, so the countdown actually means "can't move yet."
+-- Anchoring the root part (rather than e.g. zeroing WalkSpeed) blocks every
+-- movement vector at once -- walking, jumping, a Dash/Blink impulse -- not
+-- just the ones that go through MovementService's WalkSpeed authority.
+-- pcall'd for the same reason teleportToStageSpawn is: a stale/missing
+-- character on one participant can't be allowed to abort the loop for
+-- everyone else. Safe to call with frozen = false on a player who was never
+-- actually frozen (Quit/cancel paths do this defensively) -- it's just a
+-- harmless Anchored = false no-op.
+local function setFrozen(player: Player, frozen: boolean)
+	pcall(function()
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if root then
+			root.Anchored = frozen
+		end
+	end)
+end
+
 function tryStartCountdown()
 	if pendingCountdown or activeSession then
 		return
@@ -250,8 +272,8 @@ function tryStartCountdown()
 end
 
 -- Teleports the matched group to the chosen stage. They stay in "Lobby"
--- (third-person, no finish-line detection) for CountdownSeconds so everyone
--- gets a moment to see the map before the clock starts.
+-- (first-person, but frozen in place -- see setFrozen) for CountdownSeconds
+-- so everyone gets a moment to see the map before the clock starts.
 function startSession()
 	local queued = queue
 	queue = {}
@@ -291,6 +313,7 @@ function startSession()
 			end
 			queueStatusRemote:FireClient(player, nil)
 			preRaceCountdownRemote:FireClient(player, Constants.Match.CountdownSeconds)
+			setFrozen(player, true)
 		end
 	end
 
@@ -318,18 +341,18 @@ function beginRace(stageId: string, participants: { [number]: Player })
 		return
 	end
 
-	-- CountdownSeconds is a free warm-up: players can already wander/practice
-	-- on the course, third-person, before the timer runs. So that head start
-	-- can't turn into a real advantage (or, worse, a checkpoint touched while
-	-- warming up letting a deliberate fall skip most of the course once the
-	-- timer starts), everyone gets snapped back to the spawn -- and their
-	-- checkpoint progress wiped -- at the exact moment racing actually begins.
+	-- Players were frozen in place for CountdownSeconds (see setFrozen), not
+	-- just left to wander -- but still snap everyone to the exact spawn CFrame
+	-- here rather than trusting wherever they were frozen at, since e.g. a
+	-- respawn mid-countdown would've left them unfrozen at whatever spot the
+	-- default spawn put them.
 	local spawnCFrame = getStageSpawnCFrame(stageId)
 	for userId, player in validParticipants do
 		if spawnCFrame then
 			teleportToStageSpawn(player, spawnCFrame)
 			lastCheckpoint[userId] = spawnCFrame
 		end
+		setFrozen(player, false)
 		LobbyService.SetPlayerState(player, "Racing")
 		AbilityService.ResetCooldown(player)
 	end
@@ -493,9 +516,13 @@ function MatchService.StartBotMatch(player: Player)
 		end
 		queueStatusRemote:FireClient(player, nil)
 		preRaceCountdownRemote:FireClient(player, Constants.Match.CountdownSeconds)
+		setFrozen(player, true)
 
 		task.delay(Constants.Match.CountdownSeconds, function()
 			if not player.Parent or playerRaceStage[userId] ~= stageId then
+				-- Quit mid-countdown already unfroze via QuitMatch, but this is
+				-- cheap and covers any other path that could reach here.
+				setFrozen(player, false)
 				return
 			end
 
@@ -504,6 +531,7 @@ function MatchService.StartBotMatch(player: Player)
 				teleportToStageSpawn(player, spawnCFrame)
 				lastCheckpoint[userId] = spawnCFrame
 			end
+			setFrozen(player, false)
 			LobbyService.SetPlayerState(player, "Racing")
 			AbilityService.ResetCooldown(player)
 			racePositionRemote:FireClient(player, 1, 2)
@@ -584,9 +612,11 @@ function MatchService.StartPracticeMatch(player: Player)
 		end
 		queueStatusRemote:FireClient(player, nil)
 		preRaceCountdownRemote:FireClient(player, Constants.Match.CountdownSeconds)
+		setFrozen(player, true)
 
 		task.delay(Constants.Match.CountdownSeconds, function()
 			if not player.Parent or playerRaceStage[userId] ~= stageId then
+				setFrozen(player, false)
 				return
 			end
 
@@ -594,6 +624,7 @@ function MatchService.StartPracticeMatch(player: Player)
 				teleportToStageSpawn(player, spawnCFrame)
 				lastCheckpoint[userId] = spawnCFrame
 			end
+			setFrozen(player, false)
 			LobbyService.SetPlayerState(player, "Racing")
 			AbilityService.ResetCooldown(player)
 			racePositionRemote:FireClient(player, 1, 1)
@@ -949,6 +980,10 @@ function MatchService.QuitMatch(player: Player)
 	playerBusy[userId] = nil
 	lastCheckpoint[userId] = nil
 
+	-- Harmless no-op if they weren't mid-countdown (already unfrozen or
+	-- never frozen) -- but if they were, leaving this out would strand them
+	-- anchored in the lobby with no way to move.
+	setFrozen(player, false)
 	LobbyService.SetPlayerState(player, "Lobby")
 
 	local lobbyCFrame = getLobbySpawnCFrame()
@@ -1042,6 +1077,10 @@ function MatchService.StartDuelMatch(playerA: Player, playerB: Player)
 		playerBusy[userIdB] = nil
 		lastCheckpoint[userIdA] = nil
 		lastCheckpoint[userIdB] = nil
+		-- Harmless no-op if this fires before either side was ever frozen
+		-- (the reveal-end check below can hit this same path).
+		setFrozen(playerA, false)
+		setFrozen(playerB, false)
 		if playerA.Parent then
 			LobbyService.SetPlayerState(playerA, "Lobby")
 			queueStatusRemote:FireClient(playerA, nil)
@@ -1069,6 +1108,8 @@ function MatchService.StartDuelMatch(playerA: Player, playerB: Player)
 		queueStatusRemote:FireClient(playerB, nil)
 		preRaceCountdownRemote:FireClient(playerA, Constants.Match.CountdownSeconds)
 		preRaceCountdownRemote:FireClient(playerB, Constants.Match.CountdownSeconds)
+		setFrozen(playerA, true)
+		setFrozen(playerB, true)
 
 		task.delay(Constants.Match.CountdownSeconds, function()
 			if playerRaceStage[userIdA] ~= stageId or playerRaceStage[userIdB] ~= stageId then
@@ -1083,6 +1124,8 @@ function MatchService.StartDuelMatch(playerA: Player, playerB: Player)
 				lastCheckpoint[userIdA] = spawnCFrame
 				lastCheckpoint[userIdB] = spawnCFrame
 			end
+			setFrozen(playerA, false)
+			setFrozen(playerB, false)
 			LobbyService.SetPlayerState(playerA, "Racing")
 			LobbyService.SetPlayerState(playerB, "Racing")
 			AbilityService.ResetCooldown(playerA)

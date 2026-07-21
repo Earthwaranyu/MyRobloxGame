@@ -1,4 +1,9 @@
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+
+local Net = require(Shared.Net)
+local RemoteNames = require(Shared.RemoteNames)
 
 local MatchStateController = require(script.Parent.MatchStateController)
 
@@ -50,6 +55,18 @@ end
 function CameraController.Init()
 	MatchStateController.StateChanged:Connect(applyState)
 	applyState(MatchStateController.CurrentState)
+
+	-- Player is still in the "Lobby" state for the whole pre-race countdown
+	-- (see MatchService.startSession -- "Racing" only flips once it hits
+	-- zero), so applyState above wouldn't lock the camera in first-person
+	-- until GO. Forcing it here instead, right as the countdown starts, so
+	-- the player is already looking through the character's eyes -- lined up
+	-- with the server also freezing them in place for the same window (see
+	-- MatchService's setFrozen) -- for the whole "RACE STARTING IN" beat.
+	local preRaceRemote = Net.GetRemoteEvent(RemoteNames.PreRaceCountdown)
+	preRaceRemote.OnClientEvent:Connect(function()
+		player.CameraMode = Enum.CameraMode.LockFirstPerson
+	end)
 end
 
 return CameraController
