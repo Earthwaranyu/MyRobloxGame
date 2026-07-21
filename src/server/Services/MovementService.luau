@@ -30,6 +30,32 @@ local sprintIntent: { [number]: boolean } = {}
 -- toggle mid-effect can't cut the boost short or fight it every frame.
 local speedOverrideUntil: { [number]: number } = {}
 
+-- MatchService's speed-hack watchdog (checkPlayerSpeed) flags anyone
+-- covering more horizontal distance per second than a normal sprint allows
+-- for -- but several legitimate abilities blow well past that on purpose
+-- (Surge's WalkSpeed override, Meteor Dash's 85 studs/s burst plus the
+-- airborne arc its lift launches afterward, Blink's instant reposition).
+-- Without this, using them mid-race reads as a speed-hack and gets
+-- "corrected" by snapping back to the last checkpoint -- exactly the "I
+-- didn't fall but got sent back anyway" bug this exists to prevent.
+-- Grants are per-player deadlines rather than a duration so a fresh grant
+-- (e.g. immediately re-dashing) can never shorten an already-active one.
+local speedCheckGraceUntil: { [number]: number } = {}
+
+-- seconds is how long from NOW the watchdog should stay quiet for this
+-- player -- callers size it to cover their own effect's full legitimate
+-- displacement window (burst duration, plus any airtime it launches), not
+-- just the instant the effect starts.
+function MovementService.GrantSpeedCheckGrace(player: Player, seconds: number)
+	local userId = player.UserId
+	speedCheckGraceUntil[userId] = math.max(speedCheckGraceUntil[userId] or 0, os.clock() + seconds)
+end
+
+function MovementService.IsInSpeedCheckGrace(player: Player): boolean
+	local until_ = speedCheckGraceUntil[player.UserId]
+	return until_ ~= nil and os.clock() < until_
+end
+
 local function getHumanoid(player: Player): Humanoid?
 	local character = player.Character
 	return character and character:FindFirstChildOfClass("Humanoid")
@@ -65,6 +91,11 @@ function MovementService.ApplySpeedOverride(player: Player, speed: number, durat
 	local deadline = os.clock() + durationSeconds
 	speedOverrideUntil[userId] = deadline
 	humanoid.WalkSpeed = speed
+	-- +0.3s buffer past the override's own end -- WalkSpeed reverting is
+	-- immediate, but this covers the gap between that revert and the
+	-- watchdog's next 1s-interval sample so the boundary tick can't still
+	-- get flagged.
+	MovementService.GrantSpeedCheckGrace(player, durationSeconds + 0.3)
 
 	task.delay(durationSeconds, function()
 		-- Only revert if nothing newer (a second override) has since taken
@@ -120,6 +151,7 @@ function MovementService.Init()
 		lastIntentTime[player.UserId] = nil
 		sprintIntent[player.UserId] = nil
 		speedOverrideUntil[player.UserId] = nil
+		speedCheckGraceUntil[player.UserId] = nil
 	end)
 
 	for _, player in Players:GetPlayers() do

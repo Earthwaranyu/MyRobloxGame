@@ -16,6 +16,7 @@ local EloService = require(script.Parent.EloService)
 local LeaderboardService = require(script.Parent.LeaderboardService)
 local LobbyService = require(script.Parent.LobbyService)
 local MonetizationService = require(script.Parent.MonetizationService)
+local MovementService = require(script.Parent.MovementService)
 local PartyService = require(script.Parent.PartyService)
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local WeatherService = require(script.Parent.WeatherService)
@@ -145,7 +146,12 @@ local function checkPlayerSpeed(player: Player, stageId: string)
 
 	local last = lastCheckedPosition[userId]
 	lastCheckedPosition[userId] = root.Position
-	if not last then
+	-- Still record the position above even during a grace window (rather
+	-- than leaving it nil like a forced teleport does) -- a grace window is
+	-- a legitimate SUSTAINED burst, not a snap, so the next check right
+	-- after grace ends should compare against wherever it actually left off,
+	-- not silently skip once more.
+	if not last or MovementService.IsInSpeedCheckGrace(player) then
 		return
 	end
 

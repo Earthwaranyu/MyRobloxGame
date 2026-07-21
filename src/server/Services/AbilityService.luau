@@ -32,6 +32,21 @@ local ABILITY_SOUND_ID = "rbxassetid://9114157695"
 local HOP_SOUND_ID = "rbxassetid://6075441854"
 local BLINK_CLEARANCE = 3 -- Blink stops this many studs short of whatever its raycast hits, so it can't clip a character partway into a wall
 
+-- Dash-kind bursts (especially Meteor's 85 studs/s + lift) and Blink's
+-- instant reposition can both legitimately cover more ground in one second
+-- than MatchService's speed watchdog allows for a normal sprint -- Meteor's
+-- burst alone (0.24s at 85 studs/s) plus the airborne arc its 35 studs/s
+-- lift launches afterward (~0.36s+ hang time still carrying that same
+-- horizontal speed, since Roblox doesn't apply horizontal air drag) easily
+-- clears the watchdog's 38.4-studs-per-second threshold on its own, with
+-- zero cheating involved. Without granting a grace window here, that reads
+-- as a speed-hack and gets "corrected" by snapping back to the last
+-- checkpoint mid-air -- see MovementService.GrantSpeedCheckGrace for the
+-- other half of this. Sized generously past Meteor's worst case (the
+-- biggest burst+lift combo in Abilities.luau) with room for the watchdog's
+-- fixed 1s sampling to land anywhere relative to the burst.
+local ABILITY_SPEED_GRACE_SECONDS = 1.2
+
 local lastAbilityUseTime: { [number]: number } = {}
 local abilityEquippedRemote: RemoteEvent
 
@@ -192,6 +207,7 @@ local function onRequestAbility(player: Player)
 		return
 	end
 	lastAbilityUseTime[userId] = now
+	MovementService.GrantSpeedCheckGrace(player, ABILITY_SPEED_GRACE_SECONDS)
 
 	if info.Kind == "Blink" then
 		applyBlinkEffect(character, root, direction, info)
