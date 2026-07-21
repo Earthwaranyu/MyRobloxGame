@@ -35,6 +35,7 @@ return {
 	QueueRejected = "QueueRejected",
 	PurchaseGranted = "PurchaseGranted",
 	GetPlayerProfileSummary = "GetPlayerProfileSummary",
+	GetPlayerBestTimes = "GetPlayerBestTimes",
 	RequestJoinParty = "RequestJoinParty",
 	JoinRequestReceived = "JoinRequestReceived",
 	RespondToJoinRequest = "RespondToJoinRequest",

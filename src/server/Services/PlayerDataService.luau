@@ -158,6 +158,26 @@ function PlayerDataService.Init()
 		loadProfile(player)
 	end
 
+	-- PlayerRemoving alone only saves someone who leaves individually -- a
+	-- full server shutdown (deploy, crash, Roblox-initiated restart) ends the
+	-- server without ever firing that per-player event, so everyone still
+	-- connected would lose their whole session with no save. Save everyone in
+	-- parallel and block close until they've all finished (or errored out via
+	-- saveProfile's own pcall) rather than saving one at a time.
+	game:BindToClose(function()
+		local players = Players:GetPlayers()
+		local remaining = #players
+		for _, player in players do
+			task.spawn(function()
+				saveProfile(player)
+				remaining -= 1
+			end)
+		end
+		while remaining > 0 do
+			task.wait()
+		end
+	end)
+
 	local getProfileRemote = Net.CreateRemoteFunction(RemoteNames.GetProfile)
 	getProfileRemote.OnServerInvoke = function(player: Player)
 		-- loadProfile may still be in flight (e.g. an async DataStore read)
@@ -188,6 +208,13 @@ function PlayerDataService.Init()
 		local totalGames = profile.Wins + profile.Losses
 		local winRate = if totalGames > 0 then profile.Wins / totalGames else 0
 
+		-- Best-times-per-stage deliberately NOT included here -- that needs a
+		-- DataStore GetAsync per stage (see LeaderboardService's
+		-- GetPlayerBestTimes remote), and blocking the profile card's open on
+		-- that made double-clicking someone feel slow. Everything below is
+		-- free in-memory profile data, so this call stays fast and the client
+		-- opens the card off it immediately, then fetches best times
+		-- separately afterward.
 		return {
 			Name = target.Name,
 			Elo = profile.Elo,

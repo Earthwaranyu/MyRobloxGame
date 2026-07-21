@@ -6,6 +6,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 local Constants = require(Shared.Constants)
+local Stages = require(Shared.Stages)
 
 local LeaderboardService = {}
 
@@ -17,6 +18,16 @@ local LeaderboardService = {}
 local MAX_FRIENDS_CHECKED = 40
 local FRIENDS_FETCH_COOLDOWN = 5
 local lastFriendsFetch: { [number]: number } = {}
+
+-- Profile card's "Best Times" section costs one GetAsync per stage -- unlike
+-- every other field on GetPlayerProfileSummary, which is free in-memory
+-- profile data (see PlayerDataService). Gated behind its own per-VIEWER
+-- cooldown, same defensive shape as FRIENDS_FETCH_COOLDOWN just keyed on
+-- whichever caller is asking rather than whichever stage is being read, so
+-- double-clicking through a crowd of players can't burn through the
+-- DataStore request budget.
+local BEST_TIMES_COOLDOWN = 2
+local lastBestTimesFetch: { [number]: number } = {}
 
 -- GetOrderedDataStore() throws if API access is disabled (e.g. an unpublished
 -- place in Studio), so this is guarded rather than called directly.
@@ -86,6 +97,25 @@ function LeaderboardService.GetFriendTimes(player: Player, stageId: string)
 	return results
 end
 
+-- One player's best time on one stage, in ms -- nil if they've never finished
+-- it. Used by the profile card (see PlayerDataService.GetPlayerProfileSummary)
+-- to show best-time-per-stage for whoever was double-clicked, same single-key
+-- GetAsync pattern GetFriendTimes already uses per friend, just for one userId.
+function LeaderboardService.GetPlayerBestTime(userId: number, stageId: string): number?
+	local store = getStore(stageId)
+	if not store then
+		return nil
+	end
+
+	local ok, value = pcall(function()
+		return store:GetAsync("Player_" .. userId)
+	end)
+	if ok and typeof(value) == "number" then
+		return value
+	end
+	return nil
+end
+
 -- Lower time is better; only writes when it improves the player's best.
 function LeaderboardService.SubmitTime(player: Player, stageId: string, timeSeconds: number)
 	local store = getStore(stageId)
@@ -153,8 +183,45 @@ function LeaderboardService.Init()
 		return entries
 	end
 
+	-- Separate from GetPlayerProfileSummary on purpose (see PlayerDataService)
+	-- so opening the profile card never blocks on this -- the client opens the
+	-- card off the fast in-memory summary fields and calls this afterward,
+	-- filling in Best Times a beat later instead of stalling the whole panel
+	-- behind a DataStore round trip. Fetches every stage in parallel (each
+	-- GetAsync is its own network request) rather than one after another, so
+	-- this takes as long as the SLOWEST single stage lookup, not the sum of
+	-- all of them.
+	local getBestTimesRemote = Net.CreateRemoteFunction(RemoteNames.GetPlayerBestTimes)
+	getBestTimesRemote.OnServerInvoke = function(viewer: Player, targetUserId: number)
+		if typeof(targetUserId) ~= "number" then
+			return {}
+		end
+
+		local viewerId = viewer.UserId
+		local now = os.clock()
+		if lastBestTimesFetch[viewerId] and now - lastBestTimesFetch[viewerId] < BEST_TIMES_COOLDOWN then
+			return {}
+		end
+		lastBestTimesFetch[viewerId] = now
+
+		local bestTimes: { [string]: number? } = {}
+		local remaining = #Stages
+		for _, stage in Stages do
+			task.spawn(function()
+				bestTimes[stage.Id] = LeaderboardService.GetPlayerBestTime(targetUserId, stage.Id)
+				remaining -= 1
+			end)
+		end
+		while remaining > 0 do
+			task.wait()
+		end
+
+		return bestTimes
+	end
+
 	Players.PlayerRemoving:Connect(function(player: Player)
 		lastFriendsFetch[player.UserId] = nil
+		lastBestTimesFetch[player.UserId] = nil
 	end)
 end
 

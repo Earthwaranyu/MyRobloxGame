@@ -8,6 +8,11 @@
 -- reuses CategoryIcons' "Pulls" gift-box glyph directly rather than
 -- duplicating it here, since it's the same concept (gacha pulls) already
 -- drawn for that panel's own tab strip.
+--
+-- Also reused by ProfileCardController for its small stat-row icons (Wins/
+-- Losses/Ability/Playtime) -- same BUILDERS/Populate mechanism, just at a
+-- smaller container size, rather than a second copy of the bar/dot/ring/box
+-- primitives for one more consumer.
 local MenuIcons = {}
 
 local DESIGN = 40
@@ -166,6 +171,35 @@ BUILDERS.Exit = function(parent, s, color)
 	bar(parent, s, 14, 4, 27, 20, 0, color)
 	bar(parent, s, 10, 4, 31, 15, 45, color)
 	bar(parent, s, 10, 4, 31, 25, -45, color)
+end
+
+-- Wins (profile card): a checkmark -- a short bar and a long bar meeting at
+-- the bottom point, same two-bars-at-an-angle technique as Play's chevron.
+BUILDERS.Wins = function(parent, s, color)
+	bar(parent, s, 9, 5, 14, 22, 45, color)
+	bar(parent, s, 18, 5, 25, 17, -55, color)
+end
+
+-- Losses (profile card): an X -- two long bars crossed, the same "two bars
+-- at right angles" idea as Invite's "+" just rotated 45 degrees.
+BUILDERS.Losses = function(parent, s, color)
+	bar(parent, s, 26, 4, 20, 20, 45, color)
+	bar(parent, s, 26, 4, 20, 20, -45, color)
+end
+
+-- Ability (profile card): a lightning bolt -- two parallel diagonal bars
+-- offset from each other, reading as a zigzag "S" at this size.
+BUILDERS.Ability = function(parent, s, color)
+	bar(parent, s, 16, 5, 17, 14, -35, color)
+	bar(parent, s, 16, 5, 23, 26, -35, color)
+end
+
+-- Playtime (profile card): a clock -- outer ring with an hour hand pointing
+-- up and a shorter minute hand pointing right, both anchored at the center.
+BUILDERS.Playtime = function(parent, s, color)
+	ring(parent, s, 30, 3, 20, 20, color)
+	bar(parent, s, 3, 11, 20, 15, 0, color)
+	bar(parent, s, 3, 8, 24, 20, 90, color)
 end
 
 -- Clears `container` and draws `id`'s glyph sized to container's own Size.X

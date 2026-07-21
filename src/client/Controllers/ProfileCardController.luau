@@ -4,26 +4,37 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
+local Stages = require(Shared.Stages)
 
+local MenuIcons = require(script.Parent.Parent.MenuIcons)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local Sounds = require(script.Parent.Parent.Sounds)
 
--- "Double-click another player to see their profile" (rank, win rate,
--- equipped ability, wins/losses, playtime, request 1v1, request to join
--- party). ClickDetector is created and owned entirely client-side, one per
--- OTHER player's character (see TrailVisualsController for the same
+-- Hover another player for a white highlight + "double-click for details"
+-- hint, then double-click to see their profile (rank, win rate, equipped
+-- ability, wins/losses, playtime, best time per stage, request 1v1, request
+-- to join party). ClickDetector is created and owned entirely client-side,
+-- one per OTHER player's character (see TrailVisualsController for the same
 -- watch-every-player CharacterAdded pattern) -- it never needs to replicate,
--- since only the local player's own clicks on it matter.
+-- since only the local player's own clicks/hovers on it matter.
 local ProfileCardController = {}
 
 local DOUBLE_CLICK_WINDOW = 0.4
-local CLICK_ACTIVATION_DISTANCE = 12
+-- ClickDetector.MaxActivationDistance only gates MouseClick -- NOT
+-- MouseHoverEnter/MouseHoverLeave, which fire regardless of distance. That
+-- mismatch is exactly what made the hover highlight/hint show up while
+-- double-clicking silently did nothing: standing just past this distance
+-- still triggers hover, but the click gets dropped before it ever reaches
+-- onClick below. Generous on purpose so normal "standing near someone in the
+-- lobby" distances comfortably qualify.
+local CLICK_ACTIVATION_DISTANCE = 24
 local DUEL_REQUEST_TTL_DISPLAY = 30
 
 local player = Players.LocalPlayer
 
 local getSummaryRemote: RemoteFunction
+local getBestTimesRemote: RemoteFunction
 local requestJoinRemote: RemoteEvent
 local requestDuelRemote: RemoteEvent
 local respondDuelRemote: RemoteEvent
@@ -31,9 +42,23 @@ local respondDuelRemote: RemoteEvent
 local lastClickTime: { [number]: number } = {}
 
 local panel: CanvasGroup
+-- Declared here (not down by buildUI, where they're assigned) and NEVER
+-- re-declared with `local` again anywhere else in this file -- Lua doesn't
+-- hoist locals, so a second `local openPanel`/`local closePanel` further
+-- down (where this used to live, right before buildUI) would shadow these
+-- from that point on, leaving openProfileCard's call to openPanel() (defined
+-- earlier in the file, so it closes over THIS declaration) reading a
+-- never-assigned global instead of buildUI's real one. That's exactly what
+-- was happening: double-click detection worked, the server call worked, and
+-- then openPanel() errored as "attempt to call a nil value".
+local openPanel: () -> ()
+local closePanel: () -> ()
+local avatarImage: ImageLabel
+local avatarStroke: UIStroke
 local nameLabel: TextLabel
 local rankLabel: TextLabel
-local statsLabel: TextLabel
+local statRows: { [string]: TextLabel } = {}
+local bestTimesLabel: TextLabel
 local duelButton: TextButton
 local joinPartyButton: TextButton
 -- duelButton/joinPartyButton are fixed, reused instances (the card is
@@ -56,6 +81,18 @@ local noticeToast: CanvasGroup
 local noticeLabel: TextLabel
 local noticeToken = 0
 
+-- Same "M:SS.ss" shape as LeaderboardController's formatTime -- "--" for a
+-- stage this player has never actually finished (BestTimes has no entry).
+local function formatBestTime(ms: number?): string
+	if not ms then
+		return "--"
+	end
+	local totalSeconds = ms / 1000
+	local minutes = math.floor(totalSeconds / 60)
+	local seconds = totalSeconds - minutes * 60
+	return ("%d:%05.2f"):format(minutes, seconds)
+end
+
 local function formatPlaytime(totalSeconds: number): string
 	local minutes = math.floor(totalSeconds / 60)
 	if minutes < 60 then
@@ -63,6 +100,22 @@ local function formatPlaytime(totalSeconds: number): string
 	end
 	local hours = math.floor(minutes / 60)
 	return ("%dh %dm"):format(hours, minutes % 60)
+end
+
+-- Roblox's own CDN thumbnail for this userId -- yields, so this has to run
+-- off to the side rather than blocking openProfileCard. Guards against a
+-- slow-resolving fetch from a PREVIOUS double-click landing after the viewer
+-- has already moved on to someone else (same stale-callback shape as
+-- duelToastToken/noticeToken below, just keyed on the target instead).
+local function loadAvatarThumbnail(userId: number)
+	task.spawn(function()
+		local ok, content = pcall(function()
+			return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
+		end)
+		if ok and currentTarget and currentTarget.UserId == userId then
+			avatarImage.Image = content
+		end
+	end)
 end
 
 local function showNotice(text: string)
@@ -77,9 +130,46 @@ local function showNotice(text: string)
 	end)
 end
 
+-- Fetched separately from the rest of the card (see getBestTimesRemote's
+-- server-side comment) so it can pop in a beat after the panel's already
+-- open instead of stalling it. Guards against a slow-resolving fetch from a
+-- PREVIOUS double-click landing after the viewer has already moved on to
+-- someone else -- same stale-callback shape as loadAvatarThumbnail.
+local function loadBestTimes(userId: number)
+	bestTimesLabel.Text = "Loading..."
+	task.spawn(function()
+		local ok, bestTimes = pcall(function()
+			return getBestTimesRemote:InvokeServer(userId)
+		end)
+		if not ok or not currentTarget or currentTarget.UserId ~= userId then
+			return
+		end
+
+		-- Two stages per line -- BestTimes may come back empty (see
+		-- LeaderboardService's BEST_TIMES_COOLDOWN) if this viewer already
+		-- checked someone very recently; formatBestTime renders a missing
+		-- entry as "--" either way, so this never shows a blank or an error.
+		local bestTimeLines = {}
+		for i = 1, #Stages, 2 do
+			local a, b = Stages[i], Stages[i + 1]
+			local line = ("%s: %s"):format(a.Name, formatBestTime(bestTimes and bestTimes[a.Id]))
+			if b then
+				line ..= ("    %s: %s"):format(b.Name, formatBestTime(bestTimes and bestTimes[b.Id]))
+			end
+			table.insert(bestTimeLines, line)
+		end
+		bestTimesLabel.Text = table.concat(bestTimeLines, "\n")
+	end)
+end
+
 local function openProfileCard(target: Player)
 	local summary = getSummaryRemote:InvokeServer(target.UserId)
 	if not summary then
+		-- Double-click WAS detected (we got this far) but the server had
+		-- nothing to show -- most likely target's profile hadn't finished
+		-- loading yet. Warn rather than fail silently, so "double-click does
+		-- nothing" is distinguishable from "the click never registered at all".
+		warn(("ProfileCardController: no summary returned for %s (%d)"):format(target.Name, target.UserId))
 		return
 	end
 
@@ -87,17 +177,23 @@ local function openProfileCard(target: Player)
 
 	nameLabel.Text = summary.Name
 	rankLabel.Text = summary.Rank .. "  ·  " .. summary.Elo .. " elo"
-	rankLabel.TextColor3 = Theme.GetRankColor(summary.Rank)
+	local rankColor = Theme.GetRankColor(summary.Rank)
+	rankLabel.TextColor3 = rankColor
+	avatarStroke.Color = rankColor
+	avatarImage.Image = "" -- cleared until loadAvatarThumbnail resolves, rather than showing the last target's face
+	loadAvatarThumbnail(target.UserId)
 
 	local winRatePercent = math.floor(summary.WinRate * 100 + 0.5)
-	statsLabel.Text = table.concat({
-		("Wins: %d    Losses: %d    Win Rate: %d%%"):format(summary.Wins, summary.Losses, winRatePercent),
-		("Ability: %s"):format(summary.EquippedAbility),
-		("Time Played: %s"):format(formatPlaytime(summary.PlaytimeSeconds)),
-	}, "\n")
+	statRows.Wins.Text = ("Wins: %d"):format(summary.Wins)
+	statRows.Losses.Text = ("Losses: %d"):format(summary.Losses)
+	statRows.WinRate.Text = ("Win Rate: %d%%"):format(winRatePercent)
+	statRows.Ability.Text = ("Ability: %s"):format(summary.EquippedAbility)
+	statRows.Playtime.Text = ("Playtime: %s"):format(formatPlaytime(summary.PlaytimeSeconds))
 
 	Sounds.Play("Reveal")
 	openPanel()
+
+	loadBestTimes(target.UserId)
 end
 
 local function hideDuelToast()
@@ -119,40 +215,117 @@ local function showDuelToast(fromName: string)
 	end)
 end
 
-local openPanel: () -> ()
-local closePanel: () -> ()
+local STAT_ROW_WIDTH = 290
+local STAT_ROW_HEIGHT = 34
+
+-- One icon + label row (Wins/Losses/Win Rate/Ability/Playtime) in the card's
+-- left column -- built once per row in buildUI, returns the label so
+-- openProfileCard can just set .Text on the same 5 instances each open,
+-- same "build once, mutate on open" shape nameLabel/rankLabel already used.
+local function buildStatRow(parent: Instance, iconId: string, y: number): TextLabel
+	local row = Instance.new("Frame")
+	row.Size = UDim2.fromOffset(STAT_ROW_WIDTH, STAT_ROW_HEIGHT)
+	row.Position = UDim2.fromOffset(16, y)
+	row.BackgroundTransparency = 1
+	row.Parent = parent
+
+	local iconHolder = Instance.new("Frame")
+	iconHolder.Size = UDim2.fromOffset(26, 26)
+	iconHolder.Position = UDim2.new(0, 0, 0.5, -13)
+	iconHolder.BackgroundTransparency = 1
+	iconHolder.Parent = row
+	MenuIcons.Populate(iconHolder, iconId, Theme.Color.TextSecondary)
+
+	local label = Widgets.Label("", UDim2.new(1, -34, 1, 0), UDim2.fromOffset(34, 0), {
+		TextSize = 15,
+		Bold = false,
+	})
+	label.Parent = row
+	return label
+end
 
 local function buildUI()
 	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) -- this panel
 	-- has no persistent toggle button (it only opens from a double-click),
 	-- so click-outside/✕ are the ONLY way to dismiss it besides its own
 	-- buttons, which makes them non-optional here, not just a nicety.
-	-- 284 tall, not 300 -- that extra ~36px used to hold a "Close" button
-	-- doing the exact same thing as the modal's own close-✕ one inch above it.
-	panel, openPanel, closePanel = Widgets.Modal("ProfileCard", UDim2.fromOffset(380, 284), UDim2.new(0.5, -190, 0.5, -142), {
+	-- 440x410 (was 380x314): a ribbon header + avatar thumbnail + icon stat
+	-- rows + a restyled Best Times band replaced the old plain name/stats
+	-- text labels, so both the layout and the buttons below it grew to match.
+	panel, openPanel, closePanel = Widgets.Modal("ProfileCard", UDim2.fromOffset(440, 410), UDim2.new(0.5, -220, 0.5, -205), {
 		DisplayOrder = 30,
 	})
 
-	nameLabel = Widgets.Label("", UDim2.new(1, -16, 0, 30), UDim2.fromOffset(8, 6), {
-		TextSize = 22,
+	local ribbon = Widgets.Ribbon("PROFILE", UDim2.fromOffset(200, 40), UDim2.new(0.5, 0, 0, -20))
+	ribbon.Parent = panel
+
+	-- Avatar thumbnail, top-right -- Roblox's own CDN headshot for whoever
+	-- was double-clicked (see loadAvatarThumbnail), bordered in their rank
+	-- color the same way rankLabel's text is.
+	avatarImage = Instance.new("ImageLabel")
+	avatarImage.Name = "AvatarImage"
+	avatarImage.Size = UDim2.fromOffset(96, 96)
+	avatarImage.Position = UDim2.fromOffset(328, 22)
+	avatarImage.BackgroundColor3 = Theme.Color.PanelLight
+	avatarImage.BorderSizePixel = 0
+	avatarImage.Image = ""
+	avatarImage.Parent = panel
+
+	local avatarCorner = Instance.new("UICorner")
+	avatarCorner.CornerRadius = UDim.new(0, 18)
+	avatarCorner.Parent = avatarImage
+
+	avatarStroke = Instance.new("UIStroke")
+	avatarStroke.Thickness = 3
+	avatarStroke.Color = Theme.Color.Stroke
+	avatarStroke.Parent = avatarImage
+
+	nameLabel = Widgets.Label("", UDim2.fromOffset(96, 20), UDim2.fromOffset(328, 122), {
+		TextSize = 15,
+		Align = Enum.TextXAlignment.Center,
 	})
 	nameLabel.Parent = panel
 
-	rankLabel = Widgets.Label("", UDim2.new(1, -16, 0, 22), UDim2.fromOffset(8, 38), {
-		TextSize = 16,
+	rankLabel = Widgets.Label("", UDim2.fromOffset(96, 18), UDim2.fromOffset(328, 142), {
+		TextSize = 12,
+		Align = Enum.TextXAlignment.Center,
 		Color = Theme.Color.TextSecondary,
 	})
 	rankLabel.Parent = panel
 
-	statsLabel = Widgets.Label("", UDim2.new(1, -16, 0, 100), UDim2.fromOffset(8, 68), {
-		TextSize = 15,
+	statRows.Wins = buildStatRow(panel, "Wins", 26)
+	statRows.Losses = buildStatRow(panel, "Losses", 64)
+	statRows.WinRate = buildStatRow(panel, "Practice", 102) -- bullseye glyph reused for win-rate/accuracy
+	statRows.Ability = buildStatRow(panel, "Ability", 140)
+	statRows.Playtime = buildStatRow(panel, "Playtime", 178)
+
+	local bestTimesFrame = Instance.new("Frame")
+	bestTimesFrame.Name = "BestTimesFrame"
+	bestTimesFrame.Size = UDim2.fromOffset(408, 72)
+	bestTimesFrame.Position = UDim2.fromOffset(16, 222)
+	bestTimesFrame.BackgroundColor3 = Theme.Color.Panel
+	bestTimesFrame.BorderSizePixel = 0
+	bestTimesFrame.Parent = panel
+
+	local bestTimesCorner = Instance.new("UICorner")
+	bestTimesCorner.CornerRadius = UDim.new(0, 10)
+	bestTimesCorner.Parent = bestTimesFrame
+
+	local bestTimesHeader = Widgets.Label("BEST TIMES", UDim2.new(1, -16, 0, 16), UDim2.fromOffset(8, 6), {
+		TextSize = 12,
+		Color = Theme.Color.TextMuted,
+	})
+	bestTimesHeader.Parent = bestTimesFrame
+
+	bestTimesLabel = Widgets.Label("", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 26), {
+		TextSize = 14,
 		Color = Theme.Color.TextPrimary,
 		Bold = false,
 	})
-	statsLabel.TextWrapped = true
-	statsLabel.Parent = panel
+	bestTimesLabel.TextWrapped = true
+	bestTimesLabel.Parent = bestTimesFrame
 
-	duelButton = Widgets.Button("Request 1v1", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 180), {
+	duelButton = Widgets.Button("Request 1v1", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 306), {
 		Variant = "Primary",
 		TextSize = 15,
 	})
@@ -166,7 +339,7 @@ local function buildUI()
 		closePanel()
 	end)
 
-	joinPartyButton = Widgets.Button("Ask to Join Party", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 226), {
+	joinPartyButton = Widgets.Button("Ask to Join Party", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 352), {
 		Variant = "Secondary",
 		TextSize = 15,
 	})
@@ -238,24 +411,130 @@ local function buildUI()
 	noticeLabel.Parent = noticeToast
 end
 
+-- Built once per character and just toggled Enabled on hover, rather than
+-- created/destroyed on every enter/leave -- same "build once, mutate on
+-- state change" shape the rest of this controller already uses for the duel/
+-- notice toasts.
+local function buildHoverHint(head: BasePart): BillboardGui
+	-- OverheadDisplayService's rank tag sits at 2.6, EmoteDisplayController's
+	-- emote bubble at 4.9 -- 3.5 sits clear of both with room to spare.
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "ProfileHoverHint"
+	billboard.Size = UDim2.fromOffset(168, 30)
+	billboard.StudsOffset = Vector3.new(0, 3.5, 0)
+	billboard.MaxDistance = CLICK_ACTIVATION_DISTANCE + 8
+	billboard.AlwaysOnTop = true
+	billboard.Enabled = false
+	billboard.Parent = head
+
+	local backdrop = Instance.new("Frame")
+	backdrop.Name = "Backdrop"
+	backdrop.Size = UDim2.fromScale(1, 1)
+	backdrop.BackgroundColor3 = Color3.fromRGB(15, 16, 22)
+	backdrop.BackgroundTransparency = 0.35
+	backdrop.BorderSizePixel = 0
+	backdrop.Parent = billboard
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(1, 0)
+	corner.Parent = backdrop
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(0.9, 0.8)
+	label.Position = UDim2.fromScale(0.05, 0.1)
+	label.BackgroundTransparency = 1
+	label.Text = "Double-click for details"
+	label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	label.Font = Enum.Font.GothamBold
+	label.TextScaled = true
+	label.Parent = backdrop
+
+	return billboard
+end
+
 local function watchCharacter(target: Player, character: Model)
-	local root = character:WaitForChild("HumanoidRootPart", 5) :: BasePart?
-	if not root then
+	if not character:WaitForChild("HumanoidRootPart", 5) then
 		return
 	end
+	local head = character:WaitForChild("Head", 5) :: BasePart?
 
-	local clickDetector = Instance.new("ClickDetector")
-	clickDetector.Name = "ProfileCardClickDetector"
-	clickDetector.MaxActivationDistance = CLICK_ACTIVATION_DISTANCE
-	clickDetector.Parent = root
+	-- White highlight + "double-click for details" hint while the mouse is
+	-- over this player -- purely a local visual cue pointing at the
+	-- click-to-open-profile-card interaction below, no server round trip.
+	local highlight = Instance.new("Highlight")
+	highlight.Name = "ProfileHoverHighlight"
+	highlight.FillColor = Color3.new(1, 1, 1)
+	highlight.FillTransparency = 0.75
+	highlight.OutlineColor = Color3.new(1, 1, 1)
+	highlight.OutlineTransparency = 0
+	highlight.Enabled = false
+	highlight.Parent = character
 
-	clickDetector.MouseClick:Connect(function()
+	local hint = head and buildHoverHint(head)
+
+	local function onHoverEnter()
+		highlight.Enabled = true
+		if hint then
+			hint.Enabled = true
+		end
+	end
+
+	local function onHoverLeave()
+		highlight.Enabled = false
+		if hint then
+			hint.Enabled = false
+		end
+	end
+
+	local function onClick()
 		local now = os.clock()
 		local last = lastClickTime[target.UserId]
 		lastClickTime[target.UserId] = now
 		if last and now - last <= DOUBLE_CLICK_WINDOW then
 			lastClickTime[target.UserId] = nil
+			-- Positive confirmation the click side of the pipeline actually
+			-- fired -- if the card still doesn't open, check the dev console
+			-- (F9) for this: no line at all means the click itself never
+			-- registered (distance/detector issue); this line but no panel
+			-- means it got as far as the server request (see openProfileCard's
+			-- own warn for that half).
+			print("ProfileCardController: double-click detected on " .. target.Name)
 			openProfileCard(target)
+		end
+	end
+
+	local function attachClickDetector(part: BasePart)
+		if part:FindFirstChildOfClass("ClickDetector") then
+			return
+		end
+		local clickDetector = Instance.new("ClickDetector")
+		clickDetector.Name = "ProfileCardClickDetector"
+		clickDetector.MaxActivationDistance = CLICK_ACTIVATION_DISTANCE
+		clickDetector.Parent = part
+
+		clickDetector.MouseHoverEnter:Connect(onHoverEnter)
+		clickDetector.MouseHoverLeave:Connect(onHoverLeave)
+		clickDetector.MouseClick:Connect(onClick)
+	end
+
+	-- One ClickDetector per visible BasePart, not just HumanoidRootPart --
+	-- the root part is invisible and sits behind/inside the actual visible
+	-- geometry, so a raycast at whatever you actually see almost always hits
+	-- THAT part first. GetDescendants (not GetChildren) because avatar
+	-- accessories/costumes (hats, hair, a full-body "Generated Accessory"
+	-- skin -- confirmed via a live character's structure: those are Accessory
+	-- instances with the actual visible mesh one level down, in a nested
+	-- Handle part) live one level deeper than the body's own BaseParts, and a
+	-- shallow scan silently misses every one of them. DescendantAdded covers
+	-- any accessory that streams in slightly after the character does.
+	for _, part in character:GetDescendants() do
+		if part:IsA("BasePart") then
+			attachClickDetector(part)
+		end
+	end
+	character.DescendantAdded:Connect(function(descendant)
+		if descendant:IsA("BasePart") then
+			attachClickDetector(descendant)
 		end
 	end)
 end
@@ -276,6 +555,7 @@ function ProfileCardController.Init()
 	buildUI()
 
 	getSummaryRemote = Net.GetRemoteFunction(RemoteNames.GetPlayerProfileSummary)
+	getBestTimesRemote = Net.GetRemoteFunction(RemoteNames.GetPlayerBestTimes)
 	requestJoinRemote = Net.GetRemoteEvent(RemoteNames.RequestJoinParty)
 	requestDuelRemote = Net.GetRemoteEvent(RemoteNames.RequestDuel)
 	respondDuelRemote = Net.GetRemoteEvent(RemoteNames.RespondToDuel)
