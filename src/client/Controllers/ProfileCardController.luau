@@ -215,29 +215,41 @@ local function showDuelToast(fromName: string)
 	end)
 end
 
-local STAT_ROW_WIDTH = 290
-local STAT_ROW_HEIGHT = 34
+local STAT_ROW_HEIGHT = 32
+local STAT_ROW_ICON_SIZE = 22
+local STAT_ROW_PAD = 8
 
--- One icon + label row (Wins/Losses/Win Rate/Ability/Playtime) in the card's
--- left column -- built once per row in buildUI, returns the label so
--- openProfileCard can just set .Text on the same 5 instances each open,
--- same "build once, mutate on open" shape nameLabel/rankLabel already used.
-local function buildStatRow(parent: Instance, iconId: string, y: number): TextLabel
+-- One icon + label row (Wins/Losses/Win Rate/Ability/Playtime), drawn as a
+-- subtle rounded "chip" (own tinted background, not just bare text on the
+-- panel) so the stat block reads as a grid of cards instead of a loose list.
+-- x/width are passed in per-call so the same builder serves both the
+-- two-column rows and the full-width Ability row -- built once per row in
+-- buildUI, returns the label so openProfileCard can just set .Text on the
+-- same 5 instances each open, same "build once, mutate on open" shape
+-- nameLabel/rankLabel already used.
+local function buildStatRow(parent: Instance, iconId: string, x: number, y: number, width: number): TextLabel
 	local row = Instance.new("Frame")
-	row.Size = UDim2.fromOffset(STAT_ROW_WIDTH, STAT_ROW_HEIGHT)
-	row.Position = UDim2.fromOffset(16, y)
-	row.BackgroundTransparency = 1
+	row.Size = UDim2.fromOffset(width, STAT_ROW_HEIGHT)
+	row.Position = UDim2.fromOffset(x, y)
+	row.BackgroundColor3 = Theme.Color.PanelLight
+	row.BackgroundTransparency = 0.4
+	row.BorderSizePixel = 0
 	row.Parent = parent
 
+	local rowCorner = Instance.new("UICorner")
+	rowCorner.CornerRadius = UDim.new(0, 8)
+	rowCorner.Parent = row
+
 	local iconHolder = Instance.new("Frame")
-	iconHolder.Size = UDim2.fromOffset(26, 26)
-	iconHolder.Position = UDim2.new(0, 0, 0.5, -13)
+	iconHolder.Size = UDim2.fromOffset(STAT_ROW_ICON_SIZE, STAT_ROW_ICON_SIZE)
+	iconHolder.Position = UDim2.new(0, STAT_ROW_PAD, 0.5, -STAT_ROW_ICON_SIZE / 2)
 	iconHolder.BackgroundTransparency = 1
 	iconHolder.Parent = row
 	MenuIcons.Populate(iconHolder, iconId, Theme.Color.TextSecondary)
 
-	local label = Widgets.Label("", UDim2.new(1, -34, 1, 0), UDim2.fromOffset(34, 0), {
-		TextSize = 15,
+	local labelX = STAT_ROW_PAD + STAT_ROW_ICON_SIZE + 6
+	local label = Widgets.Label("", UDim2.new(1, -labelX - STAT_ROW_PAD, 1, 0), UDim2.fromOffset(labelX, 0), {
+		TextSize = 14,
 		Bold = false,
 	})
 	label.Parent = row
@@ -249,30 +261,46 @@ local function buildUI()
 	-- has no persistent toggle button (it only opens from a double-click),
 	-- so click-outside/✕ are the ONLY way to dismiss it besides its own
 	-- buttons, which makes them non-optional here, not just a nicety.
-	-- 440x410 (was 380x314): a ribbon header + avatar thumbnail + icon stat
-	-- rows + a restyled Best Times band replaced the old plain name/stats
-	-- text labels, so both the layout and the buttons below it grew to match.
-	panel, openPanel, closePanel = Widgets.Modal("ProfileCard", UDim2.fromOffset(440, 410), UDim2.new(0.5, -220, 0.5, -205), {
-		DisplayOrder = 30,
-	})
+	--
+	-- 400x480, identity block centered (was 440x410 with the avatar/name
+	-- pinned to the right of a narrower left-aligned stat column): centering
+	-- the avatar/name/rank on their own row lets the stats below use the
+	-- panel's FULL width as a symmetric 2-column grid instead of leaving the
+	-- right half mostly empty, and every section now shares the same 16px
+	-- side margin (buttons used to sit on an 8px margin while everything
+	-- else used 16px).
+	local PANEL_WIDTH = 400
+	local PANEL_HEIGHT = 480
+	local PAD_X = 16
+	local CONTENT_WIDTH = PANEL_WIDTH - PAD_X * 2
+
+	panel, openPanel, closePanel = Widgets.Modal(
+		"ProfileCard",
+		UDim2.fromOffset(PANEL_WIDTH, PANEL_HEIGHT),
+		UDim2.new(0.5, -PANEL_WIDTH / 2, 0.5, -PANEL_HEIGHT / 2),
+		{ DisplayOrder = 30 }
+	)
 
 	local ribbon = Widgets.Ribbon("PROFILE", UDim2.fromOffset(200, 40), UDim2.new(0.5, 0, 0, -20))
 	ribbon.Parent = panel
 
-	-- Avatar thumbnail, top-right -- Roblox's own CDN headshot for whoever
-	-- was double-clicked (see loadAvatarThumbnail), bordered in their rank
-	-- color the same way rankLabel's text is.
+	-- Avatar thumbnail, centered at the top -- Roblox's own CDN headshot for
+	-- whoever was double-clicked (see loadAvatarThumbnail), bordered in their
+	-- rank color the same way rankLabel's text is. Fully round (radius = 1
+	-- scale, was a squircle) reads more like a classic profile picture.
+	local AVATAR_SIZE = 80
+	local avatarY = 24
 	avatarImage = Instance.new("ImageLabel")
 	avatarImage.Name = "AvatarImage"
-	avatarImage.Size = UDim2.fromOffset(96, 96)
-	avatarImage.Position = UDim2.fromOffset(328, 22)
+	avatarImage.Size = UDim2.fromOffset(AVATAR_SIZE, AVATAR_SIZE)
+	avatarImage.Position = UDim2.fromOffset((PANEL_WIDTH - AVATAR_SIZE) / 2, avatarY)
 	avatarImage.BackgroundColor3 = Theme.Color.PanelLight
 	avatarImage.BorderSizePixel = 0
 	avatarImage.Image = ""
 	avatarImage.Parent = panel
 
 	local avatarCorner = Instance.new("UICorner")
-	avatarCorner.CornerRadius = UDim.new(0, 18)
+	avatarCorner.CornerRadius = UDim.new(1, 0)
 	avatarCorner.Parent = avatarImage
 
 	avatarStroke = Instance.new("UIStroke")
@@ -280,29 +308,62 @@ local function buildUI()
 	avatarStroke.Color = Theme.Color.Stroke
 	avatarStroke.Parent = avatarImage
 
-	nameLabel = Widgets.Label("", UDim2.fromOffset(96, 20), UDim2.fromOffset(328, 122), {
-		TextSize = 15,
+	nameLabel = Widgets.Label("", UDim2.fromOffset(300, 22), UDim2.fromOffset((PANEL_WIDTH - 300) / 2, avatarY + AVATAR_SIZE + 6), {
+		TextSize = 16,
 		Align = Enum.TextXAlignment.Center,
+		Bold = true,
 	})
 	nameLabel.Parent = panel
 
-	rankLabel = Widgets.Label("", UDim2.fromOffset(96, 18), UDim2.fromOffset(328, 142), {
+	rankLabel = Widgets.Label("", UDim2.fromOffset(300, 16), UDim2.fromOffset((PANEL_WIDTH - 300) / 2, avatarY + AVATAR_SIZE + 28), {
 		TextSize = 12,
 		Align = Enum.TextXAlignment.Center,
 		Color = Theme.Color.TextSecondary,
 	})
 	rankLabel.Parent = panel
 
-	statRows.Wins = buildStatRow(panel, "Wins", 26)
-	statRows.Losses = buildStatRow(panel, "Losses", 64)
-	statRows.WinRate = buildStatRow(panel, "Practice", 102) -- bullseye glyph reused for win-rate/accuracy
-	statRows.Ability = buildStatRow(panel, "Ability", 140)
-	statRows.Playtime = buildStatRow(panel, "Playtime", 178)
+	-- Thin divider separating "who this is" from "their stats" -- purely
+	-- decorative, but it's what keeps the identity block and the stat grid
+	-- reading as two distinct groups instead of one undifferentiated stack.
+	local dividerY = avatarY + AVATAR_SIZE + 50
+	local divider = Instance.new("Frame")
+	divider.Name = "Divider"
+	divider.Size = UDim2.fromOffset(CONTENT_WIDTH, 2)
+	divider.Position = UDim2.fromOffset(PAD_X, dividerY)
+	divider.BackgroundColor3 = Theme.Color.Stroke
+	divider.BackgroundTransparency = 0.5
+	divider.BorderSizePixel = 0
+	divider.Parent = panel
 
+	local dividerCorner = Instance.new("UICorner")
+	dividerCorner.CornerRadius = UDim.new(1, 0)
+	dividerCorner.Parent = divider
+
+	-- Stat grid: two columns of chips (Wins/Losses, then Win Rate/Playtime),
+	-- then Ability alone on a full-width row -- ability names run longer
+	-- than the other values and would be the one row likely to truncate if
+	-- squeezed into half the width like the rest.
+	local colGap = 12
+	local colWidth = (CONTENT_WIDTH - colGap) / 2
+	local col2X = PAD_X + colWidth + colGap
+	local rowGap = 8
+
+	local row1Y = dividerY + 14
+	statRows.Wins = buildStatRow(panel, "Wins", PAD_X, row1Y, colWidth)
+	statRows.Losses = buildStatRow(panel, "Losses", col2X, row1Y, colWidth)
+
+	local row2Y = row1Y + STAT_ROW_HEIGHT + rowGap
+	statRows.WinRate = buildStatRow(panel, "Practice", PAD_X, row2Y, colWidth) -- bullseye glyph reused for win-rate/accuracy
+	statRows.Playtime = buildStatRow(panel, "Playtime", col2X, row2Y, colWidth)
+
+	local row3Y = row2Y + STAT_ROW_HEIGHT + rowGap
+	statRows.Ability = buildStatRow(panel, "Ability", PAD_X, row3Y, CONTENT_WIDTH)
+
+	local bestTimesY = row3Y + STAT_ROW_HEIGHT + 12
 	local bestTimesFrame = Instance.new("Frame")
 	bestTimesFrame.Name = "BestTimesFrame"
-	bestTimesFrame.Size = UDim2.fromOffset(408, 72)
-	bestTimesFrame.Position = UDim2.fromOffset(16, 222)
+	bestTimesFrame.Size = UDim2.fromOffset(CONTENT_WIDTH, 72)
+	bestTimesFrame.Position = UDim2.fromOffset(PAD_X, bestTimesY)
 	bestTimesFrame.BackgroundColor3 = Theme.Color.Panel
 	bestTimesFrame.BorderSizePixel = 0
 	bestTimesFrame.Parent = panel
@@ -325,7 +386,8 @@ local function buildUI()
 	bestTimesLabel.TextWrapped = true
 	bestTimesLabel.Parent = bestTimesFrame
 
-	duelButton = Widgets.Button("Request 1v1", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 306), {
+	local duelY = bestTimesY + 72 + 12
+	duelButton = Widgets.Button("Request 1v1", UDim2.fromOffset(CONTENT_WIDTH, 40), UDim2.fromOffset(PAD_X, duelY), {
 		Variant = "Primary",
 		TextSize = 15,
 	})
@@ -339,7 +401,8 @@ local function buildUI()
 		closePanel()
 	end)
 
-	joinPartyButton = Widgets.Button("Ask to Join Party", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 352), {
+	local joinY = duelY + 40 + 8
+	joinPartyButton = Widgets.Button("Ask to Join Party", UDim2.fromOffset(CONTENT_WIDTH, 40), UDim2.fromOffset(PAD_X, joinY), {
 		Variant = "Secondary",
 		TextSize = 15,
 	})
