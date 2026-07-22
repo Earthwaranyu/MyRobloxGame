@@ -158,6 +158,63 @@ function LeaderboardService.GetTopTimes(stageId: string, count: number?)
 	return pages:GetCurrentPage()
 end
 
+-- Global Elo store -- ONE store (not per-stage like getStore(stageId)
+-- above), since rank is a whole-game concept, not tied to any single stage.
+-- Backs the physical world leaderboard board (see LeaderboardBoardService).
+local function getEloStore(): OrderedDataStore?
+	local success, store = pcall(function()
+		return DataStoreService:GetOrderedDataStore("PlayerElo")
+	end)
+	return if success then store else nil
+end
+
+-- Elo can go DOWN (unlike best-time, which only ever improves), so this
+-- always overwrites with the current value rather than SubmitTime's
+-- UpdateAsync-only-if-better pattern. A plain SetAsync write, so -- unlike
+-- GetSortedAsync reads -- this is cheap enough to call on every match end
+-- with no cooldown needed (same as SubmitTime already does per-race).
+function LeaderboardService.SubmitElo(player: Player, elo: number)
+	local store = getEloStore()
+	if not store then
+		return
+	end
+
+	local success, err = pcall(function()
+		store:SetAsync("Player_" .. player.UserId, elo)
+	end)
+	if not success then
+		warn(("Failed to submit Elo for %s: %s"):format(player.Name, tostring(err)))
+	end
+end
+
+-- Names pre-resolved (unlike GetTopTimes, whose raw key/value pairs get
+-- resolved by GetLeaderboard's remote handler below) since the only current
+-- caller is LeaderboardBoardService, which has no remote/client round trip
+-- of its own to do that resolving in.
+function LeaderboardService.GetTopElo(count: number?)
+	local store = getEloStore()
+	if not store then
+		return {}
+	end
+
+	local success, pages = pcall(function()
+		return store:GetSortedAsync(false, count or 10)
+	end)
+
+	if not success then
+		warn(("Failed to fetch global Elo leaderboard: %s"):format(tostring(pages)))
+		return {}
+	end
+
+	local entries = {}
+	for i, entry in pages:GetCurrentPage() do
+		local userId = tonumber((entry.key :: string):match("_(%d+)$"))
+		local name = if userId then resolveName(userId) else entry.key
+		entries[i] = { Rank = i, Name = name, Elo = entry.value }
+	end
+	return entries
+end
+
 function LeaderboardService.Init()
 	local remote = Net.CreateRemoteFunction(RemoteNames.GetLeaderboard)
 	remote.OnServerInvoke = function(player: Player, stageId: string, friendsOnly: boolean?)

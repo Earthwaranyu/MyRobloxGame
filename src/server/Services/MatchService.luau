@@ -746,6 +746,7 @@ local function settleWin(winner: Player, opponents: { Player }): (number, number
 			opponentProfile.WinStreak = 0
 			opponentProfile.Losses += 1
 			LeaderstatsService.Refresh(opponent) -- Elo (via EloService above) and Losses are both final now
+			LeaderboardService.SubmitElo(opponent, opponentProfile.Elo) -- keeps the physical board's global ranking current
 		end
 		raceOutcomeRemote:FireClient(opponent, { Won = false, EloDelta = opponentDelta })
 	end
@@ -772,6 +773,7 @@ local function settleWin(winner: Player, opponents: { Player }): (number, number
 		end
 
 		LeaderstatsService.Refresh(winner) -- Elo (via EloService above), Wins, and Rank are all final now
+		LeaderboardService.SubmitElo(winner, winnerProfile.Elo) -- keeps the physical board's global ranking current
 	end
 
 	return winnerDelta, winStreak, streakBonus
