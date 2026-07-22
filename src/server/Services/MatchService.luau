@@ -14,6 +14,7 @@ local BadgeMilestoneService = require(script.Parent.BadgeMilestoneService)
 local BotService = require(script.Parent.BotService)
 local EloService = require(script.Parent.EloService)
 local LeaderboardService = require(script.Parent.LeaderboardService)
+local LeaderstatsService = require(script.Parent.LeaderstatsService)
 local LobbyService = require(script.Parent.LobbyService)
 local MonetizationService = require(script.Parent.MonetizationService)
 local MovementService = require(script.Parent.MovementService)
@@ -744,6 +745,7 @@ local function settleWin(winner: Player, opponents: { Player }): (number, number
 		if opponentProfile then
 			opponentProfile.WinStreak = 0
 			opponentProfile.Losses += 1
+			LeaderstatsService.Refresh(opponent) -- Elo (via EloService above) and Losses are both final now
 		end
 		raceOutcomeRemote:FireClient(opponent, { Won = false, EloDelta = opponentDelta })
 	end
@@ -768,6 +770,8 @@ local function settleWin(winner: Player, opponents: { Player }): (number, number
 		if newRank ~= oldRank then
 			BadgeMilestoneService.CheckRankMilestone(winner, winnerProfile, newRank)
 		end
+
+		LeaderstatsService.Refresh(winner) -- Elo (via EloService above), Wins, and Rank are all final now
 	end
 
 	return winnerDelta, winStreak, streakBonus

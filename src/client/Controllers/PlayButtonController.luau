@@ -37,12 +37,33 @@ local practiceButton: TextButton
 -- "Lobby" state (third-person) for the pre-race countdown that follows, and
 -- clicking any button again during that gap would double-queue them.
 local busy = false
+-- True only from PreRaceCountdown until the state machine leaves Lobby (see
+-- MatchStateController.StateChanged below) -- separate from `busy` because
+-- `busy` covers BOTH "waiting in the shared queue" (where "CANCEL" should
+-- keep showing, unchanged) and "match found, 8s countdown running" (where it
+-- shouldn't -- a match was already found, there's nothing left to cancel
+-- finding).
+local inPreRace = false
 
 -- Buttons stay clickable while queued now (previously Active = false, a
 -- dead end with no way back out short of the whole StateChanged round-trip
 -- from actually starting a race) -- clicking any of them while busy cancels
 -- instead of queuing again.
 local function refresh()
+	if inPreRace then
+		-- QueueStatusController's own countdown UI has already taken over
+		-- the screen at this point -- hide these entirely rather than
+		-- relabeling to "CANCEL" a second time right next to it.
+		button.Visible = false
+		botsButton.Visible = false
+		practiceButton.Visible = false
+		return
+	end
+
+	button.Visible = true
+	botsButton.Visible = true
+	practiceButton.Visible = true
+
 	if busy then
 		button.Text = "CANCEL"
 		button.Active = true
@@ -81,6 +102,7 @@ local function cancelQueue()
 	end
 	Net.GetRemoteEvent(RemoteNames.QuitMatch):FireServer()
 	busy = false
+	inPreRace = false
 	PlayButtonController.CurrentMode = nil
 	refresh()
 end
@@ -155,6 +177,7 @@ function PlayButtonController.Init()
 	local preRaceRemote = Net.GetRemoteEvent(RemoteNames.PreRaceCountdown)
 	preRaceRemote.OnClientEvent:Connect(function()
 		busy = true
+		inPreRace = true
 		refresh()
 	end)
 
@@ -166,6 +189,7 @@ function PlayButtonController.Init()
 	-- attempt the server never actually queued.
 	Net.GetRemoteEvent(RemoteNames.QueueRejected).OnClientEvent:Connect(function(busyMemberName: string)
 		busy = false
+		inPreRace = false
 		PlayButtonController.CurrentMode = nil
 		refresh()
 		button.Text = busyMemberName .. " is busy"
@@ -183,11 +207,9 @@ function PlayButtonController.Init()
 			practiceButton.Visible = false
 		else
 			busy = false
+			inPreRace = false
 			PlayButtonController.CurrentMode = nil
 			refresh()
-			button.Visible = true
-			botsButton.Visible = true
-			practiceButton.Visible = true
 		end
 	end)
 end
