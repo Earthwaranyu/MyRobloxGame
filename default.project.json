@@ -32,10 +32,11 @@
         "$properties": {
           "Anchored": true,
           "Color": [
-            0.38823,
-            0.37254,
-            0.38823
+            0.34509,
+            0.6470,
+            0.30980
           ],
+          "Material": "Grass",
           "Locked": true,
           "Position": [
             0,
