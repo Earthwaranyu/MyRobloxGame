@@ -202,6 +202,14 @@ BUILDERS.Playtime = function(parent, s, color)
 	bar(parent, s, 3, 8, 24, 20, 90, color)
 end
 
+-- My Profile (HUD button): a single head-and-shoulders badge -- same dot
+-- (head) + box (shoulders) pieces as one half of Party, just one centered
+-- badge instead of two overlapping ones, and without Invite's "+".
+BUILDERS.Profile = function(parent, s, color)
+	dot(parent, s, 14, 20, 14, color)
+	box(parent, s, 20, 16, 20, 30, 8, color)
+end
+
 -- Clears `container` and draws `id`'s glyph sized to container's own Size.X
 -- offset (read back from the Frame we just sized, not AbsoluteSize -- that
 -- stays correct even before the next render step). `color` is whatever the

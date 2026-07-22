@@ -54,11 +54,12 @@ local panel: CanvasGroup
 local openPanel: () -> ()
 local closePanel: () -> ()
 local avatarImage: ImageLabel
+local avatarFallbackIcon: Frame
 local avatarStroke: UIStroke
 local nameLabel: TextLabel
 local rankLabel: TextLabel
 local statRows: { [string]: TextLabel } = {}
-local bestTimesLabel: TextLabel
+local bestTimesLabels: { TextLabel } = {}
 local duelButton: TextButton
 local joinPartyButton: TextButton
 -- duelButton/joinPartyButton are fixed, reused instances (the card is
@@ -68,6 +69,11 @@ local joinPartyButton: TextButton
 -- one-shot closure (which would leak a stale listener per open targeting
 -- the wrong player if the buttons were never clicked in between).
 local currentTarget: Player? = nil
+-- Shown instead of duelButton/joinPartyButton when the local player opened
+-- their OWN profile (via the new "My Profile" HUD button below) -- dueling
+-- or party-requesting yourself isn't a real action, so the buttons are
+-- swapped out rather than left visible-but-nonfunctional.
+local selfNoteLabel: TextLabel
 
 local duelToast: CanvasGroup
 local duelToastLabel: TextLabel
@@ -102,18 +108,64 @@ local function formatPlaytime(totalSeconds: number): string
 	return ("%dh %dm"):format(hours, minutes % 60)
 end
 
--- Roblox's own CDN thumbnail for this userId -- yields, so this has to run
--- off to the side rather than blocking openProfileCard. Guards against a
--- slow-resolving fetch from a PREVIOUS double-click landing after the viewer
--- has already moved on to someone else (same stale-callback shape as
--- duelToastToken/noticeToken below, just keyed on the target instead).
+local THUMBNAIL_MAX_ATTEMPTS = 4
+local THUMBNAIL_RETRY_DELAY = 1
+
+-- Roblox's own CDN headshot for this userId -- a real 3D render Roblox
+-- generates server-side of the player's actual equipped avatar (hats/hair/
+-- costume included), so it already looks like a proper profile picture
+-- (matches the reference image exactly) with zero camera-framing code on our
+-- end. Yields, so this has to run off to the side rather than blocking
+-- openProfileCard.
+--
+-- Confirmed live (execute_luau against several UserIds): GetUserThumbnailAsync
+-- never errors for a nonexistent account -- it returns ok=true with a
+-- syntactically valid rbxthumb:// URL that just never actually renders
+-- anything, and isReady stays false FOREVER (real accounts flip to true
+-- almost immediately). Negative/zero UserIds are Roblox's own convention for
+-- non-real-player entities, which is exactly what Studio Team Test's
+-- simulated "Player1"/"Player2" clients get -- there's no render job that
+-- will ever finish for an account that was never issued, no matter how many
+-- times this retries. avatarFallbackIcon exists for exactly that outcome, so
+-- it degrades to a deliberate placeholder instead of an accidental-looking
+-- blank/black circle.
 local function loadAvatarThumbnail(userId: number)
 	task.spawn(function()
-		local ok, content = pcall(function()
-			return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
-		end)
-		if ok and currentTarget and currentTarget.UserId == userId then
-			avatarImage.Image = content
+		for _ = 1, THUMBNAIL_MAX_ATTEMPTS do
+			if not currentTarget or currentTarget.UserId ~= userId then
+				return
+			end
+
+			-- GetUserThumbnailAsync returns (content, isReady) -- per
+			-- Roblox's own docs, isReady=false means `content` is just a
+			-- placeholder and the real thumbnail needs a retry after a short
+			-- delay, which this does up to THUMBNAIL_MAX_ATTEMPTS times.
+			local ok, content, isReady = pcall(function()
+				return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
+			end)
+
+			if not ok then
+				warn(("ProfileCardController: GetUserThumbnailAsync failed for userId %d (%s)"):format(userId, tostring(content)))
+				return
+			end
+
+			if not currentTarget or currentTarget.UserId ~= userId then
+				return
+			end
+
+			if isReady then
+				-- Only swap in the real photo (and drop the placeholder
+				-- icon) once Roblox confirms it's actually a real, rendered
+				-- thumbnail -- setting avatarImage.Image on every attempt
+				-- regardless of isReady, like Roblox's own sample code does,
+				-- would leave the fallback icon hidden behind a permanently
+				-- unrenderable image for exactly the accounts that never
+				-- become ready.
+				avatarImage.Image = content
+				avatarFallbackIcon.Visible = false
+				return
+			end
+			task.wait(THUMBNAIL_RETRY_DELAY)
 		end
 	end)
 end
@@ -136,7 +188,9 @@ end
 -- PREVIOUS double-click landing after the viewer has already moved on to
 -- someone else -- same stale-callback shape as loadAvatarThumbnail.
 local function loadBestTimes(userId: number)
-	bestTimesLabel.Text = "Loading..."
+	for i, label in bestTimesLabels do
+		label.Text = if i == 1 then "Loading..." else ""
+	end
 	task.spawn(function()
 		local ok, bestTimes = pcall(function()
 			return getBestTimesRemote:InvokeServer(userId)
@@ -145,20 +199,17 @@ local function loadBestTimes(userId: number)
 			return
 		end
 
-		-- Two stages per line -- BestTimes may come back empty (see
-		-- LeaderboardService's BEST_TIMES_COOLDOWN) if this viewer already
-		-- checked someone very recently; formatBestTime renders a missing
-		-- entry as "--" either way, so this never shows a blank or an error.
-		local bestTimeLines = {}
-		for i = 1, #Stages, 2 do
-			local a, b = Stages[i], Stages[i + 1]
-			local line = ("%s: %s"):format(a.Name, formatBestTime(bestTimes and bestTimes[a.Id]))
-			if b then
-				line ..= ("    %s: %s"):format(b.Name, formatBestTime(bestTimes and bestTimes[b.Id]))
-			end
-			table.insert(bestTimeLines, line)
+		-- One row per stage (was two stages packed onto each line, which
+		-- only reads well up to 2-3 stages before it turns into a cramped
+		-- grid) -- bestTimesLabels was built 1:1 against Stages in buildUI,
+		-- so this always covers exactly as many rows as exist. BestTimes may
+		-- come back empty (see LeaderboardService's BEST_TIMES_COOLDOWN) if
+		-- this viewer already checked someone very recently; formatBestTime
+		-- renders a missing entry as "--" either way, so this never shows a
+		-- blank or an error.
+		for i, stage in Stages do
+			bestTimesLabels[i].Text = ("%s: %s"):format(stage.Name, formatBestTime(bestTimes and bestTimes[stage.Id]))
 		end
-		bestTimesLabel.Text = table.concat(bestTimeLines, "\n")
 	end)
 end
 
@@ -175,12 +226,22 @@ local function openProfileCard(target: Player)
 
 	currentTarget = target
 
+	-- Dueling/party-requesting yourself isn't a real action, so those two
+	-- buttons are swapped for a small note whenever this is the local
+	-- player's own profile (opened via the "My Profile" HUD button) rather
+	-- than someone else's (opened via double-click).
+	local isSelf = target == player
+	duelButton.Visible = not isSelf
+	joinPartyButton.Visible = not isSelf
+	selfNoteLabel.Visible = isSelf
+
 	nameLabel.Text = summary.Name
 	rankLabel.Text = summary.Rank .. "  ·  " .. summary.Elo .. " elo"
 	local rankColor = Theme.GetRankColor(summary.Rank)
 	rankLabel.TextColor3 = rankColor
 	avatarStroke.Color = rankColor
 	avatarImage.Image = "" -- cleared until loadAvatarThumbnail resolves, rather than showing the last target's face
+	avatarFallbackIcon.Visible = true -- shown until loadAvatarThumbnail confirms a real photo is ready
 	loadAvatarThumbnail(target.UserId)
 
 	local winRatePercent = math.floor(summary.WinRate * 100 + 0.5)
@@ -262,17 +323,59 @@ local function buildUI()
 	-- so click-outside/✕ are the ONLY way to dismiss it besides its own
 	-- buttons, which makes them non-optional here, not just a nicety.
 	--
-	-- 400x480, identity block centered (was 440x410 with the avatar/name
+	-- 400 wide, height computed below (was 440x410 with the avatar/name
 	-- pinned to the right of a narrower left-aligned stat column): centering
 	-- the avatar/name/rank on their own row lets the stats below use the
 	-- panel's FULL width as a symmetric 2-column grid instead of leaving the
 	-- right half mostly empty, and every section now shares the same 16px
 	-- side margin (buttons used to sit on an 8px margin while everything
 	-- else used 16px).
+	-- All geometry is computed up front, top to bottom, BEFORE Widgets.Modal
+	-- is called, because the Best Times section's height now depends on
+	-- #Stages (one row per stage instead of a fixed two-line block) -- the
+	-- panel's total height has to be known at Modal-creation time, so
+	-- everything below it (buttons) shifts automatically if a stage is added
+	-- or removed later instead of needing its offsets hand-adjusted again.
 	local PANEL_WIDTH = 400
-	local PANEL_HEIGHT = 480
 	local PAD_X = 16
 	local CONTENT_WIDTH = PANEL_WIDTH - PAD_X * 2
+
+	local AVATAR_SIZE = 80
+	local avatarY = 24
+	local nameY = avatarY + AVATAR_SIZE + 6
+	local rankY = avatarY + AVATAR_SIZE + 28
+
+	-- Thin divider separating "who this is" from "their stats" -- purely
+	-- decorative, but it's what keeps the identity block and the stat grid
+	-- reading as two distinct groups instead of one undifferentiated stack.
+	local dividerY = avatarY + AVATAR_SIZE + 50
+
+	-- Stat grid: two columns of chips (Wins/Losses, then Win Rate/Playtime),
+	-- then Ability alone on a full-width row -- ability names run longer
+	-- than the other values and would be the one row likely to truncate if
+	-- squeezed into half the width like the rest.
+	local colGap = 12
+	local colWidth = (CONTENT_WIDTH - colGap) / 2
+	local col2X = PAD_X + colWidth + colGap
+	local rowGap = 8
+
+	local row1Y = dividerY + 14
+	local row2Y = row1Y + STAT_ROW_HEIGHT + rowGap
+	local row3Y = row2Y + STAT_ROW_HEIGHT + rowGap
+
+	-- Best Times: one full-width row per stage (was two stages packed onto
+	-- each line, which reads fine for 2 stages but turns into a cramped grid
+	-- the moment a game has more) -- frame height comes straight from
+	-- #Stages so it always fits exactly however many stages currently exist.
+	local BEST_TIME_HEADER_H = 22
+	local BEST_TIME_ROW_H = 20
+	local BEST_TIME_BOTTOM_PAD = 8
+	local bestTimesY = row3Y + STAT_ROW_HEIGHT + 12
+	local bestTimesFrameHeight = BEST_TIME_HEADER_H + (#Stages * BEST_TIME_ROW_H) + BEST_TIME_BOTTOM_PAD
+
+	local duelY = bestTimesY + bestTimesFrameHeight + 12
+	local joinY = duelY + 40 + 8
+	local PANEL_HEIGHT = joinY + 40 + PAD_X
 
 	panel, openPanel, closePanel = Widgets.Modal(
 		"ProfileCard",
@@ -288,8 +391,6 @@ local function buildUI()
 	-- whoever was double-clicked (see loadAvatarThumbnail), bordered in their
 	-- rank color the same way rankLabel's text is. Fully round (radius = 1
 	-- scale, was a squircle) reads more like a classic profile picture.
-	local AVATAR_SIZE = 80
-	local avatarY = 24
 	avatarImage = Instance.new("ImageLabel")
 	avatarImage.Name = "AvatarImage"
 	avatarImage.Size = UDim2.fromOffset(AVATAR_SIZE, AVATAR_SIZE)
@@ -308,24 +409,35 @@ local function buildUI()
 	avatarStroke.Color = Theme.Color.Stroke
 	avatarStroke.Parent = avatarImage
 
-	nameLabel = Widgets.Label("", UDim2.fromOffset(300, 22), UDim2.fromOffset((PANEL_WIDTH - 300) / 2, avatarY + AVATAR_SIZE + 6), {
+	-- Deliberate placeholder for whenever there's genuinely no real photo to
+	-- show (see loadAvatarThumbnail) -- a child of avatarImage so it always
+	-- renders on top of whatever avatarImage.Image is doing underneath
+	-- (loaded/unloaded/permanently-broken all look the same from here: just
+	-- hide this once a real photo is confirmed ready). Reuses the same
+	-- "Profile" glyph as the My Profile HUD button for visual consistency.
+	avatarFallbackIcon = Instance.new("Frame")
+	avatarFallbackIcon.Name = "AvatarFallbackIcon"
+	avatarFallbackIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+	avatarFallbackIcon.Position = UDim2.fromScale(0.5, 0.5)
+	avatarFallbackIcon.Size = UDim2.fromOffset(AVATAR_SIZE * 0.6, AVATAR_SIZE * 0.6)
+	avatarFallbackIcon.BackgroundTransparency = 1
+	avatarFallbackIcon.Parent = avatarImage
+	MenuIcons.Populate(avatarFallbackIcon, "Profile", Theme.Color.TextSecondary)
+
+	nameLabel = Widgets.Label("", UDim2.fromOffset(300, 22), UDim2.fromOffset((PANEL_WIDTH - 300) / 2, nameY), {
 		TextSize = 16,
 		Align = Enum.TextXAlignment.Center,
 		Bold = true,
 	})
 	nameLabel.Parent = panel
 
-	rankLabel = Widgets.Label("", UDim2.fromOffset(300, 16), UDim2.fromOffset((PANEL_WIDTH - 300) / 2, avatarY + AVATAR_SIZE + 28), {
+	rankLabel = Widgets.Label("", UDim2.fromOffset(300, 16), UDim2.fromOffset((PANEL_WIDTH - 300) / 2, rankY), {
 		TextSize = 12,
 		Align = Enum.TextXAlignment.Center,
 		Color = Theme.Color.TextSecondary,
 	})
 	rankLabel.Parent = panel
 
-	-- Thin divider separating "who this is" from "their stats" -- purely
-	-- decorative, but it's what keeps the identity block and the stat grid
-	-- reading as two distinct groups instead of one undifferentiated stack.
-	local dividerY = avatarY + AVATAR_SIZE + 50
 	local divider = Instance.new("Frame")
 	divider.Name = "Divider"
 	divider.Size = UDim2.fromOffset(CONTENT_WIDTH, 2)
@@ -339,30 +451,17 @@ local function buildUI()
 	dividerCorner.CornerRadius = UDim.new(1, 0)
 	dividerCorner.Parent = divider
 
-	-- Stat grid: two columns of chips (Wins/Losses, then Win Rate/Playtime),
-	-- then Ability alone on a full-width row -- ability names run longer
-	-- than the other values and would be the one row likely to truncate if
-	-- squeezed into half the width like the rest.
-	local colGap = 12
-	local colWidth = (CONTENT_WIDTH - colGap) / 2
-	local col2X = PAD_X + colWidth + colGap
-	local rowGap = 8
-
-	local row1Y = dividerY + 14
 	statRows.Wins = buildStatRow(panel, "Wins", PAD_X, row1Y, colWidth)
 	statRows.Losses = buildStatRow(panel, "Losses", col2X, row1Y, colWidth)
 
-	local row2Y = row1Y + STAT_ROW_HEIGHT + rowGap
 	statRows.WinRate = buildStatRow(panel, "Practice", PAD_X, row2Y, colWidth) -- bullseye glyph reused for win-rate/accuracy
 	statRows.Playtime = buildStatRow(panel, "Playtime", col2X, row2Y, colWidth)
 
-	local row3Y = row2Y + STAT_ROW_HEIGHT + rowGap
 	statRows.Ability = buildStatRow(panel, "Ability", PAD_X, row3Y, CONTENT_WIDTH)
 
-	local bestTimesY = row3Y + STAT_ROW_HEIGHT + 12
 	local bestTimesFrame = Instance.new("Frame")
 	bestTimesFrame.Name = "BestTimesFrame"
-	bestTimesFrame.Size = UDim2.fromOffset(CONTENT_WIDTH, 72)
+	bestTimesFrame.Size = UDim2.fromOffset(CONTENT_WIDTH, bestTimesFrameHeight)
 	bestTimesFrame.Position = UDim2.fromOffset(PAD_X, bestTimesY)
 	bestTimesFrame.BackgroundColor3 = Theme.Color.Panel
 	bestTimesFrame.BorderSizePixel = 0
@@ -378,15 +477,26 @@ local function buildUI()
 	})
 	bestTimesHeader.Parent = bestTimesFrame
 
-	bestTimesLabel = Widgets.Label("", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 26), {
-		TextSize = 14,
-		Color = Theme.Color.TextPrimary,
-		Bold = false,
-	})
-	bestTimesLabel.TextWrapped = true
-	bestTimesLabel.Parent = bestTimesFrame
+	-- One label per stage (was one shared multi-line label pairing two
+	-- stages per line) -- built straight from Stages so the row count always
+	-- matches however many stages currently exist.
+	bestTimesLabels = {}
+	for i, stage in Stages do
+		local label = Widgets.Label(
+			("%s: --"):format(stage.Name),
+			UDim2.new(1, -16, 0, BEST_TIME_ROW_H),
+			UDim2.fromOffset(8, BEST_TIME_HEADER_H + (i - 1) * BEST_TIME_ROW_H),
+			{
+				TextSize = 14,
+				Color = Theme.Color.TextPrimary,
+				Bold = false,
+				Align = Enum.TextXAlignment.Left,
+			}
+		)
+		label.Parent = bestTimesFrame
+		bestTimesLabels[i] = label
+	end
 
-	local duelY = bestTimesY + 72 + 12
 	duelButton = Widgets.Button("Request 1v1", UDim2.fromOffset(CONTENT_WIDTH, 40), UDim2.fromOffset(PAD_X, duelY), {
 		Variant = "Primary",
 		TextSize = 15,
@@ -401,7 +511,6 @@ local function buildUI()
 		closePanel()
 	end)
 
-	local joinY = duelY + 40 + 8
 	joinPartyButton = Widgets.Button("Ask to Join Party", UDim2.fromOffset(CONTENT_WIDTH, 40), UDim2.fromOffset(PAD_X, joinY), {
 		Variant = "Secondary",
 		TextSize = 15,
@@ -414,6 +523,41 @@ local function buildUI()
 		requestJoinRemote:FireServer(currentTarget.UserId)
 		showNotice("Asked to join " .. currentTarget.Name .. "'s party!")
 		closePanel()
+	end)
+
+	-- Same slot as duelButton/joinPartyButton -- swapped in over both of them
+	-- (see openProfileCard's isSelf check) when viewing your own profile.
+	selfNoteLabel = Widgets.Label("This is your profile", UDim2.fromOffset(CONTENT_WIDTH, joinY + 40 - duelY), UDim2.fromOffset(PAD_X, duelY), {
+		TextSize = 15,
+		Align = Enum.TextXAlignment.Center,
+		Color = Theme.Color.TextMuted,
+	})
+	selfNoteLabel.Visible = false
+	selfNoteLabel.Parent = panel
+
+	-- Persistent HUD button, own ScreenGui like the duel/notice toasts below --
+	-- opens this same panel populated with the LOCAL player's own data
+	-- (openProfileCard doesn't care who the target is, and watchPlayer's
+	-- double-click path already skips the local player, so this button is
+	-- the only way to reach your own profile). Row 3 of the left button
+	-- column, directly below Leaderboard (y=60) and Inventory (y=116).
+	local hudGui = Instance.new("ScreenGui")
+	hudGui.Name = "MyProfileGui"
+	hudGui.ResetOnSpawn = false
+	hudGui.Parent = player:WaitForChild("PlayerGui")
+
+	local myProfileButton = Widgets.Button("My Profile", UDim2.fromOffset(220, 48), UDim2.fromOffset(10, 172), {
+		Icon = function(holder, color)
+			MenuIcons.Populate(holder, "Profile", color)
+		end,
+	})
+	myProfileButton.Parent = hudGui
+	myProfileButton.MouseButton1Click:Connect(function()
+		if panel.Visible then
+			closePanel()
+		else
+			openProfileCard(player)
+		end
 	end)
 
 	-- Incoming duel challenge toast, separate GUI/panel from the profile card
