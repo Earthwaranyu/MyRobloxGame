@@ -40,6 +40,15 @@ local function applyState(state: string)
 	if state == "Racing" then
 		player.CameraMode = Enum.CameraMode.LockFirstPerson
 	else
+		-- Covers Lobby AND Spectating: CameraMode is a different axis from
+		-- CameraType/CameraSubject (which SpectateController separately
+		-- drives while Spectating -- see that module) -- LockFirstPerson
+		-- forces a near-zero zoom lock onto the LOCAL player's own character
+		-- specifically and ignores CameraSubject entirely, so leaving it set
+		-- from Racing left a just-finished player stuck staring at their own
+		-- face no matter what SpectateController pointed CameraSubject at.
+		-- This reset has to run for every non-Racing state, Spectating
+		-- included, for SpectateController's camera control to mean anything.
 		player.CameraMode = Enum.CameraMode.Classic
 		-- Only kick the zoom when actually leaving Racing (finishing,
 		-- getting bumped to spectate, ...) -- not on every non-Racing state

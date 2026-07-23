@@ -20,6 +20,7 @@ local MonetizationService = require(script.Parent.MonetizationService)
 local MovementService = require(script.Parent.MovementService)
 local PartyService = require(script.Parent.PartyService)
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local ReferralService = require(script.Parent.ReferralService)
 local WeatherService = require(script.Parent.WeatherService)
 
 -- Streak level N (2 wins in a row = level 1) is worth STREAK_BONUS_PER_LEVEL
@@ -227,9 +228,44 @@ local function teleportToStageSpawn(player: Player, spawnCFrame: CFrame)
 		if root then
 			root.CFrame = spawnCFrame
 			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+			-- Always un-anchor here, even for a player who was never parked
+			-- (harmless no-op then) -- this is the one shared path every
+			-- "send a spectator somewhere real again" call goes through (see
+			-- returnSpectatorToLobby), so it's the right place to guarantee
+			-- parkSpectator's Anchored = true never outlives the spectate
+			-- session it was set for.
+			root.Anchored = false
 		end
 	end)
 	lastCheckedPosition[player.UserId] = nil
+end
+
+-- Moves a fresh spectator's own character straight up and freezes it there
+-- (same Anchored mechanism setFrozen already uses for the pre-race
+-- countdown) rather than leaving it sitting wherever they finished. Without
+-- this, a still-racing player can walk right into/through a spectator's
+-- parked body -- player-vs-player collision is deliberately off (see
+-- BotService's collision groups) -- and end up standing exactly where they
+-- are. When that happens, the spectate camera (correctly aimed at the
+-- RACER's own CameraSubject) ends up rendering whichever of the two
+-- overlapping characters happens to face the lens, which can be the
+-- spectator's own body instead of the racer being watched -- confirmed via
+-- screenshot: the UI correctly named the real racer, but the on-screen
+-- character was unmistakably someone standing right on top of them. Parking
+-- spectators well clear of the course makes that overlap impossible
+-- regardless of how small or cramped a given stage is.
+local SPECTATOR_PARK_OFFSET = Vector3.new(0, 60, 0)
+
+local function parkSpectator(player: Player)
+	pcall(function()
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if root then
+			root.CFrame = root.CFrame + SPECTATOR_PARK_OFFSET
+			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+			root.Anchored = true
+		end
+	end)
 end
 
 -- Locks a participant fully in place for the pre-race countdown. Used to be
@@ -449,6 +485,27 @@ end
 function MatchService.Enqueue(player: Player)
 	local partyMembers = PartyService.GetPartyMembers(player)
 
+	-- TEMP diagnostic: the countdown/map-reveal broadcast loop below already
+	-- looks correct on repeated read-throughs -- it iterates every entry in
+	-- partyMembers, not just `player` -- so the most likely explanation for
+	-- "the other party member doesn't see it" is that partyMembers only ever
+	-- contained the clicker (i.e. PartyService didn't consider them partied
+	-- at the moment this fired), not a broadcast bug. This print makes that
+	-- checkable directly from the Studio Output the next time it's
+	-- reproduced, instead of guessing again -- remove once confirmed either
+	-- way.
+	local partyMemberNames = {}
+	for _, member in partyMembers do
+		table.insert(partyMemberNames, member.Name)
+	end
+	print(
+		("MatchService.Enqueue: %s's party has %d member(s): %s"):format(
+			player.Name,
+			#partyMembers,
+			table.concat(partyMemberNames, ", ")
+		)
+	)
+
 	for _, member in partyMembers do
 		if playerBusy[member.UserId] then
 			-- The caller's own client already guards against double-clicking
@@ -471,6 +528,11 @@ function MatchService.Enqueue(player: Player)
 		table.insert(queue, member)
 		queuedSet[userId] = true
 	end
+
+	-- Only meaningful for an actual party (a solo queuer's own partyMembers
+	-- list is just {player} -- see PartyService.GetPartyMembers -- so this is
+	-- a no-op on the common solo-queue path).
+	ReferralService.TagPartyReferral(partyMembers)
 
 	tryStartCountdown()
 
@@ -745,6 +807,7 @@ local function settleWin(winner: Player, opponents: { Player }): (number, number
 		if opponentProfile then
 			opponentProfile.WinStreak = 0
 			opponentProfile.Losses += 1
+			ReferralService.HandleFirstRealRace(opponent, opponentProfile)
 			LeaderstatsService.Refresh(opponent) -- Elo (via EloService above) and Losses are both final now
 			LeaderboardService.SubmitElo(opponent, opponentProfile.Elo) -- keeps the physical board's global ranking current
 		end
@@ -758,6 +821,7 @@ local function settleWin(winner: Player, opponents: { Player }): (number, number
 		local oldElo = winnerProfile.Elo - winnerDelta
 
 		winnerProfile.Wins += 1
+		ReferralService.HandleFirstRealRace(winner, winnerProfile)
 		winnerProfile.WinStreak += 1
 		winnerProfile.BestWinStreak = math.max(winnerProfile.BestWinStreak, winnerProfile.WinStreak)
 		winStreak = winnerProfile.WinStreak
@@ -865,6 +929,7 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 	if next(session.participants) ~= nil then
 		session.spectators[userId] = player
 		LobbyService.SetPlayerState(player, "Spectating")
+		parkSpectator(player)
 		broadcastSpectatorRacers(session)
 	else
 		LobbyService.SetPlayerState(player, "Lobby")

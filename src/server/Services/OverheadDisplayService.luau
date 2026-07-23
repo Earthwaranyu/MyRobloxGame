@@ -75,7 +75,12 @@ function OverheadDisplayService.Refresh(player: Player)
 	local stroke = backdrop:FindFirstChild("RankStroke") :: UIStroke
 
 	local rankColor = RankTiers.GetColorForElo(profile.Elo)
-	label.Text = ("%s  %d"):format(RankTiers.GetRankForElo(profile.Elo), profile.Elo)
+	-- Name included, not just rank/elo -- without it there was no way to
+	-- visually tell two characters apart in the 3D world at all (confirmed
+	-- source of real confusion: Studio's simulated test accounts render
+	-- identical default avatars, so "who am I actually looking at" had no
+	-- answer besides trusting UI text elsewhere on screen).
+	label.Text = ("%s  •  %s %d"):format(player.Name, RankTiers.GetRankForElo(profile.Elo), profile.Elo)
 	label.TextColor3 = rankColor
 	stroke.Color = rankColor
 end

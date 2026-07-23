@@ -146,6 +146,15 @@ BUILDERS.Play = function(parent, s, color)
 	bar(parent, s, 18, 5, 16, 27, -50, color)
 end
 
+-- Spectate carousel arrows: ArrowRight is literally the same ">" chevron as
+-- Play (reused directly, not duplicated -- it's the same glyph). ArrowLeft
+-- is that same two-bar chevron mirrored across the icon's own center.
+BUILDERS.ArrowRight = BUILDERS.Play
+BUILDERS.ArrowLeft = function(parent, s, color)
+	bar(parent, s, 18, 5, 24, 13, -50, color)
+	bar(parent, s, 18, 5, 24, 27, 50, color)
+end
+
 -- VS Bots: a robot face -- hollow ring head (same reasoning as Emotes) with
 -- an antenna, two eye dots and a mouth bar.
 BUILDERS.Bots = function(parent, s, color)

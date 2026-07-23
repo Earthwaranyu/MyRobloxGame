@@ -62,6 +62,16 @@ local DEFAULT_PROFILE = {
 	-- PlayerDataService.GetLiveTotalPlaySeconds) rather than kept live in this
 	-- field, so a server crash only loses the current session, not history.
 	TotalPlaySeconds = 0,
+	-- Referral loop (see ReferralService). 0 means "no referrer" -- real
+	-- Roblox UserIds are always positive, same 0-as-unset convention
+	-- MonetizationService's GAMEPASS_IDS uses. Set once, the first time this
+	-- player ever queues in a party alongside a veteran member, and never
+	-- overwritten after that.
+	ReferredByUserId = 0,
+	-- Flips true the instant Wins + Losses first leaves 0 (see
+	-- ReferralService.HandleFirstRealRace) -- guards the referral payout to
+	-- exactly once per player.
+	HasCompletedFirstRace = false,
 }
 
 local PlayerDataService = {}

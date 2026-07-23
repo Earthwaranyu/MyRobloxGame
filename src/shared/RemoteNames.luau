@@ -52,4 +52,5 @@ return {
 	PromptPointsPurchase = "PromptPointsPurchase",
 	SetSkipGachaAnimation = "SetSkipGachaAnimation",
 	MonetizationStatusChanged = "MonetizationStatusChanged",
+	ReferralReward = "ReferralReward",
 }

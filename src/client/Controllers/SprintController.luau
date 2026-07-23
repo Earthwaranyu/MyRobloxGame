@@ -9,6 +9,7 @@ local Signal = require(Shared.Signal)
 
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
+local MatchStateController = require(script.Parent.MatchStateController)
 
 local SprintController = {}
 
@@ -117,6 +118,18 @@ function SprintController.Init()
 			setSprinting(false)
 		end
 	end)
+
+	-- Hidden while Spectating -- there's nothing to sprint when you're
+	-- watching someone else race, and leaving the button on screen (as if
+	-- still usable) is exactly what made spectating read as broken.
+	MatchStateController.StateChanged:Connect(function(state: string)
+		button.Visible = state ~= "Spectating"
+		if state == "Spectating" and buttonHeld then
+			buttonHeld = false
+			setSprinting(false)
+		end
+	end)
+	button.Visible = MatchStateController.CurrentState ~= "Spectating"
 end
 
 return SprintController

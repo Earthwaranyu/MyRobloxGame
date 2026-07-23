@@ -24,8 +24,15 @@ local PLAYER_CHARACTERS_GROUP = "PlayerCharacters"
 -- Landing on a platform needs the root part solid (CanCollide = true) --
 -- there's no separate leg/torso rig to carry that instead -- so "can't push
 -- each other" is enforced through collision groups now rather than a blanket
--- CanCollide = false: Bots still collide with the world (Default, unchanged)
--- but never with PlayerCharacters, and vice versa.
+-- CanCollide = false: everyone still collides with the world (Default,
+-- unchanged), but bots never collide with real players, AND real players
+-- never collide with each other (see the group's own PLAYER_CHARACTERS_GROUP
+-- assignment below, applied to every real player's character always -- this
+-- reuses that same tagging, not a race-only toggle). On narrow precision
+-- platforming with real Elo/streak stakes, letting racers shove each other
+-- means the outcome can come down to a body-block at a chokepoint instead of
+-- who actually raced better -- worth avoiding for the exact same reason bots
+-- were already kept from doing it.
 local function setupCollisionGroups()
 	pcall(function()
 		PhysicsService:RegisterCollisionGroup(BOTS_GROUP)
@@ -35,6 +42,9 @@ local function setupCollisionGroups()
 	end)
 	pcall(function()
 		PhysicsService:CollisionGroupSetCollidable(BOTS_GROUP, PLAYER_CHARACTERS_GROUP, false)
+	end)
+	pcall(function()
+		PhysicsService:CollisionGroupSetCollidable(PLAYER_CHARACTERS_GROUP, PLAYER_CHARACTERS_GROUP, false)
 	end)
 end
 

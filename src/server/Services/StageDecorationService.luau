@@ -66,7 +66,28 @@ local function decorateStage(stageFolder: Folder, palette: Palette)
 	end
 end
 
+-- Defensive: confirmed live (twice) that re-syncing Baseplate's Rojo-managed
+-- properties (default.project.json) can leave its Position at (0, 0, 0)
+-- instead of the declared (0, -10, 0), even though the file itself is
+-- correct -- a Rojo resync quirk, not something this codebase's own scripts
+-- ever touch. That's not just cosmetic: it puts the ground's top surface at
+-- Y=10 instead of Y=0, which either buries the lobby plaza inside it or (if
+-- ever combined with a smaller ground) reintroduces exactly the
+-- "fall-through-the-ground" risk this service's stage-bounds fix exists to
+-- prevent. Corrected unconditionally at server start so a stale Edit-mode
+-- drift can never reach actual players.
+local EXPECTED_BASEPLATE_POSITION = Vector3.new(0, -10, 0)
+
+local function ensureBaseplatePosition()
+	local baseplate = Workspace:FindFirstChild("Baseplate")
+	if baseplate and baseplate:IsA("BasePart") and baseplate.Position ~= EXPECTED_BASEPLATE_POSITION then
+		baseplate.Position = EXPECTED_BASEPLATE_POSITION
+	end
+end
+
 function StageDecorationService.Init()
+	ensureBaseplatePosition()
+
 	local stagesFolder = Workspace:FindFirstChild("Stages")
 	if not stagesFolder then
 		return

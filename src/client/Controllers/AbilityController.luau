@@ -202,13 +202,18 @@ function AbilityController.Init()
 	-- Mirrors AbilityService.ResetCooldown, which the server calls at the
 	-- exact same "Racing" transition -- keeps the UI honest instead of
 	-- showing a stale countdown left over from using it during the free
-	-- pre-race warmup.
+	-- pre-race warmup. Also hides the button entirely while Spectating --
+	-- there's no ability to use when you're watching someone else race, and
+	-- leaving it on screen (as if still usable) is exactly what made
+	-- spectating read as broken.
 	MatchStateController.StateChanged:Connect(function(state: string)
+		button.Visible = state ~= "Spectating"
 		if state == "Racing" then
 			readyAt = 0
 			updateButton()
 		end
 	end)
+	button.Visible = MatchStateController.CurrentState ~= "Spectating"
 end
 
 return AbilityController
