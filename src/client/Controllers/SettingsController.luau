@@ -62,26 +62,72 @@ end
 -- Draggable Widgets.Slider (reference: a mobile OS volume-mixer slider) with
 -- a live percentage readout next to the row label, replacing the old
 -- click-to-cycle button now that Widgets actually has a slider component.
-local function buildVolumeRow(panel: CanvasGroup, labelText: string, yOffset: number, groupName: string)
-	local rowLabel = Widgets.Label(labelText, UDim2.new(1, -60, 0, 20), UDim2.fromOffset(8, yOffset), {
+-- Returns a handle so the "Mute all sounds" button below can drive this row
+-- (and its slider thumb, and the SoundGroup) rather than silently desyncing
+-- from it -- a mute that leaves the slider sitting at 100 is worse than no
+-- mute at all. onUserDrag fires only for an actual drag, never for a
+-- programmatic SetVolume, so restoring levels on unmute can't recursively
+-- re-trigger the mute bookkeeping.
+type VolumeRow = {
+	GetVolume: () -> number,
+	SetVolume: (value: number) -> (),
+}
+
+local function buildVolumeRow(
+	panel: CanvasGroup,
+	labelText: string,
+	yOffset: number,
+	groupName: string,
+	onUserDrag: (() -> ())?
+): VolumeRow
+	local rowLabel = Widgets.Label(labelText, UDim2.new(1, -88, 0, 20), UDim2.fromOffset(8, yOffset), {
 		TextSize = 16,
 		Color = Theme.Color.TextSecondary,
 	})
 	rowLabel.Parent = panel
 
-	local valueLabel = Widgets.Label(formatVolume(1), UDim2.fromOffset(50, 20), UDim2.new(1, -58, 0, yOffset), {
+	-- 70px, not 50: "MUTED" is the widest string formatVolume can return and
+	-- was rendering as "MUT..." at 50. Barely reachable before (you had to drag
+	-- a slider all the way down); the mute button below makes it a one-tap,
+	-- everyday state, so it has to actually fit.
+	local valueLabel = Widgets.Label(formatVolume(1), UDim2.fromOffset(70, 20), UDim2.new(1, -78, 0, yOffset), {
 		TextSize = 16,
 		Align = Enum.TextXAlignment.Right,
 		Color = Theme.Color.TextSecondary,
 	})
 	valueLabel.Parent = panel
 
-	local slider = Widgets.Slider(UDim2.new(1, -16, 0, 28), UDim2.fromOffset(8, yOffset + 24), 1, function(value)
+	local current = 1
+
+	local function applyVolume(value: number)
+		current = value
 		valueLabel.Text = formatVolume(value)
 		local group = SoundService:WaitForChild(groupName) :: SoundGroup
 		group.Volume = value
-	end)
+	end
+
+	local slider, setSliderValue = Widgets.Slider(
+		UDim2.new(1, -16, 0, 28),
+		UDim2.fromOffset(8, yOffset + 24),
+		1,
+		function(value)
+			applyVolume(value)
+			if onUserDrag then
+				onUserDrag()
+			end
+		end
+	)
 	slider.Parent = panel
+
+	return {
+		GetVolume = function()
+			return current
+		end,
+		SetVolume = function(value: number)
+			setSliderValue(value)
+			applyVolume(value)
+		end,
+	}
 end
 
 -- Always visible, owned or not -- unlike the old behavior (row didn't exist
@@ -90,10 +136,11 @@ end
 -- (see GachaController.refreshSkipPurchaseRow) instead of only being
 -- discoverable there.
 local function buildSkipGachaRow(panel: CanvasGroup, yOffset: number)
-	local rowLabel = Widgets.Label("Skip gacha pull animation", UDim2.new(1, -150, 0, 36), UDim2.fromOffset(8, yOffset), {
-		TextSize = 16,
-		Color = Theme.Color.TextSecondary,
-	})
+	local rowLabel =
+		Widgets.Label("Skip gacha pull animation", UDim2.new(1, -150, 0, 36), UDim2.fromOffset(8, yOffset), {
+			TextSize = 16,
+			Color = Theme.Color.TextSecondary,
+		})
 	rowLabel.Parent = panel
 
 	local actionSlot = Instance.new("Frame")
@@ -127,11 +174,12 @@ local function buildSkipGachaRow(panel: CanvasGroup, yOffset: number)
 		end
 
 		-- Explicit TextSize -- see windButton above.
-		local toggleButton, setActive = Widgets.Button(if skipGachaEnabled then "ON" else "OFF", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), {
-			Variant = "Tab",
-			Active = skipGachaEnabled,
-			TextSize = 28,
-		})
+		local toggleButton, setActive =
+			Widgets.Button(if skipGachaEnabled then "ON" else "OFF", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), {
+				Variant = "Tab",
+				Active = skipGachaEnabled,
+				TextSize = 28,
+			})
 		toggleButton.Parent = actionSlot
 		setActive(skipGachaEnabled)
 
@@ -166,8 +214,11 @@ local function buildUI()
 	-- 90) toggle pills needed more room than 320 could fit without truncating
 	-- "Wind effect while sprinting"/"Skip gacha pull animation". Taller than
 	-- before too (274 -> 320) -- the volume rows grew from one line to two
-	-- (label+value, then the slider below it) to fit Widgets.Slider.
-	panel, openPanel, closePanel = Widgets.Modal("Settings", UDim2.fromOffset(360, 320), UDim2.new(0, 10, 1, -396), {
+	-- (label+value, then the slider below it) to fit Widgets.Slider. Grew
+	-- again (320 -> 372, with the Y offset moved to match so the panel's
+	-- BOTTOM edge stays put just above the toggle button) for the "Mute all
+	-- sounds" row.
+	panel, openPanel, closePanel = Widgets.Modal("Settings", UDim2.fromOffset(360, 372), UDim2.new(0, 10, 1, -448), {
 		DisplayOrder = 30,
 	})
 
@@ -197,11 +248,69 @@ local function buildUI()
 		setWindEffect(enabled, windSetActive)
 	end)
 
-	buildVolumeRow(panel, "Music volume", 96, "Music")
-	buildVolumeRow(panel, "SFX volume", 156, "SFX")
-	buildSkipGachaRow(panel, 216)
+	-- One switch for "silence the game" -- the two sliders together are the
+	-- fine-grained control, this is the one you actually reach for. Remembers
+	-- the levels it muted so unmuting restores exactly what you had, rather
+	-- than dumping both categories back to 100.
+	local muted = false
+	local premuteMusic, premuteSfx = 1, 1
+	local muteButton: TextButton
+	local muteSetActive: (boolean) -> ()
+	local musicRow: VolumeRow
+	local sfxRow: VolumeRow
 
-	local howToPlayButton = Widgets.Button("How to Play", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 260), {
+	local function refreshMuteButton()
+		muteButton.Text = if muted then "ON" else "OFF"
+		muteSetActive(muted)
+	end
+
+	-- Dragging either slider by hand is an explicit statement about what you
+	-- want to hear, so it takes the button out of "muted" -- otherwise the
+	-- button would still read ON over an audible game, and the next tap would
+	-- restore stale levels on top of the ones just chosen.
+	local function onVolumeDragged()
+		if muted then
+			muted = false
+			refreshMuteButton()
+		end
+	end
+
+	musicRow = buildVolumeRow(panel, "Music volume", 96, "Music", onVolumeDragged)
+	sfxRow = buildVolumeRow(panel, "SFX volume", 156, "SFX", onVolumeDragged)
+
+	local muteLabel = Widgets.Label("Mute all sounds", UDim2.new(1, -150, 0, 36), UDim2.fromOffset(8, 216), {
+		TextSize = 16,
+		Color = Theme.Color.TextSecondary,
+	})
+	muteLabel.Parent = panel
+
+	muteButton, muteSetActive = Widgets.Button("OFF", UDim2.fromOffset(110, 36), UDim2.new(1, -120, 0, 216), {
+		Variant = "Tab",
+		Active = false,
+		TextSize = 28,
+	})
+	muteButton.Parent = panel
+	muteSetActive(false)
+
+	muteButton.MouseButton1Click:Connect(function()
+		muted = not muted
+		if muted then
+			premuteMusic = musicRow.GetVolume()
+			premuteSfx = sfxRow.GetVolume()
+			musicRow.SetVolume(0)
+			sfxRow.SetVolume(0)
+		else
+			-- Muting from already-silent sliders would otherwise restore to 0
+			-- and look like the button did nothing at all.
+			musicRow.SetVolume(if premuteMusic > 0 then premuteMusic else 1)
+			sfxRow.SetVolume(if premuteSfx > 0 then premuteSfx else 1)
+		end
+		refreshMuteButton()
+	end)
+
+	buildSkipGachaRow(panel, 260)
+
+	local howToPlayButton = Widgets.Button("How to Play", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 304), {
 		Variant = "Secondary",
 		TextSize = 16,
 	})

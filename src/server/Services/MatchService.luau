@@ -1,3 +1,4 @@
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -193,6 +194,7 @@ local tryStartCountdown: () -> ()
 local startSession: () -> ()
 local beginRace: (stageId: string, participants: { [number]: Player }) -> ()
 local endSession: () -> ()
+local awardWalkover: (session: Session) -> boolean
 
 -- Levels are built directly in Studio (not synced from src/), following the
 -- convention Workspace.Stages.<StageId>.<StageId>Spawn for each stage's spawn point.
@@ -214,6 +216,30 @@ local function getLobbySpawnCFrame(): CFrame?
 	return nil
 end
 
+-- Anchoring a player's own HumanoidRootPart from the server does NOT stick on
+-- its own: the character is network-owned by its client, and the client's
+-- physics stream keeps re-asserting its own state over the top. Measured in
+-- Studio -- the server sets Anchored = true, and ~2.3s into the 8s pre-race
+-- countdown it flips back to false by itself, with nothing in this codebase
+-- touching it. Spamming jump is what makes it obvious, because that's what
+-- forces the client to push physics updates out.
+--
+-- Taking network ownership (nil = the server simulates it) is what actually
+-- makes the anchor hold. Order matters in both directions: Roblox refuses to
+-- set network ownership on an already-anchored part, so ownership has to be
+-- taken BEFORE anchoring and handed back AFTER un-anchoring.
+local function setRootAnchored(root: BasePart, player: Player?, anchored: boolean)
+	if anchored then
+		root:SetNetworkOwner(nil)
+		root.Anchored = true
+	else
+		root.Anchored = false
+		-- Back to the owning client, so their own movement stays locally
+		-- simulated and responsive rather than round-tripping to the server.
+		root:SetNetworkOwner(player)
+	end
+end
+
 -- Warps a participant to the stage's spawn regardless of where they wandered
 -- off to during the countdown, so everyone actually starts the race together.
 -- pcall'd so one player's stale/missing character can't abort session start
@@ -233,8 +259,9 @@ local function teleportToStageSpawn(player: Player, spawnCFrame: CFrame)
 			-- "send a spectator somewhere real again" call goes through (see
 			-- returnSpectatorToLobby), so it's the right place to guarantee
 			-- parkSpectator's Anchored = true never outlives the spectate
-			-- session it was set for.
-			root.Anchored = false
+			-- session it was set for -- including handing network ownership
+			-- back to the client, which parking took away (see setRootAnchored).
+			setRootAnchored(root, player, false)
 		end
 	end)
 	lastCheckedPosition[player.UserId] = nil
@@ -263,7 +290,10 @@ local function parkSpectator(player: Player)
 		if root then
 			root.CFrame = root.CFrame + SPECTATOR_PARK_OFFSET
 			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-			root.Anchored = true
+			-- Same client-ownership caveat as the pre-race freeze: a bare
+			-- Anchored = true here would quietly come undone a couple of
+			-- seconds later and drop the spectator back onto the course.
+			setRootAnchored(root, player, true)
 		end
 	end)
 end
@@ -285,7 +315,7 @@ local function setFrozen(player: Player, frozen: boolean)
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
 		if root then
-			root.Anchored = frozen
+			setRootAnchored(root, player, frozen)
 		end
 	end)
 end
@@ -375,7 +405,11 @@ function beginRace(stageId: string, participants: { [number]: Player })
 	local validParticipants: { [number]: Player } = {}
 	local totalParticipants = 0
 	for userId, player in participants do
-		if player.Parent then
+		-- playerRaceStage is cleared by QuitMatch, so this also filters out
+		-- anyone who hit Backspace during the pre-race countdown -- without it
+		-- they'd be teleported back onto the stage and flipped to "Racing"
+		-- again by the very loop below, undoing the quit they just made.
+		if player.Parent and playerRaceStage[userId] == stageId then
 			validParticipants[userId] = player
 			totalParticipants += 1
 		end
@@ -398,6 +432,10 @@ function beginRace(stageId: string, participants: { [number]: Player })
 		setFrozen(player, false)
 		LobbyService.SetPlayerState(player, "Racing")
 		AbilityService.ResetCooldown(player)
+		-- Everyone starts the clock at the same speed. Anything picked up
+		-- before GO -- a Stage4 speed strip stood on during the countdown --
+		-- is wiped here rather than carried across the start line.
+		MovementService.ClearSpeedOverride(player)
 	end
 	WeatherService.ApplyStageWeather(stageId)
 
@@ -411,6 +449,14 @@ function beginRace(stageId: string, participants: { [number]: Player })
 		spectators = {},
 	}
 	activeSession = session
+
+	-- Everyone else bailed during the countdown (a session never starts below
+	-- Constants.Match.MinPlayers, so one participant here means departures).
+	-- Nobody left to race, so the survivor takes it rather than being sent
+	-- alone round a course with no opponent.
+	if totalParticipants == 1 and awardWalkover(session) then
+		return
+	end
 
 	-- Nobody has finished yet, so everyone starts tied for 1st.
 	for _, racer in validParticipants do
@@ -603,6 +649,7 @@ function MatchService.StartBotMatch(player: Player)
 			setFrozen(player, false)
 			LobbyService.SetPlayerState(player, "Racing")
 			AbilityService.ResetCooldown(player)
+			MovementService.ClearSpeedOverride(player)
 			racePositionRemote:FireClient(player, 1, 2)
 
 			local bot = BotService.SpawnBot(stageId)
@@ -696,6 +743,7 @@ function MatchService.StartPracticeMatch(player: Player)
 			setFrozen(player, false)
 			LobbyService.SetPlayerState(player, "Racing")
 			AbilityService.ResetCooldown(player)
+			MovementService.ClearSpeedOverride(player)
 			racePositionRemote:FireClient(player, 1, 1)
 
 			practiceMatches[userId] = { stageId = stageId, startTime = os.clock() }
@@ -755,6 +803,74 @@ function MatchService.PlayerFellOff(player: Player, stageId: string)
 	MovementService.ClearSpeedOverride(player)
 
 	playerFellRemote:FireClient(player)
+end
+
+-- Every stage has a VoidZone slab under its course that recovers anyone who
+-- misses a jump (see StageService) -- but a slab only covers the footprint it
+-- was drawn over, and each one stops just short of the course's own extents
+-- (Stage4's platforms run to X=72, its VoidZone only to X=87). Overshoot past
+-- the finish -- easy on Stage4, where a speed strip can fire you well past it
+-- -- and you sail over the edge of the trigger entirely, land on the terrain
+-- below, and simply stay there: no recovery, no respawn, nothing until the
+-- match watchdog eventually times the whole race out. That's the "I fell to
+-- the ground and had to wait seconds" bug.
+--
+-- This generalises the slab to infinite horizontal extent: same threshold the
+-- geometry already defines (the VoidZone's own top surface), just applied by
+-- altitude instead of by touch, so where you fall stops mattering.
+local FALL_CHECK_INTERVAL = 0.15
+-- Fallback for a stage with no VoidZone at all: comfortably under its lowest
+-- platform, since there's no authored "you've fallen" plane to read.
+local FALL_FLOOR_MARGIN = 12
+
+local fallFloorY: { [string]: number } = {}
+
+local function getFallFloorY(stageId: string): number?
+	local cached = fallFloorY[stageId]
+	if cached then
+		return cached
+	end
+
+	for _, part in CollectionService:GetTagged("VoidZone") do
+		if part:IsA("BasePart") and part:GetAttribute("StageId") == stageId then
+			fallFloorY[stageId] = part.Position.Y + part.Size.Y / 2
+			return fallFloorY[stageId]
+		end
+	end
+
+	local stagesFolder = Workspace:FindFirstChild("Stages")
+	local stageFolder = stagesFolder and stagesFolder:FindFirstChild(stageId)
+	if not stageFolder then
+		return nil
+	end
+	local lowest = math.huge
+	for _, part in stageFolder:GetDescendants() do
+		if part:IsA("BasePart") then
+			lowest = math.min(lowest, part.Position.Y)
+		end
+	end
+	if lowest == math.huge then
+		return nil
+	end
+	fallFloorY[stageId] = lowest - FALL_FLOOR_MARGIN
+	return fallFloorY[stageId]
+end
+
+local function startFallWatchdog()
+	task.spawn(function()
+		while true do
+			task.wait(FALL_CHECK_INTERVAL)
+			for userId, stageId in playerRaceStage do
+				local player = Players:GetPlayerByUserId(userId)
+				local character = player and player.Character
+				local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+				local floorY = root and getFallFloorY(stageId)
+				if root and floorY and root.Position.Y < floorY then
+					MatchService.PlayerFellOff(player :: Player, stageId)
+				end
+			end
+		end
+	end)
 end
 
 -- No Elo/streak/leaderboard here on purpose: "playing with bots won't give
@@ -847,6 +963,69 @@ local function settleWin(winner: Player, opponents: { Player }): (number, number
 	return winnerDelta, winStreak, streakBonus
 end
 
+-- Everyone else left (quit or disconnected) and exactly one racer is still out
+-- there with no winner decided yet. Before this, that player was simply left
+-- alone on the course, still obliged to run the whole thing to a finish line
+-- nobody was contesting -- most visible in the 2-player case the shared queue
+-- is usually running, where one person leaving stranded the other. They win on
+-- the spot instead.
+--
+-- Deliberately settled as settleWin(winner, {}) -- an empty opponent list --
+-- so it's a real win (Wins, points, streak, badges, leaderboard) but moves
+-- ZERO Elo. Elo is a transfer: it needs someone who actually lost, and this
+-- module's existing rule, applied at every other quit/disconnect path, is that
+-- leaving costs you nothing. Paying the survivor Elo for it would both break
+-- that rule and hand two alt accounts a trivial ladder-boosting loop -- queue
+-- as a pair, one quits, repeat.
+function awardWalkover(session: Session): boolean
+	if session.winner then
+		return false
+	end
+
+	local remaining: Player? = nil
+	local count = 0
+	for _, participant in session.participants do
+		remaining = participant
+		count += 1
+	end
+	if count ~= 1 or not remaining then
+		return false
+	end
+
+	local winner = remaining :: Player
+	local userId = winner.UserId
+	session.winner = winner
+	session.participants[userId] = nil
+	session.finishedCount += 1
+
+	playerRaceStage[userId] = nil
+	playerBusy[userId] = nil
+	lastCheckpoint[userId] = nil
+
+	-- They may still be mid-pre-race-countdown when the last opponent bails.
+	setFrozen(winner, false)
+	MovementService.ClearSpeedOverride(winner)
+	LobbyService.SetPlayerState(winner, "Lobby")
+	local lobbyCFrame = getLobbySpawnCFrame()
+	if lobbyCFrame then
+		teleportToStageSpawn(winner, lobbyCFrame)
+	end
+
+	local _, winStreak, streakBonus = settleWin(winner, {})
+	raceOutcomeRemote:FireClient(winner, {
+		Won = true,
+		Placement = 1,
+		Total = session.totalParticipants,
+		EloDelta = 0,
+		WinStreak = winStreak,
+		StreakBonus = streakBonus,
+		Walkover = true,
+	})
+
+	endSession()
+	return true
+end
+
 -- No Elo/streak/leaderboard-skew here (see finishBotMatch's comment above for
 -- why bot/practice stay zero-stakes) -- a duel carries the exact same stakes
 -- as a real ranked race, just against one specific opponent picked via the
@@ -897,6 +1076,11 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 	if playerRaceStage[userId] ~= stageId then
 		return
 	end
+
+	-- Before any of the mode-specific paths below, since every one of them
+	-- ends with the player back in the lobby -- crossing the line mid-boost
+	-- shouldn't leave them sprinting around the lobby at 42 afterwards.
+	MovementService.ClearSpeedOverride(player)
 
 	local botMatch = botMatches[userId]
 	if botMatch and botMatch.stageId == stageId then
@@ -1035,8 +1219,15 @@ function MatchService.QuitMatch(player: Player)
 			table.remove(queue, index)
 		end
 		queuedSet[userId] = nil
-		queueStatusRemote:FireClient(player, nil)
 	end
+
+	-- Unconditionally, NOT just for someone still sitting in `queue` (which is
+	-- where this used to live): QueueStatusController's countdown is a local
+	-- timer that only ever stops on a nil here. By the pre-race countdown the
+	-- player is long out of `queue`, so quitting during it sent nothing and
+	-- left "RACE STARTING IN" ticking all the way down to zero on the screen of
+	-- someone who had already left. Harmless no-op when nothing is showing.
+	queueStatusRemote:FireClient(player, nil)
 
 	local botMatch = botMatches[userId]
 	if botMatch then
@@ -1051,7 +1242,7 @@ function MatchService.QuitMatch(player: Player)
 		activeSession.participants[userId] = nil
 		if next(activeSession.participants) == nil then
 			endSession()
-		else
+		elseif not awardWalkover(activeSession) then
 			-- Anyone spectating this player specifically needs to know they're
 			-- gone (a quit is just as much "no longer racing" as a finish).
 			broadcastSpectatorRacers(activeSession)
@@ -1075,6 +1266,7 @@ function MatchService.QuitMatch(player: Player)
 	-- never frozen) -- but if they were, leaving this out would strand them
 	-- anchored in the lobby with no way to move.
 	setFrozen(player, false)
+	MovementService.ClearSpeedOverride(player)
 	LobbyService.SetPlayerState(player, "Lobby")
 
 	-- Snapping to the lobby spawn only makes sense if they'd actually been
@@ -1131,7 +1323,7 @@ local function removePlayer(player: Player)
 		activeSession.participants[userId] = nil
 		if next(activeSession.participants) == nil then
 			endSession()
-		else
+		elseif not awardWalkover(activeSession) then
 			broadcastSpectatorRacers(activeSession)
 		end
 	end
@@ -1228,6 +1420,8 @@ function MatchService.StartDuelMatch(playerA: Player, playerB: Player)
 			LobbyService.SetPlayerState(playerB, "Racing")
 			AbilityService.ResetCooldown(playerA)
 			AbilityService.ResetCooldown(playerB)
+			MovementService.ClearSpeedOverride(playerA)
+			MovementService.ClearSpeedOverride(playerB)
 			racePositionRemote:FireClient(playerA, 1, 2)
 			racePositionRemote:FireClient(playerB, 1, 2)
 
@@ -1322,6 +1516,7 @@ function MatchService.Init()
 	duelCancelledRemote = Net.CreateRemoteEvent(RemoteNames.DuelCancelled)
 	Players.PlayerRemoving:Connect(removePlayer)
 	startSpeedWatchdog()
+	startFallWatchdog()
 
 	-- mode: nil/"Real" -> shared queue, "Bots" -> solo vs. a bot, "Practice"
 	-- -> solo, no opponent at all. (Was a plain vsBots boolean before

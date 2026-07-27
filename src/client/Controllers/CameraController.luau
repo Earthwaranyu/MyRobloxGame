@@ -75,6 +75,15 @@ function CameraController.Init()
 	local preRaceRemote = Net.GetRemoteEvent(RemoteNames.PreRaceCountdown)
 	preRaceRemote.OnClientEvent:Connect(function()
 		player.CameraMode = Enum.CameraMode.LockFirstPerson
+		-- previousState is what decides whether leaving first person also
+		-- kicks the zoom back out (see applyState). Without this it stayed
+		-- "Lobby" for the whole countdown -- because the server doesn't flip
+		-- anyone to Racing until GO -- so quitting mid-countdown went Lobby ->
+		-- Lobby, skipped the kick, and left the player stuck staring out of
+		-- their own eyes back in the lobby. The camera is genuinely locked
+		-- first-person from this point, which is exactly what "Racing" means
+		-- to this module, so recording it as such is the accurate answer.
+		previousState = "Racing"
 	end)
 end
 

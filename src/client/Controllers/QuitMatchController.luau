@@ -26,12 +26,31 @@ local QuitMatchController = {}
 local player = Players.LocalPlayer
 
 local button: TextButton
-local active = false
+-- Set by the match state machine (Racing/Spectating).
+local stateActive = false
+-- Set independently for the pre-race countdown, which the state machine can't
+-- express: the server doesn't flip anyone to "Racing" until the countdown
+-- actually ends (see MatchService.beginRace), so for those
+-- Constants.Match.CountdownSeconds you're teleported onto the stage, frozen in
+-- place, and -- until now -- had no way out. The server side already accepted
+-- a quit during that window (playerBusy is set from the moment you're
+-- enqueued); it was only this client gate that made Backspace do nothing.
+local countdownActive = false
+
+local function isActive(): boolean
+	return stateActive or countdownActive
+end
+
+local function refresh(state: string)
+	button.Visible = isActive()
+	button.Text = if state == "Spectating" then "Stop Watching (Backspace)" else "Leave Match (Backspace)"
+end
 
 local function quit()
-	if not active then
+	if not isActive() then
 		return
 	end
+	countdownActive = false
 	Net.GetRemoteEvent(RemoteNames.QuitMatch):FireServer()
 end
 
@@ -58,10 +77,19 @@ end
 function QuitMatchController.Init()
 	buildUI()
 
+	-- The countdown either turns into a real race (state -> Racing, which
+	-- takes over from here) or is over anyway, so clearing the flag on ANY
+	-- state change is enough -- no separate timer to keep in sync with the
+	-- server's own.
+	Net.GetRemoteEvent(RemoteNames.PreRaceCountdown).OnClientEvent:Connect(function()
+		countdownActive = true
+		refresh(MatchStateController.CurrentState)
+	end)
+
 	MatchStateController.StateChanged:Connect(function(state: string)
-		active = state == "Racing" or state == "Spectating"
-		button.Visible = active
-		button.Text = if state == "Spectating" then "Stop Watching (Backspace)" else "Leave Match (Backspace)"
+		stateActive = state == "Racing" or state == "Spectating"
+		countdownActive = false
+		refresh(state)
 	end)
 
 	UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
