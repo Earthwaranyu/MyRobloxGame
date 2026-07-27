@@ -2,6 +2,7 @@ return {
 	MatchStateChanged = "MatchStateChanged",
 	QueueStatusChanged = "QueueStatusChanged",
 	RacePositionChanged = "RacePositionChanged",
+	RaceProgressChanged = "RaceProgressChanged",
 	RaceOutcome = "RaceOutcome",
 	MapSelected = "MapSelected",
 	RequestQueue = "RequestQueue",

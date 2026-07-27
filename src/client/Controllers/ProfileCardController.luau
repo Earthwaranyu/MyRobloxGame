@@ -6,6 +6,7 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 local Stages = require(Shared.Stages)
 
+local AvatarThumbnail = require(script.Parent.Parent.AvatarThumbnail)
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
@@ -108,65 +109,24 @@ local function formatPlaytime(totalSeconds: number): string
 	return ("%dh %dm"):format(hours, minutes % 60)
 end
 
-local THUMBNAIL_MAX_ATTEMPTS = 4
-local THUMBNAIL_RETRY_DELAY = 1
-
 -- Roblox's own CDN headshot for this userId -- a real 3D render Roblox
 -- generates server-side of the player's actual equipped avatar (hats/hair/
 -- costume included), so it already looks like a proper profile picture
 -- (matches the reference image exactly) with zero camera-framing code on our
--- end. Yields, so this has to run off to the side rather than blocking
--- openProfileCard.
---
--- Confirmed live (execute_luau against several UserIds): GetUserThumbnailAsync
--- never errors for a nonexistent account -- it returns ok=true with a
--- syntactically valid rbxthumb:// URL that just never actually renders
--- anything, and isReady stays false FOREVER (real accounts flip to true
--- almost immediately). Negative/zero UserIds are Roblox's own convention for
--- non-real-player entities, which is exactly what Studio Team Test's
--- simulated "Player1"/"Player2" clients get -- there's no render job that
--- will ever finish for an account that was never issued, no matter how many
--- times this retries. avatarFallbackIcon exists for exactly that outcome, so
--- it degrades to a deliberate placeholder instead of an accidental-looking
--- blank/black circle.
+-- end. The fetch/retry/never-renders handling lives in AvatarThumbnail, which
+-- the in-race progress bar shares.
 local function loadAvatarThumbnail(userId: number)
-	task.spawn(function()
-		for _ = 1, THUMBNAIL_MAX_ATTEMPTS do
-			if not currentTarget or currentTarget.UserId ~= userId then
-				return
-			end
-
-			-- GetUserThumbnailAsync returns (content, isReady) -- per
-			-- Roblox's own docs, isReady=false means `content` is just a
-			-- placeholder and the real thumbnail needs a retry after a short
-			-- delay, which this does up to THUMBNAIL_MAX_ATTEMPTS times.
-			local ok, content, isReady = pcall(function()
-				return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
-			end)
-
-			if not ok then
-				warn(("ProfileCardController: GetUserThumbnailAsync failed for userId %d (%s)"):format(userId, tostring(content)))
-				return
-			end
-
-			if not currentTarget or currentTarget.UserId ~= userId then
-				return
-			end
-
-			if isReady then
-				-- Only swap in the real photo (and drop the placeholder
-				-- icon) once Roblox confirms it's actually a real, rendered
-				-- thumbnail -- setting avatarImage.Image on every attempt
-				-- regardless of isReady, like Roblox's own sample code does,
-				-- would leave the fallback icon hidden behind a permanently
-				-- unrenderable image for exactly the accounts that never
-				-- become ready.
-				avatarImage.Image = content
-				avatarFallbackIcon.Visible = false
-				return
-			end
-			task.wait(THUMBNAIL_RETRY_DELAY)
+	-- AvatarThumbnail only ever calls back with a confirmed-ready photo, so
+	-- the fallback icon simply stays up in every other case (still loading,
+	-- or an account whose thumbnail will never render at all).
+	AvatarThumbnail.Load(userId, function(content: string)
+		-- The card may have been re-pointed at somebody else while this was
+		-- in flight -- don't paint one player's face onto another's card.
+		if not currentTarget or currentTarget.UserId ~= userId then
+			return
 		end
+		avatarImage.Image = content
+		avatarFallbackIcon.Visible = false
 	end)
 end
 

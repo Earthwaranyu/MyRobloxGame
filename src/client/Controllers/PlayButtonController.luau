@@ -1,4 +1,5 @@
 local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
@@ -65,7 +66,10 @@ local function refresh()
 	practiceButton.Visible = true
 
 	if busy then
-		button.Text = "CANCEL"
+		-- Spelled out on the primary button only -- the two small secondary
+		-- ones have no room for it, and one visible reminder of the key is
+		-- enough (see the InputBegan handler in Init).
+		button.Text = "CANCEL (BACKSPACE)"
 		button.Active = true
 		botsButton.Text = "CANCEL"
 		botsButton.Active = true
@@ -165,6 +169,22 @@ function PlayButtonController.Init()
 	button.Visible = visible
 	botsButton.Visible = visible
 	practiceButton.Visible = visible
+
+	-- Same Backspace = "get me out of here" key QuitMatchController binds for
+	-- the race itself (see its comment on why a key, not just a button),
+	-- extended backwards to cover the whole queue: waiting for players AND
+	-- the map-reveal spin, where the only way out used to be finding and
+	-- clicking CANCEL. Deliberately skips inPreRace -- QuitMatchController
+	-- owns Backspace from PreRaceCountdown onwards, and both firing QuitMatch
+	-- would just be a redundant second remote call.
+	UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
+		if gameProcessed or input.KeyCode ~= Enum.KeyCode.Backspace then
+			return
+		end
+		if busy and not inPreRace then
+			cancelQueue()
+		end
+	end)
 
 	local queueRemote = Net.GetRemoteEvent(RemoteNames.QueueStatusChanged)
 	queueRemote.OnClientEvent:Connect(function(secondsRemaining: number?)

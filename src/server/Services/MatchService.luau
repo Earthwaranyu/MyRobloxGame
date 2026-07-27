@@ -181,6 +181,7 @@ end
 local queueStatusRemote: RemoteEvent
 local preRaceCountdownRemote: RemoteEvent
 local racePositionRemote: RemoteEvent
+local raceProgressRemote: RemoteEvent
 local raceOutcomeRemote: RemoteEvent
 local mapSelectedRemote: RemoteEvent
 local playerFellRemote: RemoteEvent
@@ -337,6 +338,22 @@ function tryStartCountdown()
 	pendingCountdown = true
 	pendingStageId = Stages[math.random(1, #Stages)].Id
 	countdownEndTime = os.clock() + Constants.Match.MatchingSeconds
+
+	-- Tell EVERYONE already in the queue, not just whoever's Enqueue call
+	-- happened to tip it over MinPlayers. This is where the "the other player
+	-- never saw the map-reveal spin" bug lived: the countdown/MapSelected
+	-- broadcast used to live only in Enqueue, firing at the enqueuing party.
+	-- So the FIRST player to click Play (queued while the queue was still
+	-- under MinPlayers, and sent a static `true` "waiting for players") got
+	-- nothing further when the second player's click actually started the
+	-- countdown -- no ticking number, no MapSelected, so MapRevealController
+	-- had no stage to spin to and stayed silent right up until the teleport.
+	-- The second player saw the whole thing, which is exactly why it looked
+	-- like it only broke for "the other player."
+	for _, queuedPlayer in queue do
+		queueStatusRemote:FireClient(queuedPlayer, Constants.Match.MatchingSeconds)
+		mapSelectedRemote:FireClient(queuedPlayer, pendingStageId)
+	end
 
 	task.delay(Constants.Match.MatchingSeconds, function()
 		pendingCountdown = false
@@ -531,26 +548,11 @@ end
 function MatchService.Enqueue(player: Player)
 	local partyMembers = PartyService.GetPartyMembers(player)
 
-	-- TEMP diagnostic: the countdown/map-reveal broadcast loop below already
-	-- looks correct on repeated read-throughs -- it iterates every entry in
-	-- partyMembers, not just `player` -- so the most likely explanation for
-	-- "the other party member doesn't see it" is that partyMembers only ever
-	-- contained the clicker (i.e. PartyService didn't consider them partied
-	-- at the moment this fired), not a broadcast bug. This print makes that
-	-- checkable directly from the Studio Output the next time it's
-	-- reproduced, instead of guessing again -- remove once confirmed either
-	-- way.
-	local partyMemberNames = {}
-	for _, member in partyMembers do
-		table.insert(partyMemberNames, member.Name)
-	end
-	print(
-		("MatchService.Enqueue: %s's party has %d member(s): %s"):format(
-			player.Name,
-			#partyMembers,
-			table.concat(partyMemberNames, ", ")
-		)
-	)
+	-- Read BEFORE tryStartCountdown below, which may start one: it decides
+	-- whether tryStartCountdown's whole-queue broadcast already covered these
+	-- members, or whether they joined a window that was already ticking and
+	-- need to be caught up individually. See the branch at the end.
+	local countdownWasRunning = countdownEndTime ~= nil
 
 	for _, member in partyMembers do
 		if playerBusy[member.UserId] then
@@ -583,14 +585,18 @@ function MatchService.Enqueue(player: Player)
 	tryStartCountdown()
 
 	if countdownEndTime and pendingStageId then
-		-- Either this call just started the countdown, or one was already
-		-- running when this party joined -- either way, this party specifically
-		-- needs the current countdown value (a `true` for "waiting" sent on
-		-- an earlier Enqueue call wouldn't have updated once someone else's
-		-- join pushed the queue over MinPlayers).
-		for _, member in partyMembers do
-			queueStatusRemote:FireClient(member, math.max(0, countdownEndTime - os.clock()))
-			mapSelectedRemote:FireClient(member, pendingStageId)
+		-- Only when the countdown was ALREADY running before this call: these
+		-- members joined mid-window, so tryStartCountdown's own whole-queue
+		-- broadcast (which fires once, at the moment a countdown starts) never
+		-- reached them, and they need the current partially-elapsed value.
+		-- If THIS call is what started the countdown, tryStartCountdown has
+		-- already told everyone in the queue, these members included --
+		-- re-sending here would be redundant.
+		if countdownWasRunning then
+			for _, member in partyMembers do
+				queueStatusRemote:FireClient(member, math.max(0, countdownEndTime - os.clock()))
+				mapSelectedRemote:FireClient(member, pendingStageId)
+			end
 		end
 	else
 		-- Below Constants.Match.MinPlayers -- queued, but no real countdown
@@ -815,27 +821,41 @@ end
 -- match watchdog eventually times the whole race out. That's the "I fell to
 -- the ground and had to wait seconds" bug.
 --
--- This generalises the slab to infinite horizontal extent: same threshold the
--- geometry already defines (the VoidZone's own top surface), just applied by
--- altitude instead of by touch, so where you fall stops mattering.
+-- This generalises the slab to infinite horizontal extent -- applied by
+-- altitude instead of by touch, so where you fall stops mattering. The
+-- threshold it compares against is the thing that has to be right: see
+-- getFallFloorY for why reading it off the VoidZone left this bug half-fixed
+-- (you still had to walk under the stage), and what replaced it.
 local FALL_CHECK_INTERVAL = 0.15
--- Fallback for a stage with no VoidZone at all: comfortably under its lowest
--- platform, since there's no authored "you've fallen" plane to read.
-local FALL_FLOOR_MARGIN = 12
+-- How far below the stage's lowest standable surface counts as "fallen".
+-- Small on purpose, and the reason it can't just be "under the VoidZone" --
+-- see getFallFloorY.
+local FALL_FLOOR_MARGIN = 1
 
 local fallFloorY: { [string]: number } = {}
 
+-- Below this altitude you are, by construction, no longer on the course.
+--
+-- Measured from the stage's own lowest standable platform, NOT from the
+-- VoidZone slab -- which is what it used to do, and is why sailing past the
+-- finish line still stranded you. Every VoidZone is authored down at ground
+-- level (top surface Y = 2.5), but a player standing on the ground has their
+-- HumanoidRootPart at roughly Y = 3: hip height plus half the root part. So
+-- landing on the grass left you sitting about half a stud ABOVE the
+-- threshold, and nothing fired. Walking into the slab's actual footprint
+-- under the stage was the only way to trigger recovery, exactly as reported.
+--
+-- The lowest platform is a far better reference: it's tens of studs up on
+-- every stage (Stage1's is the closest at ~5.9, the rest are 13-35), so a
+-- grounded player is unambiguously below it, while someone legitimately
+-- standing on that very platform is still ~3 studs of hip height above it and
+-- can never trip this. The VoidZone keeps working as an instant trigger via
+-- its own Touched handler in StageService -- this is the altitude backstop for
+-- everywhere the slab doesn't physically reach.
 local function getFallFloorY(stageId: string): number?
 	local cached = fallFloorY[stageId]
 	if cached then
 		return cached
-	end
-
-	for _, part in CollectionService:GetTagged("VoidZone") do
-		if part:IsA("BasePart") and part:GetAttribute("StageId") == stageId then
-			fallFloorY[stageId] = part.Position.Y + part.Size.Y / 2
-			return fallFloorY[stageId]
-		end
 	end
 
 	local stagesFolder = Workspace:FindFirstChild("Stages")
@@ -843,15 +863,20 @@ local function getFallFloorY(stageId: string): number?
 	if not stageFolder then
 		return nil
 	end
+
 	local lowest = math.huge
 	for _, part in stageFolder:GetDescendants() do
-		if part:IsA("BasePart") then
-			lowest = math.min(lowest, part.Position.Y)
+		-- CanCollide filters out the triggers and decoration you can't
+		-- actually stand on; the VoidZone is skipped explicitly because it's
+		-- the ground-level slab whose height caused the bug above.
+		if part:IsA("BasePart") and part.CanCollide and not CollectionService:HasTag(part, "VoidZone") then
+			lowest = math.min(lowest, part.Position.Y - part.Size.Y / 2)
 		end
 	end
 	if lowest == math.huge then
 		return nil
 	end
+
 	fallFloorY[stageId] = lowest - FALL_FLOOR_MARGIN
 	return fallFloorY[stageId]
 end
@@ -867,6 +892,160 @@ local function startFallWatchdog()
 				local floorY = root and getFallFloorY(stageId)
 				if root and floorY and root.Position.Y < floorY then
 					MatchService.PlayerFellOff(player :: Player, stageId)
+				end
+			end
+		end
+	end)
+end
+
+-- How often every racer's "how far along the course are you" fraction is
+-- pushed to every client showing the progress bar. 0.2s is slow enough to be
+-- cheap (one small array per racer, five times a second) and fast enough that
+-- the bar reads as live -- the client tweens between updates anyway, so the
+-- gaps aren't visible (see RaceProgressController).
+local PROGRESS_BROADCAST_INTERVAL = 0.2
+
+-- Stage geometry the progress fraction is measured against: the FinishLine
+-- part (same tag + StageId attribute convention StageService binds its touch
+-- handlers to) and the stage spawn, cached because neither ever moves.
+local finishPosition: { [string]: Vector3 } = {}
+
+local function getFinishPosition(stageId: string): Vector3?
+	local cached = finishPosition[stageId]
+	if cached then
+		return cached
+	end
+	for _, part in CollectionService:GetTagged("FinishLine") do
+		if part:IsA("BasePart") and part:GetAttribute("StageId") == stageId then
+			finishPosition[stageId] = part.Position
+			return part.Position
+		end
+	end
+
+	-- Fallback for a stage whose finish part was built but never tagged (or
+	-- tagged without the StageId attribute): the same
+	-- Workspace.Stages.<StageId> folder convention getStageSpawnCFrame uses.
+	-- Only the progress bar depends on this -- actual win detection still
+	-- requires the tag, since that's what StageService binds Touched to.
+	local stagesFolder = Workspace:FindFirstChild("Stages")
+	local stageFolder = stagesFolder and stagesFolder:FindFirstChild(stageId)
+	local finishPart = stageFolder and stageFolder:FindFirstChild("FinishLine", true)
+	if finishPart and finishPart:IsA("BasePart") then
+		finishPosition[stageId] = finishPart.Position
+		return finishPart.Position
+	end
+
+	return nil
+end
+
+-- 0 at the spawn, 1 at the finish line. Measured as "distance still to go,
+-- as a fraction of the whole course" on the XZ plane rather than by summing
+-- checkpoints: stages are built in Studio with no fixed checkpoint count (see
+-- getStageSpawnCFrame's note on levels living outside src/), so anything
+-- keyed off checkpoint indices would silently break on the next stage edit.
+-- Height is deliberately ignored -- falling into the void shouldn't read as
+-- progress in either direction, the fall watchdog handles that.
+local function computeProgress(stageId: string, position: Vector3): number?
+	local finish = getFinishPosition(stageId)
+	local spawnCFrame = getStageSpawnCFrame(stageId)
+	if not finish or not spawnCFrame then
+		return nil
+	end
+
+	local start = spawnCFrame.Position
+	local total = (Vector3.new(finish.X, 0, finish.Z) - Vector3.new(start.X, 0, start.Z)).Magnitude
+	if total < 1 then
+		return nil
+	end
+
+	local remaining = (Vector3.new(finish.X, 0, finish.Z) - Vector3.new(position.X, 0, position.Z)).Magnitude
+	return math.clamp(1 - remaining / total, 0, 1)
+end
+
+export type ProgressEntry = { UserId: number, Name: string, Progress: number }
+
+local function progressEntry(stageId: string, userId: number, name: string, root: BasePart?): ProgressEntry?
+	if not root then
+		return nil
+	end
+	local progress = computeProgress(stageId, root.Position)
+	if not progress then
+		return nil
+	end
+	return { UserId = userId, Name = name, Progress = progress }
+end
+
+local function getRoot(player: Player): BasePart?
+	local character = player.Character
+	return character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+end
+
+-- Pushes the whole field's progress to everyone who has a stake in that
+-- particular race. Deliberately covers all three race shapes that have an
+-- opponent worth watching -- the shared session (plus its spectators, who
+-- care most of all), duels, and bot matches -- but not practice runs, where
+-- the bar would only ever show one lonely marker.
+local function startProgressBroadcast()
+	task.spawn(function()
+		while true do
+			task.wait(PROGRESS_BROADCAST_INTERVAL)
+
+			local session = activeSession
+			if session then
+				local entries = {}
+				for userId, racer in session.participants do
+					local entry = progressEntry(session.stageId, userId, racer.DisplayName, getRoot(racer))
+					if entry then
+						table.insert(entries, entry)
+					end
+				end
+				if #entries > 0 then
+					for _, racer in session.participants do
+						raceProgressRemote:FireClient(racer, entries)
+					end
+					for _, spectator in session.spectators do
+						raceProgressRemote:FireClient(spectator, entries)
+					end
+				end
+			end
+
+			for userId, duel in duelMatches do
+				-- Both sides key into the same DuelMatch table, so iterating
+				-- the map visits each duel twice -- build the entry list from
+				-- the duel's own `players` and just send it to this one side.
+				local player = Players:GetPlayerByUserId(userId)
+				if player then
+					local entries = {}
+					for opponentUserId, duellist in duel.players do
+						local entry =
+							progressEntry(duel.stageId, opponentUserId, duellist.DisplayName, getRoot(duellist))
+						if entry then
+							table.insert(entries, entry)
+						end
+					end
+					if #entries > 0 then
+						raceProgressRemote:FireClient(player, entries)
+					end
+				end
+			end
+
+			for userId, botMatch in botMatches do
+				local player = Players:GetPlayerByUserId(userId)
+				if player then
+					local entries = {}
+					local playerEntry = progressEntry(botMatch.stageId, userId, player.DisplayName, getRoot(player))
+					if playerEntry then
+						table.insert(entries, playerEntry)
+					end
+					-- Bots have no UserId of their own; 0 never collides with
+					-- a real one, and the client only uses it to spot "me".
+					local botEntry = progressEntry(botMatch.stageId, 0, "Bot", botMatch.bot.root)
+					if botEntry then
+						table.insert(entries, botEntry)
+					end
+					if #entries > 0 then
+						raceProgressRemote:FireClient(player, entries)
+					end
 				end
 			end
 		end
@@ -1506,6 +1685,7 @@ function MatchService.Init()
 	queueStatusRemote = Net.CreateRemoteEvent(RemoteNames.QueueStatusChanged)
 	preRaceCountdownRemote = Net.CreateRemoteEvent(RemoteNames.PreRaceCountdown)
 	racePositionRemote = Net.CreateRemoteEvent(RemoteNames.RacePositionChanged)
+	raceProgressRemote = Net.CreateRemoteEvent(RemoteNames.RaceProgressChanged)
 	raceOutcomeRemote = Net.CreateRemoteEvent(RemoteNames.RaceOutcome)
 	mapSelectedRemote = Net.CreateRemoteEvent(RemoteNames.MapSelected)
 	playerFellRemote = Net.CreateRemoteEvent(RemoteNames.PlayerFell)
@@ -1517,6 +1697,7 @@ function MatchService.Init()
 	Players.PlayerRemoving:Connect(removePlayer)
 	startSpeedWatchdog()
 	startFallWatchdog()
+	startProgressBroadcast()
 
 	-- mode: nil/"Real" -> shared queue, "Bots" -> solo vs. a bot, "Practice"
 	-- -> solo, no opponent at all. (Was a plain vsBots boolean before
