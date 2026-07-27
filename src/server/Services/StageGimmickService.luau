@@ -165,11 +165,161 @@ local function applyBounce(platforms: { BasePart })
 	end
 end
 
-local function applySpeed(platforms: { BasePart })
+-- Speed strips used to be a flat cyan square, which made them essentially
+-- indistinguishable from a checkpoint pad -- same material, same shape, same
+-- near-identical colour (see StageDecorationService for the full comparison
+-- and the split those two now follow). This builds the other half of that
+-- split: the Mario Kart dash-panel look, which is the most widely understood
+-- "run over this to go fast" signifier there is.
+--
+--   * ORANGE, not cyan -- as far from the checkpoints' green as the colour
+--     wheel allows, and the one pairing that stays separable under every
+--     common form of colour blindness.
+--   * A STRIP, not a square -- elongated along the course, so its own shape
+--     tells you which way it's sending you before you touch it.
+--   * SCROLLING CHEVRONS -- motion is what makes it unmistakable at running
+--     speed, and it's the single cue no checkpoint ever has (those are
+--     deliberately, completely static).
+local SPEED_COLOR = Color3.fromRGB(255, 138, 30)
+local CHEVRON_COLOR = Color3.fromRGB(255, 250, 235)
+local CHEVRONS_PER_STRIP = 3
+local CHEVRON_SCROLL_SPEED = 9 -- studs/s, forward along the course
+local CHEVRON_HALF_ANGLE = math.rad(52) -- shallow enough to read flat-on
+local CHEVRON_BAR_THICKNESS = 0.34
+
+type Chevron = { a: BasePart, b: BasePart, slot: number }
+-- `travel` is how far the chevron TIP can slide and still leave the bars
+-- trailing behind it inside the strip -- i.e. the strip's length minus the
+-- depth one chevron occupies. Scrolling over the raw length instead let each
+-- chevron overhang the trailing edge by its own depth (measured: bars reaching
+-- 3.18 studs out on a strip only 2.68 studs long from the centre).
+type Strip = {
+	origin: CFrame,
+	length: number,
+	depth: number,
+	travel: number,
+	spacing: number,
+	chevrons: { Chevron },
+}
+
+local activeStrips: { Strip } = {}
+local chevronLoopStarted = false
+
+-- Chevrons ride ON the strip's own surface, so everything below is expressed
+-- in the strip's local space: local -Z is "down the course" (CFrame.lookAt
+-- points LookVector, i.e. -Z, at the target), local X is across it.
+local function buildChevron(strip: BasePart, width: number): Chevron
+	-- Two bars meeting at a point, forming a ">" aimed down the course. Half
+	-- the chevron's span is barLength * sin(angle), so solve for the bar
+	-- length that makes the chevron exactly as wide as the strip.
+	local barLength = (width / 2) / math.sin(CHEVRON_HALF_ANGLE)
+	local size = Vector3.new(CHEVRON_BAR_THICKNESS, 0.12, barLength)
+
+	local function makeBar(): BasePart
+		local bar = Instance.new("Part")
+		bar.Name = "Chevron"
+		bar.Anchored = true
+		bar.CanCollide = false
+		-- Purely decorative: must never shadow the strip's own Touched or
+		-- block a raycast.
+		bar.CanTouch = false
+		bar.CanQuery = false
+		bar.Material = Enum.Material.Neon
+		bar.Color = CHEVRON_COLOR
+		bar.Size = size
+		bar.Parent = strip
+		return bar
+	end
+
+	return { a = makeBar(), b = makeBar(), slot = 0 }
+end
+
+-- Puts one chevron's tip at `tipZ` in the strip's local space, with its two
+-- bars trailing diagonally back off it (+Z is behind, since local -Z is the
+-- way the strip throws you).
+local function positionChevron(chevron: Chevron, origin: CFrame, tipZ: number)
+	local barLength = chevron.a.Size.Z
+	local halfSpan = math.sin(CHEVRON_HALF_ANGLE) * barLength / 2
+	local backZ = math.cos(CHEVRON_HALF_ANGLE) * barLength / 2
+
+	chevron.a.CFrame = origin * CFrame.new(halfSpan, 0, tipZ + backZ) * CFrame.Angles(0, CHEVRON_HALF_ANGLE, 0)
+	chevron.b.CFrame = origin * CFrame.new(-halfSpan, 0, tipZ + backZ) * CFrame.Angles(0, -CHEVRON_HALF_ANGLE, 0)
+end
+
+local function startChevronLoop()
+	if chevronLoopStarted then
+		return
+	end
+	chevronLoopStarted = true
+
+	RunService.Heartbeat:Connect(function()
+		-- One shared phase for every strip on the stage, so the whole run
+		-- pulses in step rather than looking like unrelated flickering.
+		local phase = (os.clock() * CHEVRON_SCROLL_SPEED)
+		for _, strip in activeStrips do
+			-- Rearmost tip position that still leaves a whole chevron on the
+			-- strip; each one slides forward from here and the one that
+			-- reaches the front edge wraps back to it.
+			local rearTipZ = strip.length / 2 - strip.depth
+			for _, chevron in strip.chevrons do
+				local distance = (chevron.slot * strip.spacing + phase) % strip.travel
+				positionChevron(chevron, strip.origin, rearTipZ - distance)
+			end
+		end
+	end)
+end
+
+local function makeSpeedStrip(platform: BasePart, direction: Vector3): BasePart
+	local base = math.min(platform.Size.X, platform.Size.Z)
+	local length = base * 0.95
+	local width = base * 0.6
+
+	local top = platform.Position + Vector3.new(0, platform.Size.Y / 2 + 0.2, 0)
+	-- Oriented by the course, NOT by the platform -- the strip has to point
+	-- where it actually throws you, whatever angle the platform sits at.
+	local origin = CFrame.lookAt(top, top + direction)
+
+	local strip = Instance.new("Part")
+	strip.Name = "SpeedStrip"
+	strip.Anchored = true
+	strip.CanCollide = false
+	strip.Material = Enum.Material.Neon
+	strip.Color = SPEED_COLOR
+	strip.Transparency = 0.15
+	strip.Size = Vector3.new(width, 0.4, length)
+	strip.CFrame = origin
+	strip.Parent = platform
+
+	local chevrons: { Chevron } = {}
+	for i = 1, CHEVRONS_PER_STRIP do
+		local chevron = buildChevron(strip, width * 0.8)
+		chevron.slot = i - 1
+		table.insert(chevrons, chevron)
+	end
+
+	-- How much of the strip's length one chevron eats up, tip to tail.
+	local depth = math.cos(CHEVRON_HALF_ANGLE) * chevrons[1].a.Size.Z
+	local travel = length - depth
+
+	table.insert(activeStrips, {
+		-- Slightly proud of the strip so the chevrons don't z-fight with it.
+		origin = origin * CFrame.new(0, 0.22, 0),
+		length = length,
+		depth = depth,
+		travel = travel,
+		spacing = travel / CHEVRONS_PER_STRIP,
+		chevrons = chevrons,
+	})
+	startChevronLoop()
+
+	return strip
+end
+
+local function applySpeed(platforms: { BasePart }, direction: Vector3)
 	local cooldownUntil: { [number]: number } = {}
 	for _, platform in targetPlatforms(platforms) do
-		local pad = makePad(platform, "SpeedStrip", Color3.fromRGB(120, 230, 255))
-		onPlayerTouch(pad, function(player, _root)
+		local strip = makeSpeedStrip(platform, direction)
+		onPlayerTouch(strip, function(player, _root)
 			local now = os.clock()
 			if cooldownUntil[player.UserId] and now < cooldownUntil[player.UserId] then
 				return
@@ -257,7 +407,7 @@ local function decorateStage(stageFolder: Folder, gimmick: string)
 	if gimmick == "Bounce" then
 		applyBounce(platforms)
 	elseif gimmick == "Speed" then
-		applySpeed(platforms)
+		applySpeed(platforms, direction)
 	elseif gimmick == "Vanishing" then
 		applyVanishing(platforms)
 	elseif gimmick == "Moving" then
