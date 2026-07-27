@@ -146,13 +146,23 @@ BUILDERS.Play = function(parent, s, color)
 	bar(parent, s, 18, 5, 16, 27, -50, color)
 end
 
--- Spectate carousel arrows: ArrowRight is literally the same ">" chevron as
--- Play (reused directly, not duplicated -- it's the same glyph). ArrowLeft
--- is that same two-bar chevron mirrored across the icon's own center.
-BUILDERS.ArrowRight = BUILDERS.Play
+-- Spectate carousel arrows: a full arrow -- shaft plus a two-bar head --
+-- rather than the bare ">" chevron these used to borrow from Play. A chevron
+-- on its own reads as a thin decorative tick at this button size; the shaft
+-- is what makes it unmistakably "go to the next racer". Geometry is exact
+-- about the tip: both head bars and the shaft all terminate on the same
+-- point (x=30 right / x=10 left, y=20), so the head closes cleanly instead of
+-- showing a notch, and tip-to-tail spans 10..30 -- centered in the 40-wide
+-- design box, which the old chevrons (drawn off-center at cx 16/24) weren't.
+BUILDERS.ArrowRight = function(parent, s, color)
+	bar(parent, s, 19, 5, 19, 20, 0, color) -- shaft, tail x=10 to tip x=29
+	bar(parent, s, 14, 5, 25, 15, 45, color) -- upper head, (20,10) -> (30,20)
+	bar(parent, s, 14, 5, 25, 25, -45, color) -- lower head, (20,30) -> (30,20)
+end
 BUILDERS.ArrowLeft = function(parent, s, color)
-	bar(parent, s, 18, 5, 24, 13, -50, color)
-	bar(parent, s, 18, 5, 24, 27, 50, color)
+	bar(parent, s, 19, 5, 21, 20, 0, color) -- shaft, tip x=11 to tail x=30
+	bar(parent, s, 14, 5, 15, 15, -45, color) -- upper head, (20,10) -> (10,20)
+	bar(parent, s, 14, 5, 15, 25, 45, color) -- lower head, (20,30) -> (10,20)
 end
 
 -- VS Bots: a robot face -- hollow ring head (same reasoning as Emotes) with

@@ -31,9 +31,14 @@ local TRACK_HEIGHT = 300
 -- you're actually racing, without the markers colliding when the field is
 -- bunched up at the start.
 local MARKER_SIZE = 34
+-- Vertical padding above/below the track, leaving room for the endpoint caps
+-- to sit centered on the track's ends without being clipped at the edges.
+local TRACK_TOP = 18
 -- Right edge, vertically centered, clear of QuitMatchController's button and
--- the mobile jump button in the bottom-right.
-local TRACK_POSITION = UDim2.new(1, -74, 0.5, -TRACK_HEIGHT / 2)
+-- the mobile jump button in the bottom-right. Held far enough off the edge
+-- that the endpoint pills, which hang ~70px to the RIGHT of the track, still
+-- fit on screen.
+local TRACK_POSITION = UDim2.new(1, -150, 0.5, -(TRACK_HEIGHT / 2 + TRACK_TOP))
 
 type ProgressEntry = { UserId: number, Name: string, Progress: number }
 
@@ -49,7 +54,7 @@ local function buildTrack(parent: Frame)
 	track = Instance.new("Frame")
 	track.Name = "Track"
 	track.Size = UDim2.fromOffset(TRACK_WIDTH, TRACK_HEIGHT)
-	track.Position = UDim2.fromOffset(0, 18)
+	track.Position = UDim2.fromOffset(0, TRACK_TOP)
 	track.BackgroundColor3 = Theme.Color.Panel
 	track.BorderSizePixel = 0
 	track.Parent = parent
@@ -72,18 +77,58 @@ local function buildTrack(parent: Frame)
 	gradient.Parent = track
 end
 
-local function buildCap(parent: Frame, text: string, position: UDim2, color: Color3)
+-- An endpoint of the track: a solid tick across the bar plus a labelled pill.
+-- Both parts matter. The tick is what actually marks WHERE the course ends on
+-- the bar; the pill is what keeps the word readable, because these labels sit
+-- over live 3D world -- as bare colored text they disappeared completely
+-- (blurple "FINISH" against the sky, green "START" against the grass). The
+-- pill goes to the RIGHT of the track, since racer name labels own the left
+-- side and would collide with it.
+local function buildCap(parent: Frame, text: string, centerY: number, color: Color3)
+	local tick = Instance.new("Frame")
+	tick.Name = text .. "Tick"
+	tick.AnchorPoint = Vector2.new(0.5, 0.5)
+	tick.Size = UDim2.fromOffset(TRACK_WIDTH + 12, 4)
+	tick.Position = UDim2.fromOffset(TRACK_WIDTH / 2, centerY)
+	tick.BackgroundColor3 = color
+	tick.BorderSizePixel = 0
+	tick.ZIndex = 4
+	tick.Parent = parent
+
+	local tickCorner = Instance.new("UICorner")
+	tickCorner.CornerRadius = UDim.new(1, 0)
+	tickCorner.Parent = tick
+
+	local pill = Instance.new("Frame")
+	pill.Name = text .. "Label"
+	pill.AnchorPoint = Vector2.new(0, 0.5)
+	pill.Size = UDim2.fromOffset(58, 18)
+	pill.Position = UDim2.fromOffset(TRACK_WIDTH + 12, centerY)
+	pill.BackgroundColor3 = Theme.Color.Background
+	pill.BackgroundTransparency = 0.15
+	pill.BorderSizePixel = 0
+	pill.ZIndex = 4
+	pill.Parent = parent
+
+	local pillCorner = Instance.new("UICorner")
+	pillCorner.CornerRadius = UDim.new(1, 0)
+	pillCorner.Parent = pill
+
+	local pillStroke = Instance.new("UIStroke")
+	pillStroke.Color = color
+	pillStroke.Thickness = 1.5
+	pillStroke.Transparency = 0.3
+	pillStroke.Parent = pill
+
 	local label = Instance.new("TextLabel")
-	label.Size = UDim2.fromOffset(64, 14)
-	label.Position = position
+	label.Size = UDim2.fromScale(1, 1)
 	label.BackgroundTransparency = 1
 	label.Font = Theme.Font.Heading
 	label.Text = text
 	label.TextSize = 11
 	label.TextColor3 = color
-	label.TextXAlignment = Enum.TextXAlignment.Left
-	label.TextStrokeTransparency = 0.4
-	label.Parent = parent
+	label.ZIndex = 5
+	label.Parent = pill
 end
 
 local function buildUI()
@@ -94,15 +139,18 @@ local function buildUI()
 
 	container = Instance.new("Frame")
 	container.Name = "ProgressContainer"
-	container.Size = UDim2.fromOffset(TRACK_WIDTH, TRACK_HEIGHT + 36)
+	container.Size = UDim2.fromOffset(TRACK_WIDTH, TRACK_HEIGHT + TRACK_TOP * 2)
 	container.Position = TRACK_POSITION
 	container.BackgroundTransparency = 1
 	container.Visible = false
 	container.Parent = screenGui
 
-	buildCap(container, "FINISH", UDim2.fromOffset(-2, 0), Theme.Color.AccentA)
 	buildTrack(container)
-	buildCap(container, "START", UDim2.fromOffset(-2, TRACK_HEIGHT + 22), Theme.Color.Success)
+	-- Sit exactly on the ends of the track, which is what the progress
+	-- fraction is measured against: 1.0 lands on the FINISH tick, 0.0 on the
+	-- START tick.
+	buildCap(container, "FINISH", TRACK_TOP, Theme.Color.AccentA)
+	buildCap(container, "START", TRACK_TOP + TRACK_HEIGHT, Theme.Color.Success)
 end
 
 local function createMarker(entry: ProgressEntry): { Holder: Frame, Label: TextLabel }

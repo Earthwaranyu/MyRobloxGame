@@ -140,8 +140,12 @@ end
 -- cooldown makes the no-op state visually obvious instead of silent.
 local ARROW_ENABLED =
 	{ Face = Color3.fromRGB(255, 255, 255), Shadow = Color3.fromRGB(205, 205, 220), Text = Color3.fromRGB(24, 24, 28) }
+-- TextSecondary rather than TextMuted: the arrow glyph now takes this color
+-- too (see Widgets.SetButtonColors), and muted-on-PanelLight left it barely
+-- distinguishable from the circle behind it. "Disabled" should read as dimmed,
+-- not as empty.
 local ARROW_DISABLED =
-	{ Face = Theme.Color.PanelLight, Shadow = Color3.fromRGB(20, 21, 30), Text = Theme.Color.TextMuted }
+	{ Face = Theme.Color.PanelLight, Shadow = Color3.fromRGB(20, 21, 30), Text = Theme.Color.TextSecondary }
 
 local function updateArrowState()
 	local enabled = #currentRacers > 1

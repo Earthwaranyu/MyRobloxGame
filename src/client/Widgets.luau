@@ -567,6 +567,12 @@ local VARIANT_STYLE = {
 }
 VARIANT_STYLE.Tab = VARIANT_STYLE.Secondary
 
+-- button -> the opts.Icon draw function it was built with, so
+-- Widgets.SetButtonColors can redraw the glyph in the new color (see there
+-- for why it has to). Weak-keyed: a destroyed button must not be kept alive
+-- by this table.
+local ICON_BUILDERS: { [TextButton]: (Instance, Color3) -> () } = setmetatable({}, { __mode = "k" }) :: any
+
 -- How far the bevel strip peeks out along the bottom edge -- big enough to
 -- read as "3D depth" at every button size used in the game, small enough to
 -- never eat into a short button's text.
@@ -726,6 +732,7 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 		iconHolder.Parent = button
 
 		opts.Icon(iconHolder, style.Text)
+		ICON_BUILDERS[button] = opts.Icon
 	end
 
 	local leftInset = if opts.Icon then iconInset + iconSize + 6 else 0
@@ -912,6 +919,19 @@ function Widgets.SetButtonColors(button: TextButton, face: Color3, shadow: Color
 	local label = button:FindFirstChild("Label")
 	if label then
 		(label :: TextLabel).TextColor3 = text
+	end
+
+	-- Redraw the icon in the new text color too. MenuIcons glyphs are baked
+	-- Frames, not tinted images -- their color is fixed at draw time -- so
+	-- without this an icon keeps whatever color the button's ORIGINAL variant
+	-- gave it. That's how the spectate carousel arrows became invisible: built
+	-- as Secondary (near-black glyph on a white face), then recolored here to
+	-- the dark disabled face, leaving a near-black arrow on a near-black
+	-- circle. Only the face and label moved; the arrow stayed put.
+	local builder = ICON_BUILDERS[button]
+	local iconHolder = button:FindFirstChild("Icon")
+	if builder and iconHolder then
+		builder(iconHolder, text)
 	end
 end
 
