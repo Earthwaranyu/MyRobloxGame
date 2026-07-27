@@ -54,4 +54,6 @@ return {
 	SetSkipGachaAnimation = "SetSkipGachaAnimation",
 	MonetizationStatusChanged = "MonetizationStatusChanged",
 	ReferralReward = "ReferralReward",
+	RequestQueueMode = "RequestQueueMode",
+	OpenCustomQueuePicker = "OpenCustomQueuePicker",
 }

@@ -93,7 +93,15 @@ local function applyRankUp(eloDelta: number)
 	end)
 end
 
-local function show(data: { Won: boolean, EloDelta: number?, Placement: number?, Total: number?, WinStreak: number?, StreakBonus: number? })
+local function show(data: {
+	Won: boolean,
+	EloDelta: number?,
+	Placement: number?,
+	Total: number?,
+	WinStreak: number?,
+	StreakBonus: number?,
+	Points: number?,
+})
 	streakLabel.Text = ""
 	if data.Won then
 		titleLabel.Text = "VICTORY!"
@@ -114,14 +122,35 @@ local function show(data: { Won: boolean, EloDelta: number?, Placement: number?,
 		Sounds.Play("Click")
 	end
 
+	-- Elo and points are both rewards for the same race, so they share one
+	-- line rather than competing for the panel. Points were previously never
+	-- shown at all on ANY path -- a bot win silently added them, and even a
+	-- ranked win only ever advertised its Elo -- so the currency the shop and
+	-- gacha both run on was invisible at the exact moment it was earned.
+	local parts: { string } = {}
 	if data.EloDelta then
 		local sign = if data.EloDelta >= 0 then "+" else ""
-		detailLabel.Text = ("%s%d Elo"):format(sign, data.EloDelta)
-		detailLabel.TextColor3 = if data.EloDelta >= 0 then Theme.Color.Success else Theme.Color.Danger
-		applyRankUp(data.EloDelta)
+		table.insert(parts, ("%s%d Elo"):format(sign, data.EloDelta))
+	end
+	if data.Points and data.Points > 0 then
+		table.insert(parts, ("+%d pts"):format(data.Points))
+	end
+
+	if #parts > 0 then
+		detailLabel.Text = table.concat(parts, "   ")
+		-- Only a genuine Elo loss should read as bad news; points are always
+		-- a gain, so a points-only line (bot matches) stays positive.
+		detailLabel.TextColor3 = if data.EloDelta and data.EloDelta < 0
+			then Theme.Color.Danger
+			else Theme.Color.Success
 	else
 		detailLabel.Text = if data.Total then ("%d of %d racers"):format(data.Placement or 0, data.Total) else ""
 		detailLabel.TextColor3 = Theme.Color.TextSecondary
+	end
+
+	if data.EloDelta then
+		applyRankUp(data.EloDelta)
+	else
 		rankLabel.Text = ""
 	end
 

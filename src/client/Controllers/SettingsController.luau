@@ -215,10 +215,12 @@ local function buildUI()
 	-- "Wind effect while sprinting"/"Skip gacha pull animation". Taller than
 	-- before too (274 -> 320) -- the volume rows grew from one line to two
 	-- (label+value, then the slider below it) to fit Widgets.Slider. Grew
-	-- again (320 -> 372, with the Y offset moved to match so the panel's
-	-- BOTTOM edge stays put just above the toggle button) for the "Mute all
-	-- sounds" row.
-	panel, openPanel, closePanel = Widgets.Modal("Settings", UDim2.fromOffset(360, 372), UDim2.new(0, 10, 1, -448), {
+	-- again (320 -> 372) for a "Mute all sounds" row, then back down (372 ->
+	-- 328) when that row moved out to its own one-tap HUD button above the
+	-- Settings toggle -- muting is something you want mid-race, not four
+	-- clicks deep. The Y offset moves with every height change so the panel's
+	-- BOTTOM edge stays put just above the toggle button.
+	panel, openPanel, closePanel = Widgets.Modal("Settings", UDim2.fromOffset(360, 328), UDim2.new(0, 10, 1, -404), {
 		DisplayOrder = 30,
 	})
 
@@ -260,9 +262,31 @@ local function buildUI()
 	local sfxRow: VolumeRow
 
 	local function refreshMuteButton()
-		muteButton.Text = if muted then "ON" else "OFF"
+		muteButton.Text = if muted then "MUTED" else "SOUND"
+		-- The glyph is redrawn (not tinted) on every colour change, so the
+		-- struck-through speaker has to be re-supplied here rather than set
+		-- once at build time -- see Widgets.SetButtonColors.
 		muteSetActive(muted)
+		local iconHolder = muteButton:FindFirstChild("Icon")
+		if iconHolder then
+			MenuIcons.Populate(iconHolder, if muted then "SoundOff" else "Sound", muteButton.TextColor3)
+		end
 	end
+
+	-- One tap, always reachable, directly above Settings. Muting used to be a
+	-- row inside the Settings modal, which meant opening a panel mid-race just
+	-- to silence the game -- the one moment you are least able to go looking
+	-- for it. The volume sliders stay in the panel; this is only the on/off.
+	muteButton, muteSetActive = Widgets.Button("SOUND", UDim2.fromOffset(150, 48), UDim2.new(0, 10, 1, -124), {
+		Variant = "Tab",
+		Active = false,
+		TextSize = 18,
+		Icon = function(holder, color)
+			MenuIcons.Populate(holder, "Sound", color)
+		end,
+	})
+	muteButton.Parent = screenGui
+	muteSetActive(false)
 
 	-- Dragging either slider by hand is an explicit statement about what you
 	-- want to hear, so it takes the button out of "muted" -- otherwise the
@@ -277,20 +301,6 @@ local function buildUI()
 
 	musicRow = buildVolumeRow(panel, "Music volume", 96, "Music", onVolumeDragged)
 	sfxRow = buildVolumeRow(panel, "SFX volume", 156, "SFX", onVolumeDragged)
-
-	local muteLabel = Widgets.Label("Mute all sounds", UDim2.new(1, -150, 0, 36), UDim2.fromOffset(8, 216), {
-		TextSize = 16,
-		Color = Theme.Color.TextSecondary,
-	})
-	muteLabel.Parent = panel
-
-	muteButton, muteSetActive = Widgets.Button("OFF", UDim2.fromOffset(110, 36), UDim2.new(1, -120, 0, 216), {
-		Variant = "Tab",
-		Active = false,
-		TextSize = 28,
-	})
-	muteButton.Parent = panel
-	muteSetActive(false)
 
 	muteButton.MouseButton1Click:Connect(function()
 		muted = not muted
@@ -308,9 +318,9 @@ local function buildUI()
 		refreshMuteButton()
 	end)
 
-	buildSkipGachaRow(panel, 260)
+	buildSkipGachaRow(panel, 216)
 
-	local howToPlayButton = Widgets.Button("How to Play", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 304), {
+	local howToPlayButton = Widgets.Button("How to Play", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 260), {
 		Variant = "Secondary",
 		TextSize = 16,
 	})

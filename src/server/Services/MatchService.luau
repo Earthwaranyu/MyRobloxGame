@@ -7,6 +7,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Constants = require(Shared.Constants)
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
+local QueueModes = require(Shared.QueueModes)
 local Stages = require(Shared.Stages)
 local RankTiers = require(Shared.RankTiers)
 
@@ -58,11 +59,42 @@ type Session = {
 	spectators: { [number]: Player },
 }
 
-local queue: { Player } = {}
-local queuedSet: { [number]: boolean } = {}
+-- One queue per race size (see QueueModes): QueueModes.AnySize is the PLAY
+-- button's size-agnostic queue, any other key is a lobby station demanding
+-- exactly that many racers. Keyed by target rather than held in one list so a
+-- station can never accidentally pull in someone who asked for a different
+-- size.
+local queues: { [number]: { Player } } = {}
+-- userId -> which queue they're sitting in. Replaces the old boolean
+-- queuedSet: every lookup that used to ask "are they queued at all?" also
+-- needs to know WHICH queue to pull them out of.
+local queuedTarget: { [number]: number } = {}
 local pendingCountdown = false
 local countdownEndTime: number? = nil
 local pendingStageId: string? = nil
+-- Which queue the countdown currently running belongs to. Only one race can
+-- exist server-wide at a time (activeSession is a single slot by design), so
+-- queues take turns rather than racing concurrently.
+local pendingTarget: number? = nil
+
+local function getQueue(target: number): { Player }
+	local existing = queues[target]
+	if existing then
+		return existing
+	end
+	local created = {}
+	queues[target] = created
+	return created
+end
+
+-- How many racers this queue needs before it can start: an exact count for a
+-- station, or MinPlayers as a floor for the size-agnostic queue.
+local function requiredFor(target: number): number
+	if target == QueueModes.AnySize then
+		return Constants.Match.MinPlayers
+	end
+	return target
+end
 local activeSession: Session? = nil
 
 local playerRaceStage: { [number]: string } = {}
@@ -74,8 +106,8 @@ local playerRaceStage: { [number]: string } = {}
 local lastCheckpoint: { [number]: CFrame } = {}
 
 -- True from the moment a player is enqueued until they either finish their
--- race or get force-reset (watchdog/disconnect). Separate from queuedSet
--- (only true while literally sitting in `queue`) and playerRaceStage (only
+-- race or get force-reset (watchdog/disconnect). Separate from queuedTarget
+-- (only set while literally sitting in a queue) and playerRaceStage (only
 -- true once the race has actually started): there's a real gap between
 -- those two -- teleported to the stage, waiting out CountdownSeconds, but
 -- not yet racing -- during which neither flag was set, so touching another
@@ -325,37 +357,75 @@ function tryStartCountdown()
 	if pendingCountdown or activeSession then
 		return
 	end
-	-- Below this, stay in "waiting" -- no countdown, no map reveal, nothing
-	-- teleported. This used to only check #queue == 0, which meant a single
-	-- solo player queuing would still get matched into a "race" against
-	-- nobody 3 seconds later: 0 Elo change (no real opponent to calculate
-	-- against) but full points AND win-streak credit, same as a real win --
-	-- a free, repeatable reward exploit, not just a UX gap.
-	if #queue < Constants.Match.MinPlayers then
+
+	-- Pick a queue that's ready. Stations are checked before the size-agnostic
+	-- queue and in ascending size order, so a complete group never waits
+	-- behind a queue that merely COULD start -- an exact-fill station has
+	-- nothing left to wait for, while the any-size queue is always willing to
+	-- take one more.
+	local readyTarget: number? = nil
+	for _, mode in QueueModes.Stations do
+		local target = mode.Target
+		if target ~= QueueModes.AnySize and #getQueue(target) >= target then
+			readyTarget = target
+			break
+		end
+	end
+	if not readyTarget then
+		-- Custom stations can create queues at sizes no fixed station uses, so
+		-- they need their own sweep rather than being covered by the loop above.
+		for target, waiting in queues do
+			if target ~= QueueModes.AnySize and #waiting >= target then
+				readyTarget = target
+				break
+			end
+		end
+	end
+	if not readyTarget then
+		-- Below MinPlayers, stay in "waiting" -- no countdown, no map reveal,
+		-- nothing teleported. This used to only check #queue == 0, which meant
+		-- a single solo player queuing would still get matched into a "race"
+		-- against nobody: 0 Elo change (no real opponent to calculate against)
+		-- but full points AND win-streak credit, same as a real win -- a free,
+		-- repeatable reward exploit, not just a UX gap.
+		if #getQueue(QueueModes.AnySize) >= Constants.Match.MinPlayers then
+			readyTarget = QueueModes.AnySize
+		end
+	end
+	if not readyTarget then
 		return
 	end
 
+	-- A full station has its group already; the only reason to wait at all is
+	-- to let the map-reveal reel play. The any-size queue keeps its real
+	-- matching window, since "how many racers" is exactly the open question
+	-- there and latecomers should still be able to join.
+	local window = if readyTarget == QueueModes.AnySize
+		then Constants.Match.MatchingSeconds
+		else Constants.Match.SoloRevealSeconds
+
 	pendingCountdown = true
+	pendingTarget = readyTarget
 	pendingStageId = Stages[math.random(1, #Stages)].Id
-	countdownEndTime = os.clock() + Constants.Match.MatchingSeconds
+	countdownEndTime = os.clock() + window
 
 	-- Tell EVERYONE already in the queue, not just whoever's Enqueue call
-	-- happened to tip it over MinPlayers. This is where the "the other player
-	-- never saw the map-reveal spin" bug lived: the countdown/MapSelected
-	-- broadcast used to live only in Enqueue, firing at the enqueuing party.
-	-- So the FIRST player to click Play (queued while the queue was still
-	-- under MinPlayers, and sent a static `true` "waiting for players") got
-	-- nothing further when the second player's click actually started the
-	-- countdown -- no ticking number, no MapSelected, so MapRevealController
-	-- had no stage to spin to and stayed silent right up until the teleport.
-	-- The second player saw the whole thing, which is exactly why it looked
-	-- like it only broke for "the other player."
-	for _, queuedPlayer in queue do
-		queueStatusRemote:FireClient(queuedPlayer, Constants.Match.MatchingSeconds)
+	-- happened to tip it over the threshold. This is where the "the other
+	-- player never saw the map-reveal spin" bug lived: the countdown/
+	-- MapSelected broadcast used to live only in Enqueue, firing at the
+	-- enqueuing party. So the FIRST player to click Play (queued while the
+	-- queue was still under MinPlayers, and sent a static `true` "waiting for
+	-- players") got nothing further when the second player's click actually
+	-- started the countdown -- no ticking number, no MapSelected, so
+	-- MapRevealController had no stage to spin to and stayed silent right up
+	-- until the teleport. The second player saw the whole thing, which is
+	-- exactly why it looked like it only broke for "the other player."
+	for _, queuedPlayer in getQueue(readyTarget) do
+		queueStatusRemote:FireClient(queuedPlayer, window)
 		mapSelectedRemote:FireClient(queuedPlayer, pendingStageId)
 	end
 
-	task.delay(Constants.Match.MatchingSeconds, function()
+	task.delay(window, function()
 		pendingCountdown = false
 		startSession()
 	end)
@@ -365,21 +435,25 @@ end
 -- (first-person, but frozen in place -- see setFrozen) for CountdownSeconds
 -- so everyone gets a moment to see the map before the clock starts.
 function startSession()
-	local queued = queue
-	queue = {}
+	local target = pendingTarget or QueueModes.AnySize
+	local queued = getQueue(target)
+	queues[target] = {}
 	local stageId = pendingStageId
 	pendingStageId = nil
+	pendingTarget = nil
 	countdownEndTime = nil
 
-	if #queued < Constants.Match.MinPlayers or not stageId then
-		-- Dropped below the minimum during the matching window (someone in
-		-- queue quit) -- put whoever's left back in queue rather than
-		-- starting an under-strength (or solo) race; tryStartCountdown picks
-		-- it back up automatically on the next Enqueue.
+	-- An exact-size station must still have its exact number; the any-size
+	-- queue only needs the floor. Either way, dropping below it during the
+	-- window (someone quit) means putting whoever's left back rather than
+	-- starting an under-strength -- or solo -- race. tryStartCountdown picks
+	-- them back up automatically on the next Enqueue.
+	if #queued < requiredFor(target) or not stageId then
+		local restored = getQueue(target)
 		for _, player in queued do
 			if player.Parent then
-				table.insert(queue, player)
-				queuedSet[player.UserId] = true
+				table.insert(restored, player)
+				queuedTarget[player.UserId] = target
 				queueStatusRemote:FireClient(player, true)
 			end
 		end
@@ -390,7 +464,7 @@ function startSession()
 
 	local participants: { [number]: Player } = {}
 	for _, player in queued do
-		queuedSet[player.UserId] = nil
+		queuedTarget[player.UserId] = nil
 		if player.Parent then
 			participants[player.UserId] = player
 			-- Set as soon as they're teleported (not just once the race timer
@@ -545,7 +619,7 @@ end
 -- guaranteed to grab all of them together, regardless of exactly when each
 -- member's own PLAY click happened. If any party member is already busy,
 -- nobody is enqueued: a partial-party queue would just separate them anyway.
-function MatchService.Enqueue(player: Player)
+function MatchService.Enqueue(player: Player, target: number?)
 	local partyMembers = PartyService.GetPartyMembers(player)
 
 	-- Read BEFORE tryStartCountdown below, which may start one: it decides
@@ -570,11 +644,13 @@ function MatchService.Enqueue(player: Player)
 		end
 	end
 
+	local queueTarget = target or QueueModes.AnySize
+	local targetQueue = getQueue(queueTarget)
 	for _, member in partyMembers do
 		local userId = member.UserId
 		playerBusy[userId] = true
-		table.insert(queue, member)
-		queuedSet[userId] = true
+		table.insert(targetQueue, member)
+		queuedTarget[userId] = queueTarget
 	end
 
 	-- Only meaningful for an actual party (a solo queuer's own partyMembers
@@ -584,14 +660,16 @@ function MatchService.Enqueue(player: Player)
 
 	tryStartCountdown()
 
-	if countdownEndTime and pendingStageId then
+	-- pendingTarget must match: with one queue per size, a countdown can be
+	-- running for a DIFFERENT station entirely, and sending its timer and map
+	-- to someone in this queue would show them a race they aren't in --
+	-- counting down to a teleport that never comes for them.
+	if countdownEndTime and pendingStageId and pendingTarget == queueTarget then
 		-- Only when the countdown was ALREADY running before this call: these
 		-- members joined mid-window, so tryStartCountdown's own whole-queue
 		-- broadcast (which fires once, at the moment a countdown starts) never
-		-- reached them, and they need the current partially-elapsed value.
-		-- If THIS call is what started the countdown, tryStartCountdown has
-		-- already told everyone in the queue, these members included --
-		-- re-sending here would be redundant.
+		-- reached them, and they need the current partially-elapsed value. If
+		-- THIS call is what started it, everyone in the queue was already told.
 		if countdownWasRunning then
 			for _, member in partyMembers do
 				queueStatusRemote:FireClient(member, math.max(0, countdownEndTime - os.clock()))
@@ -599,13 +677,30 @@ function MatchService.Enqueue(player: Player)
 			end
 		end
 	else
-		-- Below Constants.Match.MinPlayers -- queued, but no real countdown
-		-- yet. `true` (not a number) tells QueueStatusController to show a
-		-- static "waiting for players" state instead of a ticking countdown.
+		-- Either this queue isn't full yet, or a countdown is running for a
+		-- different station and this queue's turn hasn't come. `true` (not a
+		-- number) tells QueueStatusController to show its waiting state with
+		-- the elapsed clock instead of a ticking countdown.
 		for _, member in partyMembers do
 			queueStatusRemote:FireClient(member, true)
 		end
 	end
+end
+
+-- Whether this player is sitting in ANY queue right now. Read by
+-- QueueStationService before it acts on someone leaving a room: a race
+-- starting teleports its participants out of the room they were standing in,
+-- which looks identical to walking out, and treating that as "they left the
+-- queue" would quit them from the very race they just filled.
+function MatchService.IsQueued(player: Player): boolean
+	return queuedTarget[player.UserId] ~= nil
+end
+
+-- How many players are waiting in a given size's queue. Read by
+-- QueueStationService to paint each lobby room's live count.
+function MatchService.GetQueueCount(target: number): number
+	local waiting = queues[target]
+	return if waiting then #waiting else 0
 end
 
 -- Solo mode: no matchmaking wait needed (nothing to match with), but keeps
@@ -622,10 +717,10 @@ function MatchService.StartBotMatch(player: Player)
 	local stageId = Stages[math.random(1, #Stages)].Id
 	playerRaceStage[userId] = stageId
 
-	queueStatusRemote:FireClient(player, Constants.Match.MatchingSeconds)
+	queueStatusRemote:FireClient(player, Constants.Match.SoloRevealSeconds)
 	mapSelectedRemote:FireClient(player, stageId)
 
-	task.delay(Constants.Match.MatchingSeconds, function()
+	task.delay(Constants.Match.SoloRevealSeconds, function()
 		if not player.Parent or playerRaceStage[userId] ~= stageId then
 			return -- quit or disconnected during the reveal
 		end
@@ -719,10 +814,10 @@ function MatchService.StartPracticeMatch(player: Player)
 	local stageId = Stages[math.random(1, #Stages)].Id
 	playerRaceStage[userId] = stageId
 
-	queueStatusRemote:FireClient(player, Constants.Match.MatchingSeconds)
+	queueStatusRemote:FireClient(player, Constants.Match.SoloRevealSeconds)
 	mapSelectedRemote:FireClient(player, stageId)
 
-	task.delay(Constants.Match.MatchingSeconds, function()
+	task.delay(Constants.Match.SoloRevealSeconds, function()
 		if not player.Parent or playerRaceStage[userId] ~= stageId then
 			return
 		end
@@ -1064,13 +1159,15 @@ local function finishBotMatch(player: Player, botMatch: { stageId: string, bot: 
 	LobbyService.SetPlayerState(player, "Lobby")
 	BotService.DespawnBot(botMatch.bot)
 
+	local pointsAwarded = 0
 	local profile = PlayerDataService.GetProfile(player)
 	if profile then
 		local multiplier = if MonetizationService.HasVIP(player) then MonetizationService.PointsMultiplier else 1
-		profile.Points += Constants.Match.PointsPerWin * multiplier
+		pointsAwarded = Constants.Match.PointsPerWin * multiplier
+		profile.Points += pointsAwarded
 	end
 
-	raceOutcomeRemote:FireClient(player, { Won = true, Placement = 1, Total = 2 })
+	raceOutcomeRemote:FireClient(player, { Won = true, Placement = 1, Total = 2, Points = pointsAwarded })
 end
 
 -- No points, no Elo (see the comment on practiceMatches for why) -- just the
@@ -1095,10 +1192,13 @@ end
 -- ranked-queue path (one winner, N still-racing opponents) and duels (see
 -- finishDuelMatch -- one winner, exactly one opponent) so this can't drift
 -- into two different scoring rules for what's supposed to be the same Elo
--- ladder. Returns (winnerEloDelta, winStreak, streakBonus) for the caller's
--- own RaceOutcome payload to the winner.
-local function settleWin(winner: Player, opponents: { Player }): (number, number, number)
+-- ladder. Returns (winnerEloDelta, winStreak, streakBonus, pointsAwarded) for
+-- the caller's own RaceOutcome payload to the winner -- pointsAwarded being
+-- the final figure AFTER the streak bonus and any VIP multiplier, so the
+-- number the player is shown is exactly the number that hit their balance.
+local function settleWin(winner: Player, opponents: { Player }): (number, number, number, number)
 	local winnerDelta = 0
+	local pointsAwarded = 0
 	for _, opponent in opponents do
 		local delta, opponentDelta = EloService.ReportMatchResult(winner, opponent)
 		winnerDelta += delta
@@ -1126,7 +1226,8 @@ local function settleWin(winner: Player, opponents: { Player }): (number, number
 		winStreak = winnerProfile.WinStreak
 		streakBonus = streakBonusPoints(winStreak)
 		local multiplier = if MonetizationService.HasVIP(winner) then MonetizationService.PointsMultiplier else 1
-		winnerProfile.Points += (Constants.Match.PointsPerWin + streakBonus) * multiplier
+		pointsAwarded = (Constants.Match.PointsPerWin + streakBonus) * multiplier
+		winnerProfile.Points += pointsAwarded
 
 		BadgeMilestoneService.CheckWinMilestones(winner, winnerProfile)
 		local oldRank = RankTiers.GetRankForElo(oldElo)
@@ -1139,7 +1240,7 @@ local function settleWin(winner: Player, opponents: { Player }): (number, number
 		LeaderboardService.SubmitElo(winner, winnerProfile.Elo) -- keeps the physical board's global ranking current
 	end
 
-	return winnerDelta, winStreak, streakBonus
+	return winnerDelta, winStreak, streakBonus, pointsAwarded
 end
 
 -- Everyone else left (quit or disconnected) and exactly one racer is still out
@@ -1190,7 +1291,7 @@ function awardWalkover(session: Session): boolean
 		teleportToStageSpawn(winner, lobbyCFrame)
 	end
 
-	local _, winStreak, streakBonus = settleWin(winner, {})
+	local _, winStreak, streakBonus, points = settleWin(winner, {})
 	raceOutcomeRemote:FireClient(winner, {
 		Won = true,
 		Placement = 1,
@@ -1198,6 +1299,7 @@ function awardWalkover(session: Session): boolean
 		EloDelta = 0,
 		WinStreak = winStreak,
 		StreakBonus = streakBonus,
+		Points = points,
 		Walkover = true,
 	})
 
@@ -1234,9 +1336,10 @@ local function finishDuelMatch(player: Player, match: DuelMatch)
 		end
 
 		if opponent then
-			local winnerDelta, winStreak, streakBonus = settleWin(player, { opponent })
+			local winnerDelta, winStreak, streakBonus, points = settleWin(player, { opponent })
 			raceOutcomeRemote:FireClient(player, {
 				Won = true,
+				Points = points,
 				Placement = 1,
 				EloDelta = winnerDelta,
 				WinStreak = winStreak,
@@ -1322,7 +1425,7 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 		for _, opponent in session.participants do
 			table.insert(opponents, opponent)
 		end
-		local winnerDelta, winStreak, streakBonus = settleWin(player, opponents)
+		local winnerDelta, winStreak, streakBonus, points = settleWin(player, opponents)
 
 		raceOutcomeRemote:FireClient(player, {
 			Won = true,
@@ -1330,6 +1433,7 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 			EloDelta = winnerDelta,
 			WinStreak = winStreak,
 			StreakBonus = streakBonus,
+			Points = points,
 		})
 	else
 		-- Elo for this player was already settled when the winner finished;
@@ -1392,12 +1496,14 @@ function MatchService.QuitMatch(player: Player)
 		return
 	end
 
-	if queuedSet[userId] then
-		local index = table.find(queue, player)
+	local queuedIn = queuedTarget[userId]
+	if queuedIn then
+		local waiting = getQueue(queuedIn)
+		local index = table.find(waiting, player)
 		if index then
-			table.remove(queue, index)
+			table.remove(waiting, index)
 		end
-		queuedSet[userId] = nil
+		queuedTarget[userId] = nil
 	end
 
 	-- Unconditionally, NOT just for someone still sitting in `queue` (which is
@@ -1480,12 +1586,14 @@ end
 local function removePlayer(player: Player)
 	local userId = player.UserId
 
-	if queuedSet[userId] then
-		local index = table.find(queue, player)
+	local queuedIn = queuedTarget[userId]
+	if queuedIn then
+		local waiting = getQueue(queuedIn)
+		local index = table.find(waiting, player)
 		if index then
-			table.remove(queue, index)
+			table.remove(waiting, index)
 		end
-		queuedSet[userId] = nil
+		queuedTarget[userId] = nil
 	end
 
 	local botMatch = botMatches[userId]
@@ -1531,8 +1639,8 @@ function MatchService.StartDuelMatch(playerA: Player, playerB: Player)
 	playerRaceStage[userIdA] = stageId
 	playerRaceStage[userIdB] = stageId
 
-	queueStatusRemote:FireClient(playerA, Constants.Match.MatchingSeconds)
-	queueStatusRemote:FireClient(playerB, Constants.Match.MatchingSeconds)
+	queueStatusRemote:FireClient(playerA, Constants.Match.SoloRevealSeconds)
+	queueStatusRemote:FireClient(playerB, Constants.Match.SoloRevealSeconds)
 	mapSelectedRemote:FireClient(playerA, stageId)
 	mapSelectedRemote:FireClient(playerB, stageId)
 
@@ -1560,7 +1668,7 @@ function MatchService.StartDuelMatch(playerA: Player, playerB: Player)
 		end
 	end
 
-	task.delay(Constants.Match.MatchingSeconds, function()
+	task.delay(Constants.Match.SoloRevealSeconds, function()
 		if playerRaceStage[userIdA] ~= stageId or playerRaceStage[userIdB] ~= stageId then
 			releaseBoth()
 			return

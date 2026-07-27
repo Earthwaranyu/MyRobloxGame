@@ -111,6 +111,28 @@ local function cancelQueue()
 	refresh()
 end
 
+-- Escape hatch from a queue that isn't filling, offered by
+-- QueueStatusController once the wait has clearly stalled. Lives here rather
+-- than there because this controller owns `busy`/`CurrentMode`: doing the
+-- two remote calls from the outside would leave those stale, and the HUD
+-- buttons would go back to showing PLAY mid-bot-match.
+--
+-- `busy` deliberately stays true across the swap -- the player goes straight
+-- from the queue into a bot match and is never idle, so there's no window
+-- where a stray click could double-queue them. The server does the same:
+-- QuitMatch clears its playerBusy flag and StartBotMatch immediately re-sets
+-- it, and RemoteEvents from one client arrive in the order they were fired.
+function PlayButtonController.SwitchToBots()
+	if not busy or inPreRace then
+		return
+	end
+	Net.GetRemoteEvent(RemoteNames.QuitMatch):FireServer()
+	PlayButtonController.CurrentMode = "Bots"
+	PlayButtonController.ModeChanged:Fire("Bots")
+	Net.GetRemoteEvent(RemoteNames.RequestQueue):FireServer("Bots")
+	refresh()
+end
+
 local function onButtonClicked(mode: string?)
 	if busy then
 		cancelQueue()

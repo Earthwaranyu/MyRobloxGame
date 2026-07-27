@@ -8,17 +8,19 @@ local Constants = require(Shared.Constants)
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
+local MenuIcons = require(script.Parent.Parent.MenuIcons)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local Sounds = require(script.Parent.Parent.Sounds)
 local MatchStateController = require(script.Parent.MatchStateController)
+local PlayButtonController = require(script.Parent.PlayButtonController)
 
 local QueueStatusController = {}
 
 local player = Players.LocalPlayer
 
 local container: Frame
-local caption: TextLabel
+local captionLabel: TextLabel
 local numberLabel: TextLabel
 local numberScale: UIScale
 local goLabel: TextLabel
@@ -35,6 +37,39 @@ local goScale: UIScale
 local endTime: number? = nil
 local lastShownSecond: number? = nil
 local phase: "Waiting" | "PreRace" = "Waiting"
+
+-- Set while the queue is under Constants.Match.MinPlayers, where there is no
+-- countdown to tick DOWN yet -- so the big number counts UP from the moment
+-- PLAY was pressed instead of sitting blank. Without it that state was a
+-- static line of text with no sign the game was still doing anything, which
+-- reads like a hang rather than a wait. Mutually exclusive with endTime: the
+-- instant a real countdown arrives, that takes the display over.
+local waitStartTime: number? = nil
+
+-- After this long with the queue still under MinPlayers, an opt-in "PLAY WITH
+-- BOTS" button appears under the clock. Nothing happens automatically -- the
+-- player is told the server is quiet and chooses for themselves, rather than
+-- being silently converted into an unranked bot race. Without an out, an
+-- empty server just counts up forever with no way to leave but Backspace,
+-- which reads as a hang.
+local BOT_HINT_AFTER_SECONDS = 15
+local hintShown = false
+local botButton: TextButton
+
+-- Single owner of the caption's text AND color, so the warning-colored bot
+-- hint can never leak into a later phase (its color would otherwise persist
+-- into "RACE STARTING IN"). Also clears the hint latch, so a fresh wait can
+-- show it again.
+local function setCaption(text: string)
+	hintShown = false
+	captionLabel.Text = text
+	captionLabel.TextColor3 = Theme.Color.TextSecondary
+	-- The offer only makes sense while a stalled queue is on screen; every
+	-- other phase (countdown running, pre-race, hidden) must not show it.
+	if botButton then
+		botButton.Visible = false
+	end
+end
 
 local function pulse(scale: UIScale)
 	scale.Scale = 1.35
@@ -56,12 +91,12 @@ local function buildUI()
 	container.Visible = false
 	container.Parent = screenGui
 
-	caption = Widgets.Label("WAITING FOR PLAYERS", UDim2.new(1, 0, 0, 22), UDim2.fromOffset(0, 0), {
+	captionLabel = Widgets.Label("WAITING FOR PLAYERS", UDim2.new(1, 0, 0, 22), UDim2.fromOffset(0, 0), {
 		TextSize = 16,
 		Color = Theme.Color.TextSecondary,
 		Align = Enum.TextXAlignment.Center,
 	})
-	caption.Parent = container
+	captionLabel.Parent = container
 
 	numberLabel = Widgets.Label("", UDim2.new(1, 0, 0, 90), UDim2.fromOffset(0, 26), {
 		Font = Theme.Font.Display,
@@ -88,8 +123,42 @@ local function buildUI()
 	goScale = Instance.new("UIScale")
 	goScale.Parent = goLabel
 
+	-- Sits under the elapsed clock. Hidden until the wait has clearly stalled
+	-- (see BOT_HINT_AFTER_SECONDS); PlayButtonController owns the actual swap
+	-- so its own busy/mode state stays correct.
+	botButton = Widgets.Button("PLAY WITH BOTS", UDim2.fromOffset(240, 44), UDim2.fromOffset(40, 124), {
+		Variant = "Secondary",
+		TextSize = 17,
+		Icon = function(holder, color)
+			MenuIcons.Populate(holder, "Bots", color)
+		end,
+	})
+	botButton.Visible = false
+	botButton.Parent = container
+	botButton.MouseButton1Click:Connect(function()
+		botButton.Visible = false
+		PlayButtonController.SwitchToBots()
+	end)
+
 	RunService.RenderStepped:Connect(function()
 		if not endTime then
+			if waitStartTime then
+				local elapsed = os.clock() - waitStartTime
+				-- Stopwatch shape ("0:07"), not a bare number: a lone digit
+				-- here would read as a countdown about to hit zero, which is
+				-- the opposite of what this is.
+				numberLabel.Text = ("%d:%02d"):format(math.floor(elapsed / 60), math.floor(elapsed % 60))
+				-- Deliberately no pulse or Tick sound, unlike the countdown
+				-- below -- an open-ended wait would turn those into a
+				-- metronome that never stops.
+
+				if not hintShown and elapsed >= BOT_HINT_AFTER_SECONDS then
+					hintShown = true
+					captionLabel.Text = "NO ONE ELSE IS QUEUING"
+					captionLabel.TextColor3 = Theme.Color.Warning
+					botButton.Visible = true
+				end
+			end
 			return
 		end
 
@@ -155,6 +224,7 @@ function QueueStatusController.Init()
 	remote.OnClientEvent:Connect(function(secondsRemaining: (number | boolean)?)
 		if not secondsRemaining then
 			endTime = nil
+			waitStartTime = nil
 			lastShownSecond = nil
 			container.Visible = false
 			return
@@ -162,19 +232,30 @@ function QueueStatusController.Init()
 
 		if secondsRemaining == true then
 			-- Queued, but MatchService hasn't started a real matching window
-			-- yet (below Constants.Match.MinPlayers) -- static message, no
-			-- ticking number, until enough players actually join.
+			-- yet (below Constants.Match.MinPlayers) -- no countdown to show,
+			-- so the elapsed timer takes over until enough players join.
 			endTime = nil
 			lastShownSecond = nil
-			numberLabel.Text = ""
-			caption.Text = "WAITING FOR PLAYERS..."
+			-- Only start the clock the FIRST time: this can arrive more than
+			-- once for the same wait (each party member's Enqueue sends one),
+			-- and restarting on a repeat would keep resetting the number to
+			-- 0:00 in front of a player who has genuinely been waiting.
+			-- setCaption lives in here too, not just waitStartTime: it resets
+			-- the hint latch, so calling it on a duplicate message would
+			-- briefly flip an already-shown bot hint back to "waiting".
+			if not waitStartTime then
+				waitStartTime = os.clock()
+				numberLabel.Text = "0:00"
+				setCaption("WAITING FOR PLAYERS...")
+			end
 			container.Visible = true
 			return
 		end
 
 		phase = "Waiting"
-		caption.Text = "WAITING FOR PLAYERS"
+		setCaption("WAITING FOR PLAYERS")
 		endTime = os.clock() + (secondsRemaining :: number)
+		waitStartTime = nil
 		lastShownSecond = nil
 		container.Visible = true
 	end)
@@ -182,8 +263,12 @@ function QueueStatusController.Init()
 	local preRaceRemote = Net.GetRemoteEvent(RemoteNames.PreRaceCountdown)
 	preRaceRemote.OnClientEvent:Connect(function(secondsRemaining: number)
 		phase = "PreRace"
-		caption.Text = "RACE STARTING IN"
+		setCaption("RACE STARTING IN")
 		endTime = os.clock() + secondsRemaining
+		-- Belt and braces: the queue's own nil/number messages should already
+		-- have stopped the wait clock by now, but this state is unambiguously
+		-- "past waiting" no matter which path got here.
+		waitStartTime = nil
 		lastShownSecond = nil
 		container.Visible = true
 	end)

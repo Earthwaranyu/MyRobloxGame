@@ -165,6 +165,31 @@ BUILDERS.ArrowLeft = function(parent, s, color)
 	bar(parent, s, 14, 5, 15, 25, 45, color) -- lower head, (20,30) -> (10,20)
 end
 
+-- Mute toggle (the HUD button above Settings): an equalizer -- four bars of
+-- differing heights -- rather than the usual speaker-and-waves. A speaker
+-- needs a trapezoid cone to be recognisable, and this icon set has no triangle
+-- primitive; built from rectangles it collapses into an unreadable blob at the
+-- ~22px this renders at (confirmed by screenshot). Level bars stay legible at
+-- any size and still say "audio" unambiguously.
+--
+-- SoundOff keeps the identical bars and strikes them through, so the two read
+-- as one control in two states -- the slash is the only thing that moves.
+local function levelBars(parent: Instance, s: number, color: Color3)
+	bar(parent, s, 4, 12, 12, 20, 0, color)
+	bar(parent, s, 4, 22, 18, 20, 0, color)
+	bar(parent, s, 4, 16, 24, 20, 0, color)
+	bar(parent, s, 4, 8, 30, 20, 0, color)
+end
+
+BUILDERS.Sound = function(parent, s, color)
+	levelBars(parent, s, color)
+end
+
+BUILDERS.SoundOff = function(parent, s, color)
+	levelBars(parent, s, color)
+	bar(parent, s, 28, 4, 21, 20, -40, color)
+end
+
 -- VS Bots: a robot face -- hollow ring head (same reasoning as Emotes) with
 -- an antenna, two eye dots and a mouth bar.
 BUILDERS.Bots = function(parent, s, color)

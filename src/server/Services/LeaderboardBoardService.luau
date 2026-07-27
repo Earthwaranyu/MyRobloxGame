@@ -40,13 +40,24 @@ local function buildBoard(): BasePart
 
 	-- Default spot only matters for the very first time this ever runs --
 	-- move/rotate it in Studio afterward and save; this function won't touch
-	-- it again once BOARD_NAME exists. Offset to the SIDE of spawn (not
-	-- straight ahead of it) since spawn->stage is a walking path -- confirmed
-	-- live that a straight-ahead placement sits right on top of it.
+	-- it again once BOARD_NAME exists.
+	--
+	-- Beside the trophy at the plaza centre, which is the natural home for it:
+	-- both are "here is who is winning", so they read as one display rather
+	-- than two unrelated props, and the centre is somewhere players already
+	-- gather. Expressed as an offset from spawn (the one anchor this service
+	-- can rely on) but aimed at the plaza centre 40 studs ahead of it.
+	--
+	-- It must stay clear of the queue rooms, which occupy Z 11-29 directly
+	-- between spawn and here: an earlier placement 4 studs in FRONT of spawn
+	-- ended up squarely in the sight line to the room doorways, hiding the
+	-- middle room behind a black slab. At the plaza centre it sits beyond the
+	-- rooms instead of across them, facing back the way players walk in
+	-- (SurfaceGui uses NormalId.Front, i.e. +Z, so no rotation needed).
 	local anchor = Workspace:FindFirstChild("SpawnLocation")
-	local basePosition = Vector3.new(14, 5, 0)
+	local basePosition = Vector3.new(20, 8, 0)
 	if anchor and anchor:IsA("BasePart") then
-		basePosition = anchor.Position + Vector3.new(14, 6, -4)
+		basePosition = anchor.Position + Vector3.new(20, 6, -40)
 	end
 
 	local part = Instance.new("Part")

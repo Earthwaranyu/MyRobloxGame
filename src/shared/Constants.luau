@@ -32,11 +32,25 @@ return {
 		-- once there's more than one racer left after the first finish. This
 		-- is just the floor: fewer than this and a race can't start at all.
 		MinPlayers = 2,
-		-- Brief matchmaking window before the map is picked and everyone is
-		-- teleported: touch a start line / click Play, wait a beat for other
-		-- players to join, then the case-opening reveal spins during the last
-		-- MapRevealSeconds of it.
-		MatchingSeconds = 3,
+		-- The shared queue's matchmaking window: how long a countdown runs,
+		-- once MinPlayers is met, before the map is picked and everyone is
+		-- teleported. Anyone who clicks PLAY during it joins the SAME race,
+		-- so this is the single number that decides how big races get.
+		--
+		-- Was 3, which is why PLAY felt like a 1v1 mode despite having no
+		-- upper limit on racers -- only players who clicked within the same
+		-- 3-second window ever got grouped, and outside of a coordinated
+		-- party that's almost never more than two people. Widening it is the
+		-- cheap way to get real multiplayer races without splitting the
+		-- population across separate per-size queues (which would starve all
+		-- of them at low player counts).
+		MatchingSeconds = 12,
+		-- Bot/practice/duel reuse the queue's reveal + countdown pacing so the
+		-- client UI needs no mode-specific handling -- but they have NOTHING
+		-- to wait for: the opponent is a bot, a ghost, or an already-accepted
+		-- challenge. They get their own (short) value so widening the real
+		-- matchmaking window above doesn't tax them with dead time.
+		SoloRevealSeconds = 3,
 		-- How long before MatchingSeconds ends the case-opening map reveal
 		-- spins for; the reel lands exactly as the group gets teleported.
 		MapRevealSeconds = 2.5,
