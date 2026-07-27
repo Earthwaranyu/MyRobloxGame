@@ -749,6 +749,10 @@ function MatchService.PlayerFellOff(player: Player, stageId: string)
 	-- This teleport itself must never be mistaken for movement on the next
 	-- speed check.
 	lastCheckedPosition[userId] = nil
+	-- A fall is a teleport, not a respawn, so nothing else resets WalkSpeed
+	-- here -- without this a Stage4 speed strip's boost survives the recovery
+	-- and immediately launches you off the same ledge again.
+	MovementService.ClearSpeedOverride(player)
 
 	playerFellRemote:FireClient(player)
 end

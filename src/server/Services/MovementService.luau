@@ -108,6 +108,19 @@ function MovementService.ApplySpeedOverride(player: Player, speed: number, durat
 	end)
 end
 
+-- Cancels any in-flight override and snaps WalkSpeed straight back to the
+-- player's CURRENT sprint intent. Called by MatchService every time a racer's
+-- position is force-reset (fall recovery, quit, finish). A fall in a race is a
+-- teleport back to your last checkpoint, not a character respawn, so the
+-- CharacterAdded reset below never fires for it -- which is why a Stage4 speed
+-- strip's 42 WalkSpeed kept running after you'd been recovered, and followed
+-- you back into the lobby if you finished while it was still active.
+function MovementService.ClearSpeedOverride(player: Player)
+	local userId = player.UserId
+	speedOverrideUntil[userId] = nil
+	applySprint(player, sprintIntent[userId] or false)
+end
+
 function MovementService.Init()
 	local sprintIntentRemote = Net.CreateRemoteEvent(RemoteNames.SetSprintIntent)
 
