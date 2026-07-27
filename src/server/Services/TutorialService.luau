@@ -6,6 +6,7 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local TelemetryService = require(script.Parent.TelemetryService)
 
 -- Everything else in this game (matchmaking, sprint, emotes, quit-match,
 -- rank/elo) is taught by nothing but a screenshot -- fine for a solo
@@ -42,6 +43,7 @@ local function onPlayerAdded(player: Player)
 	task.wait(2)
 	if player.Parent then
 		tutorialRemote:FireClient(player)
+		TelemetryService.Onboarding(player, "TutorialSeen")
 	end
 end
 

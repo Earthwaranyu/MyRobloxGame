@@ -8,6 +8,7 @@ local RemoteNames = require(Shared.RemoteNames)
 
 local MonetizationService = require(script.Parent.MonetizationService)
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local TelemetryService = require(script.Parent.TelemetryService)
 
 -- "Gacha can be open by points or robux (Open 1 time or 10 at a time)". Dash
 -- is deliberately never in the pool (see Abilities.luau) -- everything
@@ -107,6 +108,15 @@ local function handlePull(player: Player, count: number): (boolean, string)
 	end
 
 	profile.Points -= cost
+	TelemetryService.Economy(
+		player,
+		false,
+		"Points",
+		cost,
+		profile.Points,
+		Enum.AnalyticsEconomyTransactionType.Shop,
+		("GachaPull_x%d"):format(count)
+	)
 	doPulls(player, profile, count)
 	return true, "Pulled"
 end

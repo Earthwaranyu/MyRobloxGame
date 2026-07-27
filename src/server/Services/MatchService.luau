@@ -23,6 +23,7 @@ local MovementService = require(script.Parent.MovementService)
 local PartyService = require(script.Parent.PartyService)
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local ReferralService = require(script.Parent.ReferralService)
+local TelemetryService = require(script.Parent.TelemetryService)
 local WeatherService = require(script.Parent.WeatherService)
 
 -- Streak level N (2 wins in a row = level 1) is worth STREAK_BONUS_PER_LEVEL
@@ -280,11 +281,39 @@ end
 -- forced teleport (race entry, anti-headstart snap-back, or return to
 -- lobby), so this is also the one place the speed-watchdog baseline gets
 -- cleared -- none of these jumps should ever be mistaken for cheating.
+-- Strips any live "launch" physics off a character's root.
+--
+-- Zeroing AssemblyLinearVelocity is NOT enough on its own, which is the whole
+-- reason this exists. A bounce pad (StageGimmickService) and the Dash/Blink
+-- abilities don't write a velocity -- they parent a LinearVelocity or
+-- BodyVelocity CONSTRAINT to the root, deliberately, because a server-side
+-- velocity write gets thrown away by the owning client's next physics frame.
+-- A constraint keeps re-asserting its velocity every frame until it's
+-- destroyed, so a player recovered mid-bounce has their velocity zeroed and
+-- then immediately re-launched by the constraint that outlived the teleport --
+-- arriving at their checkpoint and being fired straight off it again. That's
+-- the "I died on a boost pad and respawned with a jump boost" bug.
+--
+-- Sibling of the MovementService.ClearSpeedOverride call that already sits on
+-- the recovery path for exactly the same reason: Stage4's speed strip used to
+-- survive a fall the same way, just through WalkSpeed instead of a constraint.
+local function clearLaunchers(root: BasePart)
+	for _, child in root:GetChildren() do
+		-- BodyMover covers BodyVelocity/BodyForce/BodyThrust; LinearVelocity is
+		-- the newer constraint the bounce pads use. BounceAttachment is the
+		-- anchor point the latter hangs off, orphaned once its mover is gone.
+		if child:IsA("BodyMover") or child:IsA("LinearVelocity") or child.Name == "BounceAttachment" then
+			child:Destroy()
+		end
+	end
+end
+
 local function teleportToStageSpawn(player: Player, spawnCFrame: CFrame)
 	pcall(function()
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
 		if root then
+			clearLaunchers(root)
 			root.CFrame = spawnCFrame
 			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
 			-- Always un-anchor here, even for a player who was never parked
@@ -478,6 +507,7 @@ function startSession()
 			queueStatusRemote:FireClient(player, nil)
 			preRaceCountdownRemote:FireClient(player, Constants.Match.CountdownSeconds)
 			setFrozen(player, true)
+			TelemetryService.MatchStep(player, "Matched")
 		end
 	end
 
@@ -527,6 +557,8 @@ function beginRace(stageId: string, participants: { [number]: Player })
 		-- before GO -- a Stage4 speed strip stood on during the countdown --
 		-- is wiped here rather than carried across the start line.
 		MovementService.ClearSpeedOverride(player)
+		TelemetryService.MatchStep(player, "Started")
+		TelemetryService.Onboarding(player, "FirstRace")
 	end
 	WeatherService.ApplyStageWeather(stageId)
 
@@ -651,6 +683,10 @@ function MatchService.Enqueue(player: Player, target: number?)
 		playerBusy[userId] = true
 		table.insert(targetQueue, member)
 		queuedTarget[userId] = queueTarget
+
+		TelemetryService.BeginMatchAttempt(member)
+		TelemetryService.MatchStep(member, "Queued", QueueModes.LabelForTarget(queueTarget))
+		TelemetryService.Onboarding(member, "FirstQueue")
 	end
 
 	-- Only meaningful for an actual party (a solo queuer's own partyMembers
@@ -891,6 +927,10 @@ function MatchService.PlayerFellOff(player: Player, stageId: string)
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
 		if root then
+			-- Order matters: kill the constraints BEFORE zeroing velocity, or
+			-- a surviving one re-applies its launch on the next physics frame
+			-- and the zeroing is wasted.
+			clearLaunchers(root)
 			root.CFrame = recoverTo + Vector3.new(0, 2, 0)
 			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
 		end
@@ -1228,6 +1268,15 @@ local function settleWin(winner: Player, opponents: { Player }): (number, number
 		local multiplier = if MonetizationService.HasVIP(winner) then MonetizationService.PointsMultiplier else 1
 		pointsAwarded = (Constants.Match.PointsPerWin + streakBonus) * multiplier
 		winnerProfile.Points += pointsAwarded
+		TelemetryService.Economy(
+			winner,
+			true,
+			"Points",
+			pointsAwarded,
+			winnerProfile.Points,
+			Enum.AnalyticsEconomyTransactionType.Gameplay,
+			"RaceWin"
+		)
 
 		BadgeMilestoneService.CheckWinMilestones(winner, winnerProfile)
 		local oldRank = RankTiers.GetRankForElo(oldElo)
@@ -1410,6 +1459,18 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 
 	session.finishedCount += 1
 	local placement = session.finishedCount
+
+	TelemetryService.MatchStep(player, "Finished")
+	TelemetryService.Onboarding(player, "FirstFinish")
+	-- Value is the finish time in whole seconds, so the dashboard can chart how
+	-- long a race actually takes per stage -- the number that decides whether a
+	-- session fits into the few minutes a new player gives you.
+	TelemetryService.Custom(player, "RaceFinished", math.floor(elapsed), {
+		stageId,
+		tostring(placement),
+		tostring(session.totalParticipants),
+	})
+	TelemetryService.EndMatchAttempt(player)
 	racePositionRemote:FireClient(player, placement, session.totalParticipants)
 	for _, opponent in session.participants do
 		racePositionRemote:FireClient(opponent, placement + 1, session.totalParticipants)
@@ -1514,6 +1575,9 @@ function MatchService.QuitMatch(player: Player)
 	-- someone who had already left. Harmless no-op when nothing is showing.
 	queueStatusRemote:FireClient(player, nil)
 
+	TelemetryService.Custom(player, "MatchAbandoned")
+	TelemetryService.EndMatchAttempt(player)
+
 	local botMatch = botMatches[userId]
 	if botMatch then
 		botMatches[userId] = nil
@@ -1595,6 +1659,9 @@ local function removePlayer(player: Player)
 		end
 		queuedTarget[userId] = nil
 	end
+
+	TelemetryService.Custom(player, "MatchAbandoned")
+	TelemetryService.EndMatchAttempt(player)
 
 	local botMatch = botMatches[userId]
 	if botMatch then
