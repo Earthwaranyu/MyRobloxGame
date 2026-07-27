@@ -456,8 +456,7 @@ local function buildMainPanel()
 	})
 	toggleButton.Parent = toggleGui
 
-	local gachaScreenGui: ScreenGui
-	panel, openMainPanel, closeMainPanel, _, gachaScreenGui = Widgets.Modal(
+	panel, openMainPanel, closeMainPanel = Widgets.Modal(
 		"Gacha",
 		UDim2.fromOffset(400, 520),
 		UDim2.new(1, -410, 0, 116),
@@ -476,52 +475,16 @@ local function buildMainPanel()
 	})
 	pointsLabel.Parent = panel
 
-	-- Left tab strip (Pulls / Odds), sitting immediately outside the panel's
-	-- own left edge -- the reference image's category-strip layout language,
-	-- applied to this panel's own internal sections instead of merging
-	-- separate systems (Shop, Settings, ...) into one mega-panel. Inventory
-	-- used to be a third tab here -- now its own standalone HUD button/panel
-	-- (see InventoryController) so equipping doesn't require detouring
-	-- through the gacha-pull panel to get there.
-	local tabStrip, _selectTab, onTabSelected = Widgets.TabStrip({
-		{ Id = "Pulls", BuildIcon = function(holder, color)
-			CategoryIcons.Populate(holder, "Pulls", holder.AbsoluteSize.X, color)
-		end },
-		{ Id = "Odds", BuildIcon = function(holder, color)
-			CategoryIcons.Populate(holder, "Odds", holder.AbsoluteSize.X, color)
-		end },
-	}, UDim2.new(1, -482, 0, 168))
-	tabStrip.Parent = gachaScreenGui
-	-- Starts hidden, then tracks panel.Visible for as long as the panel
-	-- exists -- covers every way the panel can close (✕, click-outside, and
-	-- Widgets.CloseAllModals forcing it shut on race start), not just the
-	-- toggle button that opened it. Same technique as the reveal panel's
-	-- own Visible listener (see buildRevealOverlay) fixing the equivalent
-	-- staleness class of bug.
-	tabStrip.Visible = panel.Visible
-	panel:GetPropertyChangedSignal("Visible"):Connect(function()
-		tabStrip.Visible = panel.Visible
-	end)
-
-	local pullsContent = Instance.new("Frame")
-	pullsContent.Name = "PullsContent"
-	pullsContent.Size = UDim2.new(1, -16, 1, -60)
-	pullsContent.Position = UDim2.fromOffset(8, 52)
-	pullsContent.BackgroundTransparency = 1
-	pullsContent.Parent = panel
-
-	local oddsContent = Instance.new("Frame")
-	oddsContent.Name = "OddsContent"
-	oddsContent.Size = UDim2.new(1, -16, 1, -60)
-	oddsContent.Position = UDim2.fromOffset(8, 52)
-	oddsContent.BackgroundTransparency = 1
-	oddsContent.Visible = false
-	oddsContent.Parent = panel
-
-	onTabSelected(function(id: string)
-		pullsContent.Visible = id == "Pulls"
-		oddsContent.Visible = id == "Odds"
-	end)
+	-- One scrolling column, no tab strip. The Odds used to be a second tab
+	-- beside Pulls; there is nothing left to switch between now that they sit
+	-- under the pull buttons, and the strip's own "Pulls" tab was pointing at
+	-- the only page there was.
+	local content = Instance.new("Frame")
+	content.Name = "Content"
+	content.Size = UDim2.new(1, -16, 1, -60)
+	content.Position = UDim2.fromOffset(8, 52)
+	content.BackgroundTransparency = 1
+	content.Parent = panel
 
 	-- Explicit TextSize=26 -- player-reported and screenshot-reproduced: white
 	-- text at this Danger/Primary variant's normal ~14px functional-text size
@@ -538,7 +501,7 @@ local function buildMainPanel()
 		Variant = "Danger",
 		TextSize = 26,
 	})
-	luckyButton.Parent = pullsContent
+	luckyButton.Parent = content
 	luckyButton.MouseButton1Click:Connect(function()
 		if not luckyOwned then
 			Net.GetRemoteEvent(RemoteNames.PromptLuckyPurchase):FireServer()
@@ -549,7 +512,7 @@ local function buildMainPanel()
 		Variant = "Primary",
 		TextSize = 26,
 	})
-	pullOneButton.Parent = pullsContent
+	pullOneButton.Parent = content
 	pullOneButton.MouseButton1Click:Connect(function()
 		local success, message = pullRemote:InvokeServer(1)
 		if not success then
@@ -564,7 +527,7 @@ local function buildMainPanel()
 		Variant = "Secondary",
 		TextSize = 26,
 	})
-	robuxOneButton.Parent = pullsContent
+	robuxOneButton.Parent = content
 	robuxOneButton.MouseButton1Click:Connect(function()
 		promptRobuxRemote:FireServer(1)
 	end)
@@ -573,7 +536,7 @@ local function buildMainPanel()
 		Variant = "Primary",
 		TextSize = 26,
 	})
-	pullTenButton.Parent = pullsContent
+	pullTenButton.Parent = content
 	pullTenButton.MouseButton1Click:Connect(function()
 		local success, message = pullRemote:InvokeServer(10)
 		if not success then
@@ -585,7 +548,7 @@ local function buildMainPanel()
 		Variant = "Secondary",
 		TextSize = 26,
 	})
-	robuxTenButton.Parent = pullsContent
+	robuxTenButton.Parent = content
 	robuxTenButton.MouseButton1Click:Connect(function()
 		promptRobuxRemote:FireServer(10)
 	end)
@@ -599,7 +562,7 @@ local function buildMainPanel()
 	skipRow.Size = UDim2.new(1, 0, 0, 32)
 	skipRow.Position = UDim2.fromOffset(0, 118)
 	skipRow.BackgroundTransparency = 1
-	skipRow.Parent = pullsContent
+	skipRow.Parent = content
 
 	refreshSkipPurchaseRow = function()
 		for _, child in skipRow:GetChildren() do
@@ -620,24 +583,42 @@ local function buildMainPanel()
 	refreshSkipPurchaseRow()
 
 	-- Roblox's Randomized Virtual Items policy requires exact drop-rate odds
-	-- (summing to 100%) to be shown BEFORE a paid randomized pull -- this tab
-	-- is reachable from the main panel with no purchase in between, same
-	-- compliance guarantee the old separate popup gave, just one click away
-	-- via the tab strip instead of a second modal on top of this one.
+	-- (summing to 100%) to be shown BEFORE a paid randomized pull. On their own
+	-- tab that was satisfied only in the letter -- a player could pull without
+	-- ever opening it. Here they sit directly under the buttons that spend the
+	-- money, in view at the moment of the decision, which is what the rule is
+	-- actually for. The pull rows only ever used the top ~150px of a 460px
+	-- panel, so this costs no space that was doing anything else.
+	local oddsDivider = Instance.new("Frame")
+	oddsDivider.Name = "OddsDivider"
+	oddsDivider.Size = UDim2.new(1, 0, 0, 1)
+	oddsDivider.Position = UDim2.fromOffset(0, 162)
+	oddsDivider.BackgroundColor3 = Theme.Color.Stroke
+	oddsDivider.BackgroundTransparency = 0.4
+	oddsDivider.BorderSizePixel = 0
+	oddsDivider.Parent = content
+
+	local oddsHeading = Widgets.Label("DROP RATES", UDim2.new(1, 0, 0, 20), UDim2.fromOffset(0, 172), {
+		TextSize = 14,
+		Color = Theme.Color.TextPrimary,
+		Align = Enum.TextXAlignment.Center,
+	})
+	oddsHeading.Parent = content
+
 	local oddsSubtitle = Widgets.Label(
-		"Exact odds for every ability pull. Dash is never in the pool -- it's free for everyone.",
-		UDim2.new(1, 0, 0, 36),
-		UDim2.fromOffset(0, 0),
-		{ TextSize = 13, Color = Theme.Color.TextSecondary, Align = Enum.TextXAlignment.Center, Bold = false }
+		"Dash is never in the pool -- it's free for everyone.",
+		UDim2.new(1, 0, 0, 18),
+		UDim2.fromOffset(0, 194),
+		{ TextSize = 12, Color = Theme.Color.TextSecondary, Align = Enum.TextXAlignment.Center, Bold = false }
 	)
 	oddsSubtitle.TextWrapped = true
-	oddsSubtitle.Parent = oddsContent
+	oddsSubtitle.Parent = content
 
 	local oddsList = Instance.new("Frame")
-	oddsList.Size = UDim2.new(1, 0, 1, -44)
-	oddsList.Position = UDim2.fromOffset(0, 44)
+	oddsList.Size = UDim2.new(1, 0, 1, -218)
+	oddsList.Position = UDim2.fromOffset(0, 218)
 	oddsList.BackgroundTransparency = 1
-	oddsList.Parent = oddsContent
+	oddsList.Parent = content
 
 	local oddsLayout = Instance.new("UIListLayout")
 	oddsLayout.Padding = UDim.new(0, 6)
