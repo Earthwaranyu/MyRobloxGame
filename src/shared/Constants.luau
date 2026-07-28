@@ -45,6 +45,20 @@ return {
 		-- population across separate per-size queues (which would starve all
 		-- of them at low player counts).
 		MatchingSeconds = 12,
+		-- The PLAY queue leaves on a fixed clock: a wave every WaveSeconds,
+		-- taking however many people are queued at that moment, with no cap.
+		--
+		-- Replaces "start a window once two people are waiting", which made the
+		-- wait unpredictable (anywhere from 12 seconds to indefinitely, entirely
+		-- depending on who else happened to press PLAY) and meant a big group
+		-- had to be split across several races. A fixed departure is legible --
+		-- you can see exactly how long until the next one -- and lets everybody
+		-- waiting ride together.
+		--
+		-- Races can run for up to MaxDurationSeconds, so at this cadence several
+		-- waves are alive at once and slower players simply keep going in their
+		-- own race while later waves launch around them.
+		WaveSeconds = 60,
 		-- Bot/practice/duel reuse the queue's reveal + countdown pacing so the
 		-- client UI needs no mode-specific handling -- but they have NOTHING
 		-- to wait for: the opponent is a bot, a ghost, or an already-accepted

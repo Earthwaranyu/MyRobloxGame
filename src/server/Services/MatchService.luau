@@ -48,6 +48,9 @@ end
 local MatchService = {}
 
 type Session = {
+	-- Unique per race. Several races can share a stage now (see `sessions`), so
+	-- the stage id no longer identifies one.
+	id: number,
 	stageId: string,
 	participants: { [number]: Player },
 	totalParticipants: number,
@@ -103,26 +106,33 @@ local function requiredFor(target: number): number
 	end
 	return target
 end
--- Live races, keyed by stage id.
+-- Live races, keyed by their own id.
 --
--- This was a single `activeSession` slot, which forced every queue to take
--- turns: a full 1v1 station sat waiting for an unrelated 5-player race to
--- finish. Races are keyed by STAGE because that is the real constraint -- two
--- groups cannot share a course (one spawn CFrame, one set of platforms, one
--- finish line), but four groups on four different stages never touch each
--- other. So concurrency is naturally bounded by the number of stages.
-local sessions: { [string]: Session } = {}
+-- Keyed by SESSION rather than by stage because waves share courses: a stage
+-- can hold a 1v1, a 3-player station race and a 60-second wave all at the
+-- same time (players are hidden from anyone outside their own race -- see
+-- RaceRosterChanged / RaceVisibilityController -- and characters already can't
+-- collide with each other, so overlapping groups never physically interfere).
+--
+-- The earlier version keyed by stage and treated a course as exclusive, which
+-- capped the whole server at four concurrent races. That ceiling is what made
+-- a fixed wave cadence impossible: a race every 60 seconds that can run for
+-- 300 means five can overlap before any stage frees up.
+local sessions: { [number]: Session } = {}
+local nextSessionId = 1
 
-local function sessionFor(stageId: string?): Session?
-	return if stageId then sessions[stageId] else nil
+-- userId -> the race they are currently RUNNING in. Replaces looking a session
+-- up by the player's stage, which stops being unique once several races share
+-- a course.
+local playerSession: { [number]: Session } = {}
+
+local function sessionFor(userId: number): Session?
+	return playerSession[userId]
 end
 
--- A stage is unavailable while a race is on it OR while a countdown that has
--- already rolled it is running -- otherwise two queues counting down at the
--- same time could both roll the same stage and collide on teleport.
 -- Which race this player is SPECTATING, if any. Spectators can't be resolved
--- by playerRaceStage the way racers are -- it's cleared the moment they stop
--- racing -- so with more than one race live this has to be a search.
+-- through playerSession the way racers are -- it's cleared the moment they
+-- stop racing -- so this has to be a search.
 local function sessionSpectatedBy(userId: number): Session?
 	for _, session in sessions do
 		if session.spectators[userId] then
@@ -132,32 +142,9 @@ local function sessionSpectatedBy(userId: number): Session?
 	return nil
 end
 
-local function stageIsBusy(stageId: string): boolean
-	if sessions[stageId] then
-		return true
-	end
-	for _, entry in pending do
-		if entry.stageId == stageId then
-			return true
-		end
-	end
-	return false
-end
-
--- Rolls a stage nobody is using. Returns nil when all four are busy, which is
--- the signal to leave the queue waiting rather than start a race with nowhere
--- to put it.
-local function rollFreeStage(): string?
-	local free = {}
-	for _, stage in Stages do
-		if not stageIsBusy(stage.Id) then
-			table.insert(free, stage.Id)
-		end
-	end
-	if #free == 0 then
-		return nil
-	end
-	return free[math.random(1, #free)]
+-- Any stage; courses are shared now, so there is nothing to avoid.
+local function rollStage(): string
+	return Stages[math.random(1, #Stages)].Id
 end
 
 local playerRaceStage: { [number]: string } = {}
@@ -274,6 +261,8 @@ end
 
 local queueStatusRemote: RemoteEvent
 local preRaceCountdownRemote: RemoteEvent
+local raceRosterRemote: RemoteEvent
+local waveClockRemote: RemoteEvent
 local racePositionRemote: RemoteEvent
 local raceProgressRemote: RemoteEvent
 local raceOutcomeRemote: RemoteEvent
@@ -285,6 +274,7 @@ local queueRejectedRemote: RemoteEvent
 local duelRequestReceivedRemote: RemoteEvent
 local duelCancelledRemote: RemoteEvent
 
+local broadcastRoster: (session: Session) -> ()
 local tryStartCountdown: () -> ()
 local startSession: (target: number, stageId: string?) -> ()
 local beginRace: (stageId: string, participants: { [number]: Player }) -> ()
@@ -301,6 +291,30 @@ local function getStageSpawnCFrame(stageId: string): CFrame?
 		return spawnPart.CFrame + Vector3.new(0, 3, 0)
 	end
 	return nil
+end
+
+-- Where the Nth racer of a wave starts, so an uncapped field spreads across a
+-- start grid instead of every player being dropped on one CFrame and standing
+-- inside each other until the physics shoves them apart.
+--
+-- Rows build BACKWARDS from the start line rather than sideways only: a wide
+-- enough single row would put the outer racers off the edge of the platform on
+-- the narrower stages, whereas depth is always available behind the line.
+-- Everyone is still behind the same line, so no row gets a head start.
+local START_GRID_COLUMNS = 6
+local START_GRID_SPACING = 5
+
+local function startGridCFrame(spawnCFrame: CFrame, index: number): CFrame
+	local slot = index - 1
+	local column = slot % START_GRID_COLUMNS
+	local row = math.floor(slot / START_GRID_COLUMNS)
+	-- Centre each row on the spawn point so the field stays symmetrical around
+	-- the middle of the platform however many turn up.
+	local offsetX = (column - (START_GRID_COLUMNS - 1) / 2) * START_GRID_SPACING
+	local offsetZ = row * START_GRID_SPACING
+	-- Applied in the spawn's own space, so the grid follows however the stage's
+	-- spawn part is rotated -- "back" is always back relative to the course.
+	return spawnCFrame * CFrame.new(offsetX, 0, offsetZ)
 end
 
 local function getLobbySpawnCFrame(): CFrame?
@@ -471,28 +485,12 @@ local function readyTargets(): { number }
 		end
 	end
 
-	-- Below MinPlayers, stay in "waiting" -- no countdown, no map reveal,
-	-- nothing teleported. This used to only check #queue == 0, which meant a
-	-- single solo player queuing would still get matched into a "race" against
-	-- nobody: 0 Elo change (no real opponent to calculate against) but full
-	-- points AND win-streak credit, same as a real win -- a free, repeatable
-	-- reward exploit, not just a UX gap.
-	if not pending[QueueModes.AnySize] and #getQueue(QueueModes.AnySize) >= Constants.Match.MinPlayers then
-		table.insert(ready, QueueModes.AnySize)
-	end
-
+	-- QueueModes.AnySize is deliberately absent: the PLAY queue no longer starts
+	-- when it happens to fill, it leaves on the wave clock (see startWaveClock).
 	return ready
 end
 
-local function beginCountdown(target: number, stageId: string)
-	-- A full station has its group already; the only reason to wait at all is
-	-- to let the map-reveal reel play. The any-size queue keeps its real
-	-- matching window, since "how many racers" is exactly the open question
-	-- there and latecomers should still be able to join.
-	local window = if target == QueueModes.AnySize
-		then Constants.Match.MatchingSeconds
-		else Constants.Match.SoloRevealSeconds
-
+local function beginCountdown(target: number, stageId: string, window: number)
 	pending[target] = { stageId = stageId, endTime = os.clock() + window }
 
 	-- Tell EVERYONE already in the queue, not just whoever's Enqueue call
@@ -521,16 +519,68 @@ local function beginCountdown(target: number, stageId: string)
 	end)
 end
 
+-- The PLAY queue's departure clock: one wave every Constants.Match.WaveSeconds,
+-- uncapped, carrying everyone queued at that moment.
+--
+-- The stage is rolled at the START of each wave window rather than at its end,
+-- so anyone who joins partway through can immediately be shown the same map and
+-- the same remaining time as everyone already waiting.
+--
+-- A wave with fewer than MinPlayers is skipped rather than launched: a solo
+-- "race" pays full points and win-streak credit with no opponent to lose Elo
+-- against, which is a free repeatable reward, not just a dull race.
+local waveStageId: string = ""
+local waveDepartsAt = 0
+
+local function waveSecondsRemaining(): number
+	return math.max(0, waveDepartsAt - os.clock())
+end
+
+local function startWaveClock()
+	task.spawn(function()
+		while true do
+			waveStageId = rollStage()
+			waveDepartsAt = os.clock() + Constants.Match.WaveSeconds
+
+			-- Broadcast to the whole server, not just the queue: the point of
+			-- the lobby clock is that someone who hasn't pressed PLAY can see
+			-- how long they have to decide.
+			if waveClockRemote then
+				waveClockRemote:FireAllClients(Constants.Match.WaveSeconds)
+			end
+
+			-- Anyone already waiting is told about the new window immediately;
+			-- late joiners are caught up by Enqueue.
+			for _, queuedPlayer in getQueue(QueueModes.AnySize) do
+				queueStatusRemote:FireClient(queuedPlayer, Constants.Match.WaveSeconds)
+				mapSelectedRemote:FireClient(queuedPlayer, waveStageId)
+			end
+
+			task.wait(Constants.Match.WaveSeconds)
+
+			if #getQueue(QueueModes.AnySize) >= Constants.Match.MinPlayers then
+				local departing = waveStageId
+				-- The reel spins for MapRevealSeconds after the clock hits zero,
+				-- and the teleport waits for it -- same pacing as a station race.
+				task.delay(Constants.Match.MapRevealSeconds, function()
+					startSession(QueueModes.AnySize, departing)
+				end)
+			else
+				-- Nobody (or one person) waiting: tell whoever IS there that the
+				-- wave didn't go, so their countdown doesn't sit at zero.
+				for _, queuedPlayer in getQueue(QueueModes.AnySize) do
+					queueStatusRemote:FireClient(queuedPlayer, true)
+				end
+			end
+		end
+	end)
+end
+
 function tryStartCountdown()
 	for _, target in readyTargets() do
-		-- Rolled per queue, and only from stages nobody is using. All four busy
-		-- means this queue simply keeps waiting -- tryStartCountdown runs again
-		-- from endSession, so it gets picked up the moment a stage frees up.
-		local stageId = rollFreeStage()
-		if not stageId then
-			return
-		end
-		beginCountdown(target, stageId)
+		-- A full station has its group already; the only reason to wait at all
+		-- is to let the map-reveal reel play.
+		beginCountdown(target, rollStage(), Constants.Match.SoloRevealSeconds)
 	end
 end
 
@@ -558,36 +608,14 @@ function startSession(target: number, stageId: string?)
 		return
 	end
 
-	-- Cap the field, and put the overflow back in the queue for the next race.
-	--
-	-- An exact-size station can never exceed its own target, but the PLAY
-	-- button's size-agnostic queue had NO ceiling at all -- requiredFor() is
-	-- only a floor there, so every single player waiting when the window
-	-- closed was teleported in. Twenty people queueing at once meant twenty
-	-- racers on a spawn pad built for a handful, standing inside each other.
-	-- QueueModes.CustomMax already encodes what a stage spawn can actually
-	-- hold, and custom stations have always respected it; this is the one
-	-- entry point that skipped it.
-	--
-	-- Overflow players are put BACK rather than dropped: they keep their place
-	-- and ride the next race, which tryStartCountdown starts for them
-	-- immediately below (there are, by definition, enough of them left).
-	if #queued > QueueModes.CustomMax then
-		local overflow = getQueue(target)
-		for index = QueueModes.CustomMax + 1, #queued do
-			local player = queued[index]
-			if player.Parent then
-				table.insert(overflow, player)
-				queuedTarget[player.UserId] = target
-				queueStatusRemote:FireClient(player, true)
-			end
-			queued[index] = nil
-		end
-	end
-
+	-- No player cap. A wave takes everyone who queued for it, however many that
+	-- is -- the reason a cap existed (a spawn pad only fits so many before
+	-- players stand inside each other) is handled by spreading the start line
+	-- out instead, see startGridCFrame.
 	local spawnCFrame = getStageSpawnCFrame(stageId)
 
 	local participants: { [number]: Player } = {}
+	local gridIndex = 0
 	for _, player in queued do
 		queuedTarget[player.UserId] = nil
 		if player.Parent then
@@ -597,8 +625,13 @@ function startSession(target: number, stageId: string?)
 			-- countdown, not only once CountdownSeconds elapses.
 			playerRaceStage[player.UserId] = stageId
 			if spawnCFrame then
-				teleportToStageSpawn(player, spawnCFrame)
-				lastCheckpoint[player.UserId] = spawnCFrame
+				gridIndex += 1
+				local startCFrame = startGridCFrame(spawnCFrame, gridIndex)
+				teleportToStageSpawn(player, startCFrame)
+				-- Their own grid slot is the first checkpoint, so an early fall
+				-- returns them to where they actually started rather than to a
+				-- pile-up on someone else's slot.
+				lastCheckpoint[player.UserId] = startCFrame
 			end
 			queueStatusRemote:FireClient(player, nil)
 			preRaceCountdownRemote:FireClient(player, Constants.Match.CountdownSeconds)
@@ -615,14 +648,8 @@ function startSession(target: number, stageId: string?)
 		beginRace(stageId, participants)
 	end)
 
-	-- Overflow left behind by the cap above can start straight away now that
-	-- races run in parallel: it just needs a free stage, and rollFreeStage
-	-- guarantees it won't be handed this one. When all four stages are busy
-	-- this no-ops, and endSession retries the moment one frees up.
-	--
-	-- (Before parallel sessions this call was unsafe -- a second startSession
-	-- would have overwritten the single global session slot out from under the
-	-- race that was still running.)
+	-- Any station queue that filled while this one was counting down can start
+	-- immediately -- there is no longer a stage to wait for.
 	tryStartCountdown()
 end
 
@@ -667,6 +694,7 @@ function beginRace(stageId: string, participants: { [number]: Player })
 		TelemetryService.Onboarding(player, "FirstRace")
 	end
 	local session: Session = {
+		id = nextSessionId,
 		stageId = stageId,
 		participants = validParticipants,
 		totalParticipants = totalParticipants,
@@ -675,7 +703,12 @@ function beginRace(stageId: string, participants: { [number]: Player })
 		startTime = os.clock(),
 		spectators = {},
 	}
-	sessions[stageId] = session
+	sessions[nextSessionId] = session
+	nextSessionId += 1
+	for userId in validParticipants do
+		playerSession[userId] = session
+	end
+	broadcastRoster(session)
 
 	-- Everyone else bailed during the countdown (a session never starts below
 	-- Constants.Match.MinPlayers, so one participant here means departures).
@@ -693,7 +726,7 @@ function beginRace(stageId: string, participants: { [number]: Player })
 	-- Watchdog: if the race never finishes (e.g. everyone AFKs), reset the
 	-- stage rather than leaving it permanently stuck.
 	task.delay(Constants.Match.MaxDurationSeconds, function()
-		if sessions[session.stageId] ~= session then
+		if sessions[session.id] ~= session then
 			return
 		end
 
@@ -716,6 +749,31 @@ local function returnSpectatorToLobby(player: Player)
 	local lobbyCFrame = getLobbySpawnCFrame()
 	if lobbyCFrame then
 		teleportToStageSpawn(player, lobbyCFrame)
+	end
+end
+
+-- Tells everyone in a race who else is in it, so each client can hide every
+-- character that ISN'T (see RaceVisibilityController).
+--
+-- Necessary because stages are shared: a single course can be carrying a 1v1,
+-- a 3-player station race and a 60-second wave at once, and without this a
+-- racer would see a crowd of strangers and have no idea which of them they are
+-- actually racing. Purely a visual concern -- player characters already can't
+-- collide with each other (see BotService's collision groups), so the ones
+-- being hidden could never have blocked or pushed anyone anyway.
+--
+-- Spectators get the roster too: they're watching this race, so they should
+-- see exactly the same set of people the racers do.
+function broadcastRoster(session: Session)
+	local roster = {}
+	for userId in session.participants do
+		table.insert(roster, userId)
+	end
+	for _, player in session.participants do
+		raceRosterRemote:FireClient(player, roster)
+	end
+	for _, spectator in session.spectators do
+		raceRosterRemote:FireClient(spectator, roster)
 	end
 end
 
@@ -753,8 +811,8 @@ function endSession(session: Session?)
 	-- endSession (e.g. the AFK watchdog firing after a normal finish already
 	-- cleaned up and a new race started on the same stage) can't evict its
 	-- successor.
-	if sessions[session.stageId] == session then
-		sessions[session.stageId] = nil
+	if sessions[session.id] == session then
+		sessions[session.id] = nil
 	end
 	-- The stage this race was using is free now, so a queue that was waiting on
 	-- one can finally start.
@@ -814,6 +872,18 @@ function MatchService.Enqueue(player: Player, target: number?)
 	ReferralService.TagPartyReferral(partyMembers)
 
 	tryStartCountdown()
+
+	-- The PLAY queue always has a departure time -- the wave clock runs whether
+	-- or not anyone is in it -- so a joiner is always caught up to the current
+	-- wave rather than being told to wait for a countdown that has to be
+	-- triggered. The wave still only LEAVES with MinPlayers aboard.
+	if queueTarget == QueueModes.AnySize then
+		for _, member in partyMembers do
+			queueStatusRemote:FireClient(member, waveSecondsRemaining())
+			mapSelectedRemote:FireClient(member, waveStageId)
+		end
+		return
+	end
 
 	-- Looked up by THIS queue: several countdowns can be running at once, and
 	-- sending another station's timer and map to someone in this queue would
@@ -1255,12 +1325,30 @@ end
 -- weather tween.
 local WEATHER_RECONCILE_INTERVAL = 0.25
 
+-- Players who have been told "you are no longer in a race", so the clear is
+-- sent once on leaving rather than every tick.
+local rosterCleared: { [number]: boolean } = {}
+
 local function startWeatherReconciler()
 	task.spawn(function()
 		while true do
 			task.wait(WEATHER_RECONCILE_INTERVAL)
 			for _, player in Players:GetPlayers() do
-				WeatherService.SetForPlayer(player, playerRaceStage[player.UserId])
+				local userId = player.UserId
+				WeatherService.SetForPlayer(player, playerRaceStage[userId])
+
+				-- Roster CONTENT is pushed immediately by broadcastRoster; only
+				-- the "you're out" edge is reconciled here, because it happens
+				-- on half a dozen paths (finish, quit, walkover, disconnect,
+				-- stop-spectating, session timeout) and missing one would leave
+				-- a player back in the lobby with half the lobby invisible.
+				local inRace = playerSession[userId] ~= nil or sessionSpectatedBy(userId) ~= nil
+				if inRace then
+					rosterCleared[userId] = nil
+				elseif not rosterCleared[userId] then
+					rosterCleared[userId] = true
+					raceRosterRemote:FireClient(player, nil)
+				end
 			end
 		end
 	end)
@@ -1482,6 +1570,7 @@ function awardWalkover(session: Session): boolean
 	local userId = winner.UserId
 	session.winner = winner
 	session.participants[userId] = nil
+	playerSession[userId] = nil
 	session.finishedCount += 1
 
 	playerRaceStage[userId] = nil
@@ -1618,8 +1707,11 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 		return
 	end
 
-	local session = sessions[stageId]
-	if not session or not session.participants[userId] then
+	-- Resolved through the player, not the stage: a stage can be carrying
+	-- several races at once, so crossing Stage 3's finish line only counts for
+	-- whichever race on Stage 3 this player is actually in.
+	local session = sessionFor(userId)
+	if not session or session.stageId ~= stageId or not session.participants[userId] then
 		return
 	end
 
@@ -1627,6 +1719,7 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 	playerBusy[userId] = nil
 	lastCheckpoint[userId] = nil
 	session.participants[userId] = nil
+	playerSession[userId] = nil
 
 	-- Others are still out there racing -- offer to stick around and watch
 	-- instead of yanking this player straight back to the lobby the instant
@@ -1637,6 +1730,7 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 		LobbyService.SetPlayerState(player, "Spectating")
 		parkSpectator(player)
 		broadcastSpectatorRacers(session)
+		broadcastRoster(session)
 	else
 		LobbyService.SetPlayerState(player, "Lobby")
 	end
@@ -1783,16 +1877,17 @@ function MatchService.QuitMatch(player: Player)
 	practiceMatches[userId] = nil
 	abandonDuel(player)
 
-	local raceStageId = playerRaceStage[userId]
-	local raceSession = sessionFor(raceStageId)
+	local raceSession = sessionFor(userId)
 	if raceSession then
 		raceSession.participants[userId] = nil
+		playerSession[userId] = nil
 		if next(raceSession.participants) == nil then
 			endSession(raceSession)
 		elseif not awardWalkover(raceSession) then
 			-- Anyone spectating this player specifically needs to know they're
 			-- gone (a quit is just as much "no longer racing" as a finish).
 			broadcastSpectatorRacers(raceSession)
+			broadcastRoster(raceSession)
 		end
 	end
 
@@ -1851,6 +1946,8 @@ local function removePlayer(player: Player)
 	-- Drop their cached weather value too, or a rejoining player reusing this
 	-- UserId would be told "no change" and left on the previous session's sky.
 	WeatherService.Forget(player)
+	rosterCleared[userId] = nil
+	playerSession[userId] = nil
 
 	local queuedIn = queuedTarget[userId]
 	if queuedIn then
@@ -1874,14 +1971,15 @@ local function removePlayer(player: Player)
 	abandonDuel(player)
 	pendingDuelRequests[userId] = nil
 
-	local raceStageId = playerRaceStage[userId]
-	local raceSession = sessionFor(raceStageId)
+	local raceSession = sessionFor(userId)
 	if raceSession then
 		raceSession.participants[userId] = nil
+		playerSession[userId] = nil
 		if next(raceSession.participants) == nil then
 			endSession(raceSession)
 		elseif not awardWalkover(raceSession) then
 			broadcastSpectatorRacers(raceSession)
+			broadcastRoster(raceSession)
 		end
 	end
 	local spectated = sessionSpectatedBy(userId)
@@ -2068,6 +2166,13 @@ function MatchService.Init()
 	mapSelectedRemote = Net.CreateRemoteEvent(RemoteNames.MapSelected)
 	playerFellRemote = Net.CreateRemoteEvent(RemoteNames.PlayerFell)
 	spectateStatusRemote = Net.CreateRemoteEvent(RemoteNames.SpectateStatus)
+	raceRosterRemote = Net.CreateRemoteEvent(RemoteNames.RaceRosterChanged)
+	waveClockRemote = Net.CreateRemoteEvent(RemoteNames.WaveClock)
+	-- Someone joining mid-window needs the time LEFT, not a fresh 60 -- the
+	-- wave clock runs on server start and never restarts for an individual.
+	Players.PlayerAdded:Connect(function(player)
+		waveClockRemote:FireClient(player, waveSecondsRemaining())
+	end)
 	practiceCompleteRemote = Net.CreateRemoteEvent(RemoteNames.PracticeComplete)
 	queueRejectedRemote = Net.CreateRemoteEvent(RemoteNames.QueueRejected)
 	duelRequestReceivedRemote = Net.CreateRemoteEvent(RemoteNames.DuelRequestReceived)
@@ -2077,6 +2182,7 @@ function MatchService.Init()
 	startFallWatchdog()
 	startProgressBroadcast()
 	startWeatherReconciler()
+	startWaveClock()
 
 	-- mode: nil/"Real" -> shared queue, "Bots" -> solo vs. a bot, "Practice"
 	-- -> solo, no opponent at all. (Was a plain vsBots boolean before

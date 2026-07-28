@@ -114,9 +114,10 @@ local function buildUI()
 	container = Instance.new("Frame")
 	container.Name = "CountdownContainer"
 	container.Size = UDim2.fromOffset(300, 104)
-	-- y = 24, not flush to 12: the cancel X straddles the top edge and hangs 18px
-	-- above it, so anything tighter pushes it up under the Roblox topbar.
-	container.Position = UDim2.new(0.5, -150, 0, 24)
+	-- y = 60: below WaveClockController's tab (6..38), with enough room that the
+	-- cancel X -- which straddles this card's top edge, hanging 18px above it --
+	-- clears the tab rather than overlapping it.
+	container.Position = UDim2.new(0.5, -150, 0, 60)
 	container.BackgroundColor3 = Theme.Candy.PanelFace
 	container.BorderSizePixel = 0
 	container.Visible = false

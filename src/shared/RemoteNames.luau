@@ -62,4 +62,10 @@ return {
 	-- Per-player weather: which stage's preset THIS client should be seeing,
 	-- or nil for the lobby (see WeatherService).
 	WeatherChanged = "WeatherChanged",
+	-- The userIds sharing THIS player's race, so the client can hide everyone
+	-- else on the course (see RaceVisibilityController).
+	RaceRosterChanged = "RaceRosterChanged",
+	-- Seconds until the next PLAY wave departs. Broadcast to EVERYONE, queued
+	-- or not (see MatchService's wave clock).
+	WaveClock = "WaveClock",
 }
