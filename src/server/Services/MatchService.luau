@@ -1356,6 +1356,31 @@ function awardWalkover(session: Session): boolean
 	return true
 end
 
+-- Pays the finish reward and reports it. Applied to EVERY player who crosses
+-- the line, including the winner (who gets it on top of their win points), so
+-- there is no completed race that pays nothing. Returns the amount so the
+-- caller can put it in that player's RaceOutcome payload -- a reward the
+-- player is never shown may as well not exist.
+local function awardFinishPoints(player: Player): number
+	local profile = PlayerDataService.GetProfile(player)
+	if not profile then
+		return 0
+	end
+	local multiplier = if MonetizationService.HasVIP(player) then MonetizationService.PointsMultiplier else 1
+	local amount = Constants.Match.PointsPerFinish * multiplier
+	profile.Points += amount
+	TelemetryService.Economy(
+		player,
+		true,
+		"Points",
+		amount,
+		profile.Points,
+		Enum.AnalyticsEconomyTransactionType.Gameplay,
+		"RaceFinish"
+	)
+	return amount
+end
+
 -- No Elo/streak/leaderboard-skew here (see finishBotMatch's comment above for
 -- why bot/practice stay zero-stakes) -- a duel carries the exact same stakes
 -- as a real ranked race, just against one specific opponent picked via the
@@ -1375,6 +1400,9 @@ local function finishDuelMatch(player: Player, match: DuelMatch)
 	local elapsed = os.clock() - match.startTime
 	LeaderboardService.SubmitTime(player, match.stageId, elapsed)
 
+	-- Same rule as a queued race: crossing the line always pays.
+	local finishPoints = awardFinishPoints(player)
+
 	local isWinner = not match.winner
 	if isWinner then
 		match.winner = player
@@ -1388,7 +1416,7 @@ local function finishDuelMatch(player: Player, match: DuelMatch)
 			local winnerDelta, winStreak, streakBonus, points = settleWin(player, { opponent })
 			raceOutcomeRemote:FireClient(player, {
 				Won = true,
-				Points = points,
+				Points = points + finishPoints,
 				Placement = 1,
 				EloDelta = winnerDelta,
 				WinStreak = winStreak,
@@ -1397,8 +1425,9 @@ local function finishDuelMatch(player: Player, match: DuelMatch)
 		end
 	else
 		-- Elo for this player was already settled when the opponent (the real
-		-- winner) finished first -- this is just their personal placement.
-		raceOutcomeRemote:FireClient(player, { Won = false, Placement = 2, Total = 2 })
+		-- winner) finished first -- this is just their personal placement,
+		-- plus the finish reward for having actually completed the course.
+		raceOutcomeRemote:FireClient(player, { Won = false, Placement = 2, Total = 2, Points = finishPoints })
 	end
 end
 
@@ -1471,6 +1500,8 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 		tostring(session.totalParticipants),
 	})
 	TelemetryService.EndMatchAttempt(player)
+
+	local finishPoints = awardFinishPoints(player)
 	racePositionRemote:FireClient(player, placement, session.totalParticipants)
 	for _, opponent in session.participants do
 		racePositionRemote:FireClient(opponent, placement + 1, session.totalParticipants)
@@ -1494,12 +1525,19 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 			EloDelta = winnerDelta,
 			WinStreak = winStreak,
 			StreakBonus = streakBonus,
-			Points = points,
+			Points = points + finishPoints,
 		})
 	else
 		-- Elo for this player was already settled when the winner finished;
-		-- this is just their personal placement confirmation.
-		raceOutcomeRemote:FireClient(player, { Won = false, Placement = placement, Total = session.totalParticipants })
+		-- this is just their personal placement confirmation -- plus the
+		-- finish reward, which is the whole point of this branch no longer
+		-- being an empty-handed one.
+		raceOutcomeRemote:FireClient(player, {
+			Won = false,
+			Placement = placement,
+			Total = session.totalParticipants,
+			Points = finishPoints,
+		})
 	end
 
 	if next(session.participants) == nil then

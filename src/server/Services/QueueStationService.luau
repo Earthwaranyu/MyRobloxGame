@@ -9,6 +9,7 @@ local QueueModes = require(Shared.QueueModes)
 local RemoteNames = require(Shared.RemoteNames)
 
 local MatchService = require(script.Parent.MatchService)
+local NeonGlowService = require(script.Parent.NeonGlowService)
 
 -- Waiting ROOMS in the lobby, one per race size. Walk in through the doorway
 -- and you're in that room's queue; walk back out and you've left it. When the
@@ -37,10 +38,19 @@ local WALL_HEIGHT = 7
 local WALL_THICKNESS = 1
 local DOORWAY_WIDTH = 8
 local ROOM_SPACING = 26
--- In front of the lobby spawn, in the gap between the spawn pad and the plaza
--- centrepiece: the row must clear the trophy (which occupies Z -8..8 around
--- the plaza centre) or the middle room would be built straight through it.
-local ROOM_FORWARD_OFFSET = 20
+-- Far side of the plaza, past the trophy.
+--
+-- The rooms used to sit in the gap between spawn and the plaza centre, which
+-- put them first on the walk out of spawn -- so a new player met five doorways
+-- before ever seeing the leaderboard or the rank chart, and picked a race
+-- without knowing what Elo or rank meant. The order along the walk is now
+-- boards (Z 30) -> trophy (Z 0) -> room doorways (Z -13), so the two
+-- information boards are read on the way to the thing they explain.
+--
+-- The row must also clear the trophy itself (Z -8..8 around the plaza
+-- centre) or the middle room would be built straight through it -- at this
+-- offset the back wall lands at Z -31, well past it.
+local ROOM_FORWARD_OFFSET = 62
 -- How far above the floor still counts as "in the room", so a jumping player
 -- isn't momentarily read as having left.
 local ROOM_HEIGHT_TOLERANCE = 12
@@ -100,13 +110,25 @@ end
 local function buildSign(anchor: BasePart, mode: QueueModes.Mode): TextLabel
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "RoomSign"
-	billboard.Size = UDim2.fromOffset(170, 76)
+	-- Sized in STUDS (the Scale component), not pixels, so a sign shrinks with
+	-- distance like the room it labels. A fixed-pixel sign keeps its on-screen
+	-- size no matter how far away it is, which was fine when the rooms sat 20
+	-- studs from spawn and filled the view -- at the current 62 the five rooms
+	-- subtend a much narrower angle, and five same-sized signs collapsed into
+	-- one overlapping unreadable band across the middle of the screen.
+	--
+	-- 18 wide against ROOM_SPACING of 26 leaves a clear gutter between
+	-- neighbours at any distance, since both now scale together.
+	billboard.Size = UDim2.fromScale(18, 8)
 	billboard.StudsOffsetWorldSpace = Vector3.new(0, WALL_HEIGHT * 0.5 + 2, 0)
 	billboard.MaxDistance = 200
 	billboard.Parent = anchor
 
+	-- Both labels are laid out in SCALE for the same reason the billboard is:
+	-- a stud-sized billboard's pixel canvas grows and shrinks with distance, so
+	-- offset-positioned children would drift out of the frame as you walk up.
 	local title = Instance.new("TextLabel")
-	title.Size = UDim2.new(1, 0, 0, 42)
+	title.Size = UDim2.fromScale(1, 0.55)
 	title.BackgroundTransparency = 1
 	title.Font = Enum.Font.GothamBlack
 	title.Text = mode.Label
@@ -117,8 +139,8 @@ local function buildSign(anchor: BasePart, mode: QueueModes.Mode): TextLabel
 
 	local count = Instance.new("TextLabel")
 	count.Name = "Count"
-	count.Size = UDim2.new(1, 0, 0, 30)
-	count.Position = UDim2.fromOffset(0, 44)
+	count.Size = UDim2.fromScale(1, 0.4)
+	count.Position = UDim2.fromScale(0, 0.58)
 	count.BackgroundTransparency = 1
 	count.Font = Enum.Font.GothamBold
 	count.Text = ""
@@ -174,6 +196,11 @@ local function buildRoom(mode: QueueModes.Mode, index: number, total: number)
 		model
 	)
 	floor.Material = Enum.Material.Neon
+	-- Opt the floor in to a real PointLight, so a room casts its colour up its
+	-- own walls and out of the doorway instead of just looking bright itself.
+	-- The light takes the floor's colour, so the custom room glows violet and
+	-- the rest blue with no extra wiring here.
+	CollectionService:AddTag(floor, NeonGlowService.Tag)
 
 	buildWalls(model, base, WALL_COLOR)
 	model.PrimaryPart = floor

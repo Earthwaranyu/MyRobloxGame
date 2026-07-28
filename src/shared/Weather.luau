@@ -20,6 +20,31 @@ export type WeatherPreset = {
 		Glare: number,
 		Haze: number,
 	},
+	-- Post-processing. These effects already existed in Lighting but were
+	-- STATIC -- one fixed look shared by a sunny plaza, a thunderstorm and a
+	-- midnight stage alike, which flattened the difference between them to
+	-- little more than fog colour. Driving them per weather is the cheapest
+	-- large visual gain available: no new geometry, no extra draw calls, and
+	-- it makes each stage read as its own place in a screenshot.
+	--
+	-- Bloom sells emissive surfaces (the neon queue rooms, checkpoint pads,
+	-- Stage3's night-time gimmicks); ColorCorrection is what actually gives a
+	-- scene a "grade" instead of looking like untouched default Roblox.
+	Bloom: {
+		Intensity: number,
+		Size: number,
+		Threshold: number,
+	},
+	ColorCorrection: {
+		Saturation: number,
+		Contrast: number,
+		Brightness: number,
+		TintColor: Color3,
+	},
+	SunRays: {
+		Intensity: number,
+		Spread: number,
+	},
 	-- Optional one-shot layered on top of the race music at random intervals
 	-- (thunder, owl hoot) -- the only audio a WeatherPreset drives now, since
 	-- Weather.Race's music track replaced the old continuous ambient bed.
@@ -51,6 +76,17 @@ Weather.Lobby = {
 		Glare = 0.15,
 		Haze = 1,
 	},
+	-- Punchy and warm, to match the candy UI rather than fight it. Threshold
+	-- sits low enough that the neon queue-room floors and the trophy actually
+	-- glow, which is what makes the lobby photograph well.
+	Bloom = { Intensity = 0.9, Size = 20, Threshold = 1.6 },
+	ColorCorrection = {
+		Saturation = 0.16,
+		Contrast = 0.08,
+		Brightness = 0,
+		TintColor = Color3.fromRGB(255, 250, 244),
+	},
+	SunRays = { Intensity = 0.14, Spread = 0.9 },
 	MusicSoundId = "rbxassetid://9043769892", -- APM Music: "Throw Your Hands in the Air (c 60)"
 	MusicVolume = 0.4,
 }
@@ -82,6 +118,15 @@ Weather.Presets = {
 			Glare = 0.25,
 			Haze = 0.8,
 		},
+		-- Saturated holiday-postcard look; the brightest grade of the four.
+		Bloom = { Intensity = 0.85, Size = 20, Threshold = 1.8 },
+		ColorCorrection = {
+			Saturation = 0.2,
+			Contrast = 0.06,
+			Brightness = 0,
+			TintColor = Color3.fromRGB(255, 252, 240),
+		},
+		SunRays = { Intensity = 0.18, Spread = 1 },
 	} :: WeatherPreset,
 
 	Stormy = {
@@ -106,6 +151,17 @@ Weather.Presets = {
 		AccentVolume = 0.55,
 		AccentIntervalMin = 18,
 		AccentIntervalMax = 38,
+		-- Drained of colour and pushed to contrast -- the storm should feel like
+		-- the colour has been sucked out of the world, not merely like fog.
+		-- SunRays nearly off: there is no visible sun to cast them.
+		Bloom = { Intensity = 0.45, Size = 24, Threshold = 2.2 },
+		ColorCorrection = {
+			Saturation = -0.28,
+			Contrast = 0.14,
+			Brightness = -0.02,
+			TintColor = Color3.fromRGB(198, 212, 235),
+		},
+		SunRays = { Intensity = 0.02, Spread = 0.2 },
 	} :: WeatherPreset,
 
 	Windy = {
@@ -126,6 +182,15 @@ Weather.Presets = {
 			Glare = 0.1,
 			Haze = 4,
 		},
+		-- Crisp and slightly cool -- clear air, hard edges, no haze glow.
+		Bloom = { Intensity = 0.7, Size = 20, Threshold = 1.9 },
+		ColorCorrection = {
+			Saturation = 0.1,
+			Contrast = 0.07,
+			Brightness = 0,
+			TintColor = Color3.fromRGB(246, 250, 255),
+		},
+		SunRays = { Intensity = 0.16, Spread = 0.8 },
 	} :: WeatherPreset,
 
 	Night = {
@@ -150,6 +215,18 @@ Weather.Presets = {
 		AccentVolume = 0.4,
 		AccentIntervalMin = 22,
 		AccentIntervalMax = 45,
+		-- The one preset where bloom does real work: a low threshold makes every
+		-- emissive surface on the stage (pads, checkpoints, the vanishing
+		-- platforms' warning flash) bloom against a near-black sky, which is what
+		-- makes a night stage look deliberate rather than just underlit.
+		Bloom = { Intensity = 1.4, Size = 28, Threshold = 1.05 },
+		ColorCorrection = {
+			Saturation = -0.06,
+			Contrast = 0.16,
+			Brightness = 0.01,
+			TintColor = Color3.fromRGB(172, 190, 255),
+		},
+		SunRays = { Intensity = 0, Spread = 0 },
 	} :: WeatherPreset,
 }
 

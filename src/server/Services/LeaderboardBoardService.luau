@@ -42,23 +42,27 @@ local function buildBoard(): BasePart
 	-- move/rotate it in Studio afterward and save; this function won't touch
 	-- it again once BOARD_NAME exists.
 	--
-	-- Beside the trophy at the plaza centre, which is the natural home for it:
-	-- both are "here is who is winning", so they read as one display rather
-	-- than two unrelated props, and the centre is somewhere players already
-	-- gather. Expressed as an offset from spawn (the one anchor this service
-	-- can rely on) but aimed at the plaza centre 40 studs ahead of it.
+	-- Ten studs in front of spawn, right of the walkway, paired with the rank
+	-- board on the left. This is the FIRST thing on the walk out of spawn --
+	-- the rooms now sit past the trophy (see QueueStationService), so a player
+	-- reads who is winning and what the ranks mean before choosing a race.
 	--
-	-- It must stay clear of the queue rooms, which occupy Z 11-29 directly
-	-- between spawn and here: an earlier placement 4 studs in FRONT of spawn
-	-- ended up squarely in the sight line to the room doorways, hiding the
-	-- middle room behind a black slab. At the plaza centre it sits beyond the
-	-- rooms instead of across them, facing back the way players walk in
-	-- (SurfaceGui uses NormalId.Front, i.e. +Z, so no rotation needed).
+	-- X=+-20 specifically: verified against every straight walk from spawn to
+	-- each of the five room doorways, and it is the closest pair to the
+	-- walkway that none of them passes through.
 	local anchor = Workspace:FindFirstChild("SpawnLocation")
-	local basePosition = Vector3.new(20, 8, 0)
+	local basePosition = Vector3.new(20, 8, 30)
 	if anchor and anchor:IsA("BasePart") then
-		basePosition = anchor.Position + Vector3.new(20, 6, -40)
+		basePosition = anchor.Position + Vector3.new(20, 6, -10)
 	end
+
+	-- Faces +Z, back toward spawn, so it is readable head-on as you walk out.
+	-- The 180-degree turn is load-bearing: NormalId.Front is the part's LOCAL
+	-- -Z face (verified in Studio via Vector3.fromNormalId), so an unrotated
+	-- board points its display AWAY from spawn and shows players nothing but a
+	-- blank black slab. An earlier comment here claimed Front was +Z and
+	-- skipped the rotation, which is exactly how that happened.
+	local displayRotation = CFrame.Angles(0, math.rad(180), 0)
 
 	local part = Instance.new("Part")
 	part.Name = BOARD_NAME
@@ -67,7 +71,7 @@ local function buildBoard(): BasePart
 	-- board (see above) should never be able to physically block a player.
 	part.CanCollide = false
 	part.Size = Vector3.new(10, 12, 1)
-	part.Position = basePosition
+	part.CFrame = CFrame.new(basePosition) * displayRotation
 	part.Color = Color3.fromRGB(20, 21, 30)
 	part.Material = Enum.Material.SmoothPlastic
 	part.Parent = Workspace

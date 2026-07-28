@@ -142,7 +142,10 @@ local function buildUI()
 	-- (confirmed via screenshot: the icon sat on top of "M" in "METEOR").
 	-- opts.Icon computes the label's left inset FROM the icon's real size/
 	-- position, so the two can never drift out of sync again.
-	button = Widgets.Button("DASH (Q)", UDim2.fromOffset(200, 44), UDim2.new(0.5, -75, 1, -224), {
+	-- x = -20 pairs with SprintController's SPRINT at -180, which centres the
+	-- two-button group on screen -- see the comment there for the arithmetic.
+	-- These two positions have to move together.
+	button = Widgets.Button("DASH (Q)", UDim2.fromOffset(200, 44), UDim2.new(0.5, -20, 1, -224), {
 		Variant = "Secondary",
 		TextSize = 16,
 		Icon = function(holder, color)

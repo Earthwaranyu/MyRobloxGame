@@ -8,7 +8,8 @@ local BadgeService = game:GetService("BadgeService")
 -- game code -- so every id below starts at 0 (award() no-ops on 0) until
 -- someone pastes in the real ids here.
 local BADGE_IDS = {
-	FirstWin = 0,
+	-- "Win Badge" -- confirmed live via BadgeService:GetBadgeInfoAsync.
+	FirstWin = 805282398696077,
 	WinStreak3 = 0,
 	WinStreak5 = 0,
 	RankSilver = 0,

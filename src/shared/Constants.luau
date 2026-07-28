@@ -60,5 +60,17 @@ return {
 		CountdownSeconds = 8,
 		MaxDurationSeconds = 300,
 		PointsPerWin = 50,
+		-- Paid to anyone who CROSSES THE LINE, winner or not, on top of
+		-- PointsPerWin for the one who got there first.
+		--
+		-- Without it a race paid exactly one player and everybody else walked
+		-- away with nothing -- and in a field of N, that's (N-1)/N of all race
+		-- outcomes. Losing already costs Elo; losing and also being told your
+		-- last two minutes earned literally zero is what teaches people to
+		-- stop queueing. Deliberately far below PointsPerWin so winning is
+		-- still overwhelmingly the point, and deliberately gated on FINISHING
+		-- -- quitting or falling out pays nothing, so it can't be farmed by
+		-- queueing and immediately leaving.
+		PointsPerFinish = 15,
 	},
 }

@@ -75,7 +75,12 @@ local function buildUI()
 	-- GachaController's Pull/Lucky buttons for why) -- letting
 	-- defaultTextSize's own >=18 threshold apply keeps this crisp instead of
 	-- soft.
-	button = Widgets.Button("SPRINT", UDim2.fromOffset(150, 44), UDim2.new(0.5, -235, 1, -224), {
+	-- x = -180 pairs with AbilityController's DASH at -20: the two buttons plus
+	-- the 10px gap between them are 360 wide (150 + 10 + 200), so starting at
+	-- -180 puts the PAIR's midpoint on the screen centre. The old -235/-75 gave
+	-- the same spacing but centred neither -- the group ran -235..125, sitting
+	-- visibly left of the PLAY button it stacks above.
+	button = Widgets.Button("SPRINT", UDim2.fromOffset(150, 44), UDim2.new(0.5, -180, 1, -224), {
 		Variant = "Secondary",
 	})
 	button.Parent = screenGui
