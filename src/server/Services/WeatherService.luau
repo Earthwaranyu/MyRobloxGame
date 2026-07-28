@@ -1,89 +1,60 @@
-local Lighting = game:GetService("Lighting")
-local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
-local Weather = require(Shared.Weather)
+local Net = require(Shared.Net)
+local RemoteNames = require(Shared.RemoteNames)
 
--- Lighting/Atmosphere are DataModel singletons that replicate to every
--- client automatically, no remotes needed. That's only correct because the
--- whole architecture runs one active race session at a time (see
--- MatchService's single `activeSession`) -- there's never a moment where two
--- different stages' weather would need to be visible to two different
--- groups of players simultaneously.
+-- Decides which stage's weather each player should be seeing, and tells that
+-- player's client to apply it. The actual Lighting work happens on the client
+-- (see WeatherController).
+--
+-- This used to tween the SERVER's Lighting directly, which replicates to
+-- everyone automatically -- correct only while exactly one race could exist
+-- at a time. With races running in parallel, two groups can be on Stage 2
+-- (storm) and Stage 3 (night) simultaneously, and a Roblox server has exactly
+-- ONE Lighting: there is no server-side value that is right for both. Weather
+-- is a purely visual, per-viewer concern, so it belongs on the client.
+--
+-- Moving it also lifted an old limitation: bot, practice and duel matches
+-- deliberately ran with no weather at all, precisely because they couldn't
+-- safely touch the global singleton while a real race might be using it.
+-- They now get the same weather as any other race.
+--
+-- The server no longer touches Lighting AT ALL, deliberately: any server-side
+-- write replicates down and would stomp whatever the client had set for
+-- itself, which is exactly the bug this change exists to remove.
 local WeatherService = {}
 
-local TWEEN_TIME = 3
+local weatherRemote: RemoteEvent
 
--- Reuses whatever is already in Lighting (the place has a hand-authored Sky,
--- Atmosphere, Bloom, SunRays and DepthOfField) and only creates what's
--- missing, so a look tuned in Studio isn't silently replaced at runtime.
-local cached: { [string]: Instance } = {}
+-- Last value sent per player, so callers can push on every tick without
+-- spamming the wire -- only an actual change is sent. `everSent` is separate
+-- because nil is a meaningful value here (the lobby), so it can't double as
+-- "nothing sent yet".
+local lastSent: { [number]: string? } = {}
+local everSent: { [number]: boolean } = {}
 
-local function effect(className: string): Instance
-	local existing = cached[className]
-	if existing and existing.Parent == Lighting then
-		return existing
-	end
-	local found = Lighting:FindFirstChildOfClass(className)
-	if not found then
-		found = Instance.new(className)
-		found.Parent = Lighting
-	end
-	cached[className] = found
-	return found
-end
-
-local function getAtmosphere(): Atmosphere
-	return effect("Atmosphere") :: Atmosphere
-end
-
--- Post-processing is tweened on the same clock as the lighting itself, so a
--- stage transition is one continuous 3-second grade rather than the colour
--- snapping while the fog drifts. Each preset table is optional -- a preset
--- that omits one simply leaves that effect untouched.
-local function tweenTo(
-	lightingProps: { [string]: any },
-	atmosphereProps: { [string]: any },
-	bloomProps: { [string]: any }?,
-	colorProps: { [string]: any }?,
-	sunRaysProps: { [string]: any }?
-)
-	local info = TweenInfo.new(TWEEN_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-	TweenService:Create(Lighting, info, lightingProps):Play()
-	TweenService:Create(getAtmosphere(), info, atmosphereProps):Play()
-	if bloomProps then
-		TweenService:Create(effect("BloomEffect"), info, bloomProps):Play()
-	end
-	if colorProps then
-		TweenService:Create(effect("ColorCorrectionEffect"), info, colorProps):Play()
-	end
-	if sunRaysProps then
-		TweenService:Create(effect("SunRaysEffect"), info, sunRaysProps):Play()
-	end
-end
-
-function WeatherService.ApplyStageWeather(stageId: string)
-	local preset = Weather.GetForStage(stageId)
-	if not preset then
+-- stageId, or nil for "back to the lobby look".
+function WeatherService.SetForPlayer(player: Player, stageId: string?)
+	if not weatherRemote then
 		return
 	end
-	tweenTo(preset.Lighting, preset.Atmosphere, preset.Bloom, preset.ColorCorrection, preset.SunRays)
+	local userId = player.UserId
+	if everSent[userId] and lastSent[userId] == stageId then
+		return
+	end
+	lastSent[userId] = stageId
+	everSent[userId] = true
+	weatherRemote:FireClient(player, stageId)
 end
 
-function WeatherService.RevertToLobby()
-	tweenTo(
-		Weather.Lobby.Lighting,
-		Weather.Lobby.Atmosphere,
-		Weather.Lobby.Bloom,
-		Weather.Lobby.ColorCorrection,
-		Weather.Lobby.SunRays
-	)
+function WeatherService.Forget(player: Player)
+	lastSent[player.UserId] = nil
+	everSent[player.UserId] = nil
 end
 
 function WeatherService.Init()
-	getAtmosphere()
-	WeatherService.RevertToLobby()
+	weatherRemote = Net.CreateRemoteEvent(RemoteNames.WeatherChanged)
 end
 
 return WeatherService

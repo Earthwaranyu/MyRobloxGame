@@ -71,13 +71,19 @@ local queues: { [number]: { Player } } = {}
 -- queuedSet: every lookup that used to ask "are they queued at all?" also
 -- needs to know WHICH queue to pull them out of.
 local queuedTarget: { [number]: number } = {}
-local pendingCountdown = false
-local countdownEndTime: number? = nil
-local pendingStageId: string? = nil
--- Which queue the countdown currently running belongs to. Only one race can
--- exist server-wide at a time (activeSession is a single slot by design), so
--- queues take turns rather than racing concurrently.
-local pendingTarget: number? = nil
+
+-- Countdowns currently running, keyed by the queue they belong to. Several run
+-- at once now -- one per queue -- so the 1v1 station is never held up behind
+-- the PLAY queue's longer matching window.
+--
+-- Each holds the stage it has already rolled, so that stage can be treated as
+-- taken from the moment the reel starts spinning rather than only once players
+-- are teleported onto it.
+type Pending = {
+	stageId: string,
+	endTime: number,
+}
+local pending: { [number]: Pending } = {}
 
 local function getQueue(target: number): { Player }
 	local existing = queues[target]
@@ -97,7 +103,62 @@ local function requiredFor(target: number): number
 	end
 	return target
 end
-local activeSession: Session? = nil
+-- Live races, keyed by stage id.
+--
+-- This was a single `activeSession` slot, which forced every queue to take
+-- turns: a full 1v1 station sat waiting for an unrelated 5-player race to
+-- finish. Races are keyed by STAGE because that is the real constraint -- two
+-- groups cannot share a course (one spawn CFrame, one set of platforms, one
+-- finish line), but four groups on four different stages never touch each
+-- other. So concurrency is naturally bounded by the number of stages.
+local sessions: { [string]: Session } = {}
+
+local function sessionFor(stageId: string?): Session?
+	return if stageId then sessions[stageId] else nil
+end
+
+-- A stage is unavailable while a race is on it OR while a countdown that has
+-- already rolled it is running -- otherwise two queues counting down at the
+-- same time could both roll the same stage and collide on teleport.
+-- Which race this player is SPECTATING, if any. Spectators can't be resolved
+-- by playerRaceStage the way racers are -- it's cleared the moment they stop
+-- racing -- so with more than one race live this has to be a search.
+local function sessionSpectatedBy(userId: number): Session?
+	for _, session in sessions do
+		if session.spectators[userId] then
+			return session
+		end
+	end
+	return nil
+end
+
+local function stageIsBusy(stageId: string): boolean
+	if sessions[stageId] then
+		return true
+	end
+	for _, entry in pending do
+		if entry.stageId == stageId then
+			return true
+		end
+	end
+	return false
+end
+
+-- Rolls a stage nobody is using. Returns nil when all four are busy, which is
+-- the signal to leave the queue waiting rather than start a race with nowhere
+-- to put it.
+local function rollFreeStage(): string?
+	local free = {}
+	for _, stage in Stages do
+		if not stageIsBusy(stage.Id) then
+			table.insert(free, stage.Id)
+		end
+	end
+	if #free == 0 then
+		return nil
+	end
+	return free[math.random(1, #free)]
+end
 
 local playerRaceStage: { [number]: string } = {}
 -- Most recent checkpoint each player has touched this stage visit, used to
@@ -118,11 +179,10 @@ local lastCheckpoint: { [number]: CFrame } = {}
 -- whole span.
 local playerBusy: { [number]: boolean } = {}
 
--- Solo vs-bot matches deliberately do NOT go through `activeSession`/the
--- shared queue above -- that's a single server-wide slot by design (see
--- WeatherService's comment on why), and a bot match blocking every other
--- player's real matchmaking for up to MaxDurationSeconds would be a real
--- regression. Each player can run their own bot match fully independently,
+-- Solo vs-bot matches deliberately do NOT go through `sessions`/the shared
+-- queue above. Queued races claim a whole stage for their duration, and there
+-- are only four; a bot match holding one for up to MaxDurationSeconds would
+-- burn a quarter of the server's race capacity on one player. Each player can run their own bot match fully independently,
 -- tracked here by userId instead.
 local botMatches: { [number]: { stageId: string, bot: BotService.BotHandle } } = {}
 
@@ -226,7 +286,7 @@ local duelRequestReceivedRemote: RemoteEvent
 local duelCancelledRemote: RemoteEvent
 
 local tryStartCountdown: () -> ()
-local startSession: () -> ()
+local startSession: (target: number, stageId: string?) -> ()
 local beginRace: (stageId: string, participants: { [number]: Player }) -> ()
 local endSession: () -> ()
 local awardWalkover: (session: Session) -> boolean
@@ -383,61 +443,57 @@ local function setFrozen(player: Player, frozen: boolean)
 	end)
 end
 
-function tryStartCountdown()
-	if pendingCountdown or activeSession then
-		return
-	end
+-- Every queue that is ready and doesn't already have a countdown running.
+--
+-- This used to pick exactly ONE queue and return, because only one race could
+-- exist at a time. Now each ready queue gets its own countdown, so a full 1v1
+-- station starts immediately instead of waiting out an unrelated race.
+local function readyTargets(): { number }
+	local ready = {}
 
-	-- Pick a queue that's ready. Stations are checked before the size-agnostic
-	-- queue and in ascending size order, so a complete group never waits
-	-- behind a queue that merely COULD start -- an exact-fill station has
-	-- nothing left to wait for, while the any-size queue is always willing to
-	-- take one more.
-	local readyTarget: number? = nil
+	-- Stations first and in ascending size order, so when stages are scarce a
+	-- complete group claims one before the any-size queue, which is always
+	-- willing to wait for one more player anyway.
 	for _, mode in QueueModes.Stations do
 		local target = mode.Target
-		if target ~= QueueModes.AnySize and #getQueue(target) >= target then
-			readyTarget = target
-			break
+		if target ~= QueueModes.AnySize and not pending[target] and #getQueue(target) >= target then
+			table.insert(ready, target)
 		end
 	end
-	if not readyTarget then
-		-- Custom stations can create queues at sizes no fixed station uses, so
-		-- they need their own sweep rather than being covered by the loop above.
-		for target, waiting in queues do
-			if target ~= QueueModes.AnySize and #waiting >= target then
-				readyTarget = target
-				break
+
+	-- Custom stations can create queues at sizes no fixed station uses, so they
+	-- need their own sweep rather than being covered by the loop above.
+	for target, waiting in queues do
+		if target ~= QueueModes.AnySize and not pending[target] and #waiting >= target then
+			if not table.find(ready, target) then
+				table.insert(ready, target)
 			end
 		end
 	end
-	if not readyTarget then
-		-- Below MinPlayers, stay in "waiting" -- no countdown, no map reveal,
-		-- nothing teleported. This used to only check #queue == 0, which meant
-		-- a single solo player queuing would still get matched into a "race"
-		-- against nobody: 0 Elo change (no real opponent to calculate against)
-		-- but full points AND win-streak credit, same as a real win -- a free,
-		-- repeatable reward exploit, not just a UX gap.
-		if #getQueue(QueueModes.AnySize) >= Constants.Match.MinPlayers then
-			readyTarget = QueueModes.AnySize
-		end
-	end
-	if not readyTarget then
-		return
+
+	-- Below MinPlayers, stay in "waiting" -- no countdown, no map reveal,
+	-- nothing teleported. This used to only check #queue == 0, which meant a
+	-- single solo player queuing would still get matched into a "race" against
+	-- nobody: 0 Elo change (no real opponent to calculate against) but full
+	-- points AND win-streak credit, same as a real win -- a free, repeatable
+	-- reward exploit, not just a UX gap.
+	if not pending[QueueModes.AnySize] and #getQueue(QueueModes.AnySize) >= Constants.Match.MinPlayers then
+		table.insert(ready, QueueModes.AnySize)
 	end
 
+	return ready
+end
+
+local function beginCountdown(target: number, stageId: string)
 	-- A full station has its group already; the only reason to wait at all is
 	-- to let the map-reveal reel play. The any-size queue keeps its real
 	-- matching window, since "how many racers" is exactly the open question
 	-- there and latecomers should still be able to join.
-	local window = if readyTarget == QueueModes.AnySize
+	local window = if target == QueueModes.AnySize
 		then Constants.Match.MatchingSeconds
 		else Constants.Match.SoloRevealSeconds
 
-	pendingCountdown = true
-	pendingTarget = readyTarget
-	pendingStageId = Stages[math.random(1, #Stages)].Id
-	countdownEndTime = os.clock() + window
+	pending[target] = { stageId = stageId, endTime = os.clock() + window }
 
 	-- Tell EVERYONE already in the queue, not just whoever's Enqueue call
 	-- happened to tip it over the threshold. This is where the "the other
@@ -450,9 +506,9 @@ function tryStartCountdown()
 	-- MapRevealController had no stage to spin to and stayed silent right up
 	-- until the teleport. The second player saw the whole thing, which is
 	-- exactly why it looked like it only broke for "the other player."
-	for _, queuedPlayer in getQueue(readyTarget) do
+	for _, queuedPlayer in getQueue(target) do
 		queueStatusRemote:FireClient(queuedPlayer, window)
-		mapSelectedRemote:FireClient(queuedPlayer, pendingStageId)
+		mapSelectedRemote:FireClient(queuedPlayer, stageId)
 	end
 
 	-- window is the COUNTDOWN the client shows; the reel then spins for
@@ -460,22 +516,30 @@ function tryStartCountdown()
 	-- Constants.Match.MapRevealSeconds). The teleport has to wait for both or
 	-- the reveal would be cut off mid-spin by the stage loading around it.
 	task.delay(window + Constants.Match.MapRevealSeconds, function()
-		pendingCountdown = false
-		startSession()
+		pending[target] = nil
+		startSession(target, stageId)
 	end)
+end
+
+function tryStartCountdown()
+	for _, target in readyTargets() do
+		-- Rolled per queue, and only from stages nobody is using. All four busy
+		-- means this queue simply keeps waiting -- tryStartCountdown runs again
+		-- from endSession, so it gets picked up the moment a stage frees up.
+		local stageId = rollFreeStage()
+		if not stageId then
+			return
+		end
+		beginCountdown(target, stageId)
+	end
 end
 
 -- Teleports the matched group to the chosen stage. They stay in "Lobby"
 -- (first-person, but frozen in place -- see setFrozen) for CountdownSeconds
 -- so everyone gets a moment to see the map before the clock starts.
-function startSession()
-	local target = pendingTarget or QueueModes.AnySize
+function startSession(target: number, stageId: string?)
 	local queued = getQueue(target)
 	queues[target] = {}
-	local stageId = pendingStageId
-	pendingStageId = nil
-	pendingTarget = nil
-	countdownEndTime = nil
 
 	-- An exact-size station must still have its exact number; the any-size
 	-- queue only needs the floor. Either way, dropping below it during the
@@ -551,15 +615,15 @@ function startSession()
 		beginRace(stageId, participants)
 	end)
 
-	-- Deliberately NOT calling tryStartCountdown() here for the overflow.
+	-- Overflow left behind by the cap above can start straight away now that
+	-- races run in parallel: it just needs a free stage, and rollFreeStage
+	-- guarantees it won't be handed this one. When all four stages are busy
+	-- this no-ops, and endSession retries the moment one frees up.
 	--
-	-- endSession already calls it the moment this race finishes, which is the
-	-- only safe time: `activeSession` is a single global, so a second window
-	-- started now would run its own startSession while this race is still
-	-- going and overwrite the session out from under it -- taking finish
-	-- detection, spectators and endSession with it. The overflow group waits
-	-- for the current race to end, which is inherent to the game running one
-	-- session at a time.
+	-- (Before parallel sessions this call was unsafe -- a second startSession
+	-- would have overwritten the single global session slot out from under the
+	-- race that was still running.)
+	tryStartCountdown()
 end
 
 -- Actually starts the race: first-person camera (via the Racing state),
@@ -602,8 +666,6 @@ function beginRace(stageId: string, participants: { [number]: Player })
 		TelemetryService.MatchStep(player, "Started")
 		TelemetryService.Onboarding(player, "FirstRace")
 	end
-	WeatherService.ApplyStageWeather(stageId)
-
 	local session: Session = {
 		stageId = stageId,
 		participants = validParticipants,
@@ -613,7 +675,7 @@ function beginRace(stageId: string, participants: { [number]: Player })
 		startTime = os.clock(),
 		spectators = {},
 	}
-	activeSession = session
+	sessions[stageId] = session
 
 	-- Everyone else bailed during the countdown (a session never starts below
 	-- Constants.Match.MinPlayers, so one participant here means departures).
@@ -631,7 +693,7 @@ function beginRace(stageId: string, participants: { [number]: Player })
 	-- Watchdog: if the race never finishes (e.g. everyone AFKs), reset the
 	-- stage rather than leaving it permanently stuck.
 	task.delay(Constants.Match.MaxDurationSeconds, function()
-		if activeSession ~= session then
+		if sessions[session.stageId] ~= session then
 			return
 		end
 
@@ -642,7 +704,7 @@ function beginRace(stageId: string, participants: { [number]: Player })
 			LobbyService.SetPlayerState(straggler, "Lobby")
 		end
 
-		endSession()
+		endSession(session)
 	end)
 end
 
@@ -676,14 +738,26 @@ local function broadcastSpectatorRacers(session: Session)
 	end
 end
 
-function endSession()
-	if activeSession then
-		for _, spectator in activeSession.spectators do
-			returnSpectatorToLobby(spectator)
-		end
+-- Retires ONE race. Takes the session explicitly rather than reading a global
+-- slot: with races running in parallel, "the active session" is no longer a
+-- meaningful phrase, and a finishing Stage 1 race must not tear down a Stage 3
+-- race that happens to still be going.
+function endSession(session: Session?)
+	if not session then
+		return
 	end
-	activeSession = nil
-	WeatherService.RevertToLobby()
+	for _, spectator in session.spectators do
+		returnSpectatorToLobby(spectator)
+	end
+	-- Guarded: only clear the slot if it still holds THIS session, so a late
+	-- endSession (e.g. the AFK watchdog firing after a normal finish already
+	-- cleaned up and a new race started on the same stage) can't evict its
+	-- successor.
+	if sessions[session.stageId] == session then
+		sessions[session.stageId] = nil
+	end
+	-- The stage this race was using is free now, so a queue that was waiting on
+	-- one can finally start.
 	tryStartCountdown()
 end
 
@@ -700,7 +774,10 @@ function MatchService.Enqueue(player: Player, target: number?)
 	-- whether tryStartCountdown's whole-queue broadcast already covered these
 	-- members, or whether they joined a window that was already ticking and
 	-- need to be caught up individually. See the branch at the end.
-	local countdownWasRunning = countdownEndTime ~= nil
+	-- Captured per-queue: with several countdowns able to run at once, "was a
+	-- countdown running" is only ever a question about THIS queue.
+	local queueTargetForCatchUp = target or QueueModes.AnySize
+	local countdownWasRunning = pending[queueTargetForCatchUp] ~= nil
 
 	for _, member in partyMembers do
 		if playerBusy[member.UserId] then
@@ -738,11 +815,12 @@ function MatchService.Enqueue(player: Player, target: number?)
 
 	tryStartCountdown()
 
-	-- pendingTarget must match: with one queue per size, a countdown can be
-	-- running for a DIFFERENT station entirely, and sending its timer and map
-	-- to someone in this queue would show them a race they aren't in --
-	-- counting down to a teleport that never comes for them.
-	if countdownEndTime and pendingStageId and pendingTarget == queueTarget then
+	-- Looked up by THIS queue: several countdowns can be running at once, and
+	-- sending another station's timer and map to someone in this queue would
+	-- show them a race they aren't in -- counting down to a teleport that never
+	-- comes for them.
+	local ourPending = pending[queueTarget]
+	if ourPending then
 		-- Only when the countdown was ALREADY running before this call: these
 		-- members joined mid-window, so tryStartCountdown's own whole-queue
 		-- broadcast (which fires once, at the moment a countdown starts) never
@@ -750,8 +828,8 @@ function MatchService.Enqueue(player: Player, target: number?)
 		-- THIS call is what started it, everyone in the queue was already told.
 		if countdownWasRunning then
 			for _, member in partyMembers do
-				queueStatusRemote:FireClient(member, math.max(0, countdownEndTime - os.clock()))
-				mapSelectedRemote:FireClient(member, pendingStageId)
+				queueStatusRemote:FireClient(member, math.max(0, ourPending.endTime - os.clock()))
+				mapSelectedRemote:FireClient(member, ourPending.stageId)
 			end
 		end
 	else
@@ -784,7 +862,7 @@ end
 -- Solo mode: no matchmaking wait needed (nothing to match with), but keeps
 -- the same map-reveal + pre-race-countdown pacing as a real match so the
 -- client-side UI (MapRevealController, QueueStatusController) works
--- completely unmodified. Doesn't touch `queue`/`activeSession` at all.
+-- completely unmodified. Doesn't touch `queue`/`sessions` at all.
 function MatchService.StartBotMatch(player: Player)
 	local userId = player.UserId
 	if playerBusy[userId] then
@@ -1162,13 +1240,41 @@ end
 -- opponent worth watching -- the shared session (plus its spectators, who
 -- care most of all), duels, and bot matches -- but not practice runs, where
 -- the bar would only ever show one lonely marker.
+-- Pushes each player's weather from playerRaceStage, which is the single
+-- authoritative answer to "which stage is this player standing on" -- set the
+-- moment they're teleported in and cleared the moment they're sent back,
+-- across every mode (queued, bot, practice, duel).
+--
+-- Reconciled on a timer rather than pushed from each assignment: that field is
+-- written in roughly twenty-five places, several inside loops that only have a
+-- userId to hand, and a weather push bolted onto each one would be a
+-- transition waiting to be missed the next time somebody adds a mode. Diffing
+-- one field cannot miss a transition by construction. WeatherService.SetForPlayer
+-- already suppresses no-op repeats, so this only touches the wire on a real
+-- change, and a quarter-second of latency is invisible against a 3-second
+-- weather tween.
+local WEATHER_RECONCILE_INTERVAL = 0.25
+
+local function startWeatherReconciler()
+	task.spawn(function()
+		while true do
+			task.wait(WEATHER_RECONCILE_INTERVAL)
+			for _, player in Players:GetPlayers() do
+				WeatherService.SetForPlayer(player, playerRaceStage[player.UserId])
+			end
+		end
+	end)
+end
+
 local function startProgressBroadcast()
 	task.spawn(function()
 		while true do
 			task.wait(PROGRESS_BROADCAST_INTERVAL)
 
-			local session = activeSession
-			if session then
+			-- Every live race gets its own progress list, and each list only
+			-- goes to that race's own players -- a racer on Stage 1 must never
+			-- be sent the positions of a concurrent race on Stage 3.
+			for _, session in sessions do
 				local entries = {}
 				for userId, racer in session.participants do
 					local entry = progressEntry(session.stageId, userId, racer.DisplayName, getRoot(racer))
@@ -1403,7 +1509,7 @@ function awardWalkover(session: Session): boolean
 		Walkover = true,
 	})
 
-	endSession()
+	endSession(session)
 	return true
 end
 
@@ -1512,8 +1618,8 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 		return
 	end
 
-	local session = activeSession
-	if not session or session.stageId ~= stageId or not session.participants[userId] then
+	local session = sessions[stageId]
+	if not session or not session.participants[userId] then
 		return
 	end
 
@@ -1594,7 +1700,7 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 	end
 
 	if next(session.participants) == nil then
-		endSession()
+		endSession(session)
 	end
 end
 
@@ -1678,14 +1784,15 @@ function MatchService.QuitMatch(player: Player)
 	abandonDuel(player)
 
 	local raceStageId = playerRaceStage[userId]
-	if raceStageId and activeSession and activeSession.stageId == raceStageId then
-		activeSession.participants[userId] = nil
-		if next(activeSession.participants) == nil then
-			endSession()
-		elseif not awardWalkover(activeSession) then
+	local raceSession = sessionFor(raceStageId)
+	if raceSession then
+		raceSession.participants[userId] = nil
+		if next(raceSession.participants) == nil then
+			endSession(raceSession)
+		elseif not awardWalkover(raceSession) then
 			-- Anyone spectating this player specifically needs to know they're
 			-- gone (a quit is just as much "no longer racing" as a finish).
-			broadcastSpectatorRacers(activeSession)
+			broadcastSpectatorRacers(raceSession)
 		end
 	end
 
@@ -1730,8 +1837,8 @@ end
 -- fires, the other is a no-op.
 function MatchService.LeaveSpectate(player: Player)
 	local userId = player.UserId
-	local session = activeSession
-	if not session or not session.spectators[userId] then
+	local session = sessionSpectatedBy(userId)
+	if not session then
 		return
 	end
 	session.spectators[userId] = nil
@@ -1740,6 +1847,10 @@ end
 
 local function removePlayer(player: Player)
 	local userId = player.UserId
+
+	-- Drop their cached weather value too, or a rejoining player reusing this
+	-- UserId would be told "no change" and left on the previous session's sky.
+	WeatherService.Forget(player)
 
 	local queuedIn = queuedTarget[userId]
 	if queuedIn then
@@ -1764,16 +1875,18 @@ local function removePlayer(player: Player)
 	pendingDuelRequests[userId] = nil
 
 	local raceStageId = playerRaceStage[userId]
-	if raceStageId and activeSession and activeSession.stageId == raceStageId then
-		activeSession.participants[userId] = nil
-		if next(activeSession.participants) == nil then
-			endSession()
-		elseif not awardWalkover(activeSession) then
-			broadcastSpectatorRacers(activeSession)
+	local raceSession = sessionFor(raceStageId)
+	if raceSession then
+		raceSession.participants[userId] = nil
+		if next(raceSession.participants) == nil then
+			endSession(raceSession)
+		elseif not awardWalkover(raceSession) then
+			broadcastSpectatorRacers(raceSession)
 		end
 	end
-	if activeSession then
-		activeSession.spectators[userId] = nil
+	local spectated = sessionSpectatedBy(userId)
+	if spectated then
+		spectated.spectators[userId] = nil
 	end
 	playerRaceStage[userId] = nil
 	playerBusy[userId] = nil
@@ -1782,12 +1895,11 @@ local function removePlayer(player: Player)
 end
 
 -- Private 1v1: same map-reveal/countdown pacing as every other mode (see
--- StartBotMatch), but never touches `queue`/`activeSession` (see the module
--- comment on `duelMatches`) and deliberately skips WeatherService.
--- ApplyStageWeather -- exactly like bot/practice matches already do -- since
--- Lighting is one global singleton shared by the whole server, and a duel
--- fighting a concurrent real race over it would be a visible regression for
--- whichever one loses that race.
+-- StartBotMatch), but never touches `queue`/`sessions` (see the module
+-- comment on `duelMatches`). Weather now applies here like anywhere else: it
+-- became per-player when it moved to the client (see WeatherService), so a
+-- duel can have its stage's sky without fighting a concurrent real race over
+-- the one global Lighting -- which is exactly why duels used to skip it.
 function MatchService.StartDuelMatch(playerA: Player, playerB: Player)
 	local stageId = Stages[math.random(1, #Stages)].Id
 	local userIdA, userIdB = playerA.UserId, playerB.UserId
@@ -1964,6 +2076,7 @@ function MatchService.Init()
 	startSpeedWatchdog()
 	startFallWatchdog()
 	startProgressBroadcast()
+	startWeatherReconciler()
 
 	-- mode: nil/"Real" -> shared queue, "Bots" -> solo vs. a bot, "Practice"
 	-- -> solo, no opponent at all. (Was a plain vsBots boolean before

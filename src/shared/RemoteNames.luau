@@ -59,4 +59,7 @@ return {
 	-- The only broadcast remote in the game: fired to EVERY client, not one
 	-- (see HypeFeedService).
 	HypeAnnouncement = "HypeAnnouncement",
+	-- Per-player weather: which stage's preset THIS client should be seeing,
+	-- or nil for the lobby (see WeatherService).
+	WeatherChanged = "WeatherChanged",
 }
