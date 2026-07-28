@@ -1,23 +1,21 @@
 local BadgeService = game:GetService("BadgeService")
 
 -- Badges show up on a player's public Roblox profile -- free, platform-level
--- exposure for the game every time someone earns one, so milestone badges
--- are one of the highest-leverage growth levers available on Roblox
--- specifically. Badge OBJECTS have to be created by a human on the Creator
--- Dashboard (Experience > Badges) though -- there's no way to do that from
--- game code -- so every id below starts at 0 (award() no-ops on 0) until
--- someone pastes in the real ids here.
+-- exposure for the game every time someone earns one.
+--
+-- Only the badges that actually EXIST are listed here. This used to also
+-- carry win-streak (3/5) and per-rank (Silver..Grandmaster) entries set to
+-- id 0, as placeholders for badges nobody had created yet -- award() no-ops
+-- on 0, so all eight were dead weight that read like working features. Badge
+-- objects can only be created by a human on the Creator Dashboard (Experience
+-- > Badges), never from game code, so a placeholder id here is not a
+-- to-do the code can ever resolve on its own.
+--
+-- To add one later: create the badge on the dashboard, add its real id below,
+-- and call award() with the new key from wherever the milestone is detected.
 local BADGE_IDS = {
 	-- "Win Badge" -- confirmed live via BadgeService:GetBadgeInfoAsync.
 	FirstWin = 805282398696077,
-	WinStreak3 = 0,
-	WinStreak5 = 0,
-	RankSilver = 0,
-	RankGold = 0,
-	RankPlatinum = 0,
-	RankDiamond = 0,
-	RankMaster = 0,
-	RankGrandmaster = 0,
 }
 
 local BadgeMilestoneService = {}
@@ -43,28 +41,6 @@ end
 
 function BadgeMilestoneService.CheckWinMilestones(player: Player, profile: { [string]: any })
 	award(player, profile, "FirstWin")
-	if profile.WinStreak >= 3 then
-		award(player, profile, "WinStreak3")
-	end
-	if profile.WinStreak >= 5 then
-		award(player, profile, "WinStreak5")
-	end
-end
-
-local RANK_BADGE_KEYS = {
-	Silver = "RankSilver",
-	Gold = "RankGold",
-	Platinum = "RankPlatinum",
-	Diamond = "RankDiamond",
-	Master = "RankMaster",
-	Grandmaster = "RankGrandmaster",
-}
-
-function BadgeMilestoneService.CheckRankMilestone(player: Player, profile: { [string]: any }, rankName: string)
-	local key = RANK_BADGE_KEYS[rankName]
-	if key then
-		award(player, profile, key)
-	end
 end
 
 return BadgeMilestoneService

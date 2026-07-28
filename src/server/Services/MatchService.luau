@@ -9,7 +9,6 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 local QueueModes = require(Shared.QueueModes)
 local Stages = require(Shared.Stages)
-local RankTiers = require(Shared.RankTiers)
 
 local AbilityService = require(script.Parent.AbilityService)
 local BadgeMilestoneService = require(script.Parent.BadgeMilestoneService)
@@ -1257,8 +1256,6 @@ local function settleWin(winner: Player, opponents: { Player }): (number, number
 	local winnerProfile = PlayerDataService.GetProfile(winner)
 	local winStreak, streakBonus = 0, 0
 	if winnerProfile then
-		local oldElo = winnerProfile.Elo - winnerDelta
-
 		winnerProfile.Wins += 1
 		ReferralService.HandleFirstRealRace(winner, winnerProfile)
 		winnerProfile.WinStreak += 1
@@ -1279,11 +1276,6 @@ local function settleWin(winner: Player, opponents: { Player }): (number, number
 		)
 
 		BadgeMilestoneService.CheckWinMilestones(winner, winnerProfile)
-		local oldRank = RankTiers.GetRankForElo(oldElo)
-		local newRank = RankTiers.GetRankForElo(winnerProfile.Elo)
-		if newRank ~= oldRank then
-			BadgeMilestoneService.CheckRankMilestone(winner, winnerProfile, newRank)
-		end
 
 		LeaderstatsService.Refresh(winner) -- Elo (via EloService above), Wins, and Rank are all final now
 		LeaderboardService.SubmitElo(winner, winnerProfile.Elo) -- keeps the physical board's global ranking current
