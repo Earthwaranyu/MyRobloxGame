@@ -1,12 +1,15 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
+local MenuIcons = require(script.Parent.Parent.MenuIcons)
 local Theme = require(script.Parent.Parent.Theme)
+local Widgets = require(script.Parent.Parent.Widgets)
 local MatchStateController = require(script.Parent.MatchStateController)
 
 -- A small tab at the top of the screen counting down to the next PLAY wave.
@@ -25,26 +28,66 @@ local WaveClockController = {}
 
 local player = Players.LocalPlayer
 
-local TAB_WIDTH = 250
-local TAB_HEIGHT = 32
+local TAB_WIDTH = 264
+local TAB_HEIGHT = 44
 -- Above everything else in the top-centre lane. The queue card sits at y=60 and
--- RaceHudController's timer at y=56 (never both at once), so 6..38 is clear of
+-- RaceHudController's timer at y=56 (never both at once), so 6..50 is clear of
 -- each -- and of the Roblox topbar, since the ScreenGui keeps the default inset.
 local TAB_TOP = 6
 
+-- Below this the tab turns red and pulses once a second. Ten seconds is about
+-- how long it takes to notice a banner, cross the plaza and press PLAY, so it's
+-- the point where the information stops being ambient and becomes actionable.
+local URGENT_SECONDS = 10
+
 local container: Frame
 local label: TextLabel
+local bevelStrip: Frame?
+local scale: UIScale
 local departsAt: number? = nil
+local lastShownSecond: number? = nil
+local urgent = false
+
+-- Gold normally, red in the last few seconds. Recolours the bevel strip along
+-- with the face so the tab keeps its 3D edge instead of flattening into a
+-- plain red pill the moment it matters most.
+local function setUrgent(nowUrgent: boolean)
+	if urgent == nowUrgent then
+		return
+	end
+	urgent = nowUrgent
+	local palette = if nowUrgent then Theme.Candy.Red else Theme.Candy.Gold
+	container.BackgroundColor3 = palette.Face
+	if bevelStrip then
+		bevelStrip.BackgroundColor3 = palette.Shadow
+	end
+end
 
 local function refresh()
 	if not departsAt then
 		label.Text = "NEXT WAVE  --"
+		setUrgent(false)
+		lastShownSecond = nil
 		return
 	end
+
 	local remaining = math.max(0, departsAt - os.clock())
 	-- Reads "0:42" rather than "42" so it can't be mistaken for the race
 	-- countdown, which is a bare number.
 	label.Text = ("NEXT WAVE  %d:%02d"):format(math.floor(remaining / 60), math.floor(remaining % 60))
+	setUrgent(remaining <= URGENT_SECONDS)
+
+	-- One pop per second, and only while urgent: a banner that bounced every
+	-- second for the full minute would be wallpaper by the time it mattered,
+	-- and motion in the corner of your eye is the whole mechanism here.
+	local shownSecond = math.ceil(remaining)
+	if shownSecond ~= lastShownSecond then
+		lastShownSecond = shownSecond
+		if urgent then
+			scale.Scale = 1.12
+			TweenService:Create(scale, Theme.Anim.Pop, { Scale = 1 }):Play()
+		end
+	end
 end
 
 -- Hidden while racing. A slow racer can't act on it -- they're mid-course and
@@ -61,36 +104,44 @@ local function buildUI()
 	screenGui.DisplayOrder = 3
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
-	container = Instance.new("Frame")
+	-- Built as a Widgets.Ribbon rather than a hand-rolled frame so it inherits
+	-- the game's candy treatment wholesale -- gold face, thick white border,
+	-- darker bevel strip along the bottom edge, outlined GothamBlack text. It's
+	-- the same banner used for the world signs and every modal title, so the
+	-- tab reads as part of the set instead of a flat HUD chip bolted on top.
+	container = Widgets.Ribbon("NEXT WAVE  --", UDim2.fromOffset(TAB_WIDTH, TAB_HEIGHT), UDim2.new(0.5, 0, 0, TAB_TOP))
 	container.Name = "WaveTab"
-	container.Size = UDim2.fromOffset(TAB_WIDTH, TAB_HEIGHT)
-	container.Position = UDim2.new(0.5, -TAB_WIDTH / 2, 0, TAB_TOP)
-	container.BackgroundColor3 = Color3.fromRGB(26, 27, 38)
-	container.BackgroundTransparency = 0.1
-	container.BorderSizePixel = 0
 	container.Parent = screenGui
 
-	-- Rounded on the bottom corners only would be ideal (it reads as a tab
-	-- hanging from the top edge), but UICorner is all-or-nothing, so a fully
-	-- rounded pill it is -- consistent with the rest of the HUD anyway.
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(1, 0)
-	corner.Parent = container
+	label = container:FindFirstChild("Label") :: TextLabel
 
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = Theme.Candy.Border
-	stroke.Thickness = 2
-	stroke.Transparency = 0.35
-	stroke.Parent = container
+	-- The bevel strip is nested inside Ribbon's clipping mask and is
+	-- deliberately unnamed there, so it has to be reached positionally: the
+	-- ribbon's only Frame child is the mask, whose only Frame child is the
+	-- strip. Guarded rather than asserted -- if Ribbon's internals ever change,
+	-- the tab should lose its colour-shift, not throw on startup.
+	local bevelMask = container:FindFirstChildWhichIsA("Frame")
+	bevelStrip = bevelMask and bevelMask:FindFirstChildWhichIsA("Frame")
 
-	label = Instance.new("TextLabel")
-	label.Size = UDim2.fromScale(1, 1)
-	label.BackgroundTransparency = 1
-	label.Text = "NEXT WAVE  --"
-	label.TextColor3 = Color3.fromRGB(255, 255, 255)
-	label.Font = Theme.Font.Display
-	label.TextSize = 17
-	label.Parent = container
+	scale = Instance.new("UIScale")
+	scale.Parent = container
+
+	-- Clock glyph, drawn from primitives like every other icon in the game
+	-- (MenuIcons.Playtime is the existing clock face). Text is nudged right by
+	-- the same amount so the pair stays optically centred rather than the words
+	-- sitting off-centre next to it.
+	local iconHolder = Instance.new("Frame")
+	iconHolder.Name = "Icon"
+	iconHolder.Size = UDim2.fromOffset(26, 26)
+	iconHolder.AnchorPoint = Vector2.new(0, 0.5)
+	iconHolder.Position = UDim2.new(0, 14, 0.5, 0)
+	iconHolder.BackgroundTransparency = 1
+	iconHolder.Parent = container
+	MenuIcons.Populate(iconHolder, "Playtime", Color3.fromRGB(255, 255, 255))
+
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0, 34)
+	padding.Parent = label
 end
 
 function WaveClockController.Init()
