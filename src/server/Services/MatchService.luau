@@ -455,7 +455,11 @@ function tryStartCountdown()
 		mapSelectedRemote:FireClient(queuedPlayer, pendingStageId)
 	end
 
-	task.delay(window, function()
+	-- window is the COUNTDOWN the client shows; the reel then spins for
+	-- MapRevealSeconds on top of it before anyone is teleported (see
+	-- Constants.Match.MapRevealSeconds). The teleport has to wait for both or
+	-- the reveal would be cut off mid-spin by the stage loading around it.
+	task.delay(window + Constants.Match.MapRevealSeconds, function()
 		pendingCountdown = false
 		startSession()
 	end)
@@ -490,6 +494,33 @@ function startSession()
 		return
 	end
 
+	-- Cap the field, and put the overflow back in the queue for the next race.
+	--
+	-- An exact-size station can never exceed its own target, but the PLAY
+	-- button's size-agnostic queue had NO ceiling at all -- requiredFor() is
+	-- only a floor there, so every single player waiting when the window
+	-- closed was teleported in. Twenty people queueing at once meant twenty
+	-- racers on a spawn pad built for a handful, standing inside each other.
+	-- QueueModes.CustomMax already encodes what a stage spawn can actually
+	-- hold, and custom stations have always respected it; this is the one
+	-- entry point that skipped it.
+	--
+	-- Overflow players are put BACK rather than dropped: they keep their place
+	-- and ride the next race, which tryStartCountdown starts for them
+	-- immediately below (there are, by definition, enough of them left).
+	if #queued > QueueModes.CustomMax then
+		local overflow = getQueue(target)
+		for index = QueueModes.CustomMax + 1, #queued do
+			local player = queued[index]
+			if player.Parent then
+				table.insert(overflow, player)
+				queuedTarget[player.UserId] = target
+				queueStatusRemote:FireClient(player, true)
+			end
+			queued[index] = nil
+		end
+	end
+
 	local spawnCFrame = getStageSpawnCFrame(stageId)
 
 	local participants: { [number]: Player } = {}
@@ -519,6 +550,16 @@ function startSession()
 	task.delay(Constants.Match.CountdownSeconds, function()
 		beginRace(stageId, participants)
 	end)
+
+	-- Deliberately NOT calling tryStartCountdown() here for the overflow.
+	--
+	-- endSession already calls it the moment this race finishes, which is the
+	-- only safe time: `activeSession` is a single global, so a second window
+	-- started now would run its own startSession while this race is still
+	-- going and overwrite the session out from under it -- taking finish
+	-- detection, spectators and endSession with it. The overflow group waits
+	-- for the current race to end, which is inherent to the game running one
+	-- session at a time.
 end
 
 -- Actually starts the race: first-person camera (via the Racing state),
@@ -757,7 +798,7 @@ function MatchService.StartBotMatch(player: Player)
 	queueStatusRemote:FireClient(player, Constants.Match.SoloRevealSeconds)
 	mapSelectedRemote:FireClient(player, stageId)
 
-	task.delay(Constants.Match.SoloRevealSeconds, function()
+	task.delay(Constants.Match.SoloRevealSeconds + Constants.Match.MapRevealSeconds, function()
 		if not player.Parent or playerRaceStage[userId] ~= stageId then
 			return -- quit or disconnected during the reveal
 		end
@@ -854,7 +895,7 @@ function MatchService.StartPracticeMatch(player: Player)
 	queueStatusRemote:FireClient(player, Constants.Match.SoloRevealSeconds)
 	mapSelectedRemote:FireClient(player, stageId)
 
-	task.delay(Constants.Match.SoloRevealSeconds, function()
+	task.delay(Constants.Match.SoloRevealSeconds + Constants.Match.MapRevealSeconds, function()
 		if not player.Parent or playerRaceStage[userId] ~= stageId then
 			return
 		end
@@ -1785,7 +1826,7 @@ function MatchService.StartDuelMatch(playerA: Player, playerB: Player)
 		end
 	end
 
-	task.delay(Constants.Match.SoloRevealSeconds, function()
+	task.delay(Constants.Match.SoloRevealSeconds + Constants.Match.MapRevealSeconds, function()
 		if playerRaceStage[userIdA] ~= stageId or playerRaceStage[userIdB] ~= stageId then
 			releaseBoth()
 			return

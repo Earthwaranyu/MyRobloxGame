@@ -51,8 +51,15 @@ return {
 		-- challenge. They get their own (short) value so widening the real
 		-- matchmaking window above doesn't tax them with dead time.
 		SoloRevealSeconds = 3,
-		-- How long before MatchingSeconds ends the case-opening map reveal
-		-- spins for; the reel lands exactly as the group gets teleported.
+		-- How long the case-opening map reveal spins for, AFTER the waiting
+		-- countdown has run all the way to zero -- so the total wait before a
+		-- teleport is the countdown plus this.
+		--
+		-- The reel used to overlap the countdown's last 2.5 seconds instead,
+		-- keeping the total at MatchingSeconds flat. That made the visible
+		-- number stop at 3 and vanish, which reads as the countdown breaking
+		-- rather than as a handover to the reveal. Counting to zero and then
+		-- spinning costs 2.5s per race and sequences the two clearly.
 		MapRevealSeconds = 2.5,
 		-- The "RACE STARTING IN" countdown that plays on the map itself,
 		-- after the group has been teleported there but before the race

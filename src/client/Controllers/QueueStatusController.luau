@@ -4,7 +4,6 @@ local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
-local Constants = require(Shared.Constants)
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
@@ -30,9 +29,9 @@ local cancelButton: TextButton
 -- Server sends the remaining seconds once; ticking down locally avoids
 -- relying on the client and server clocks (os.clock()) being in sync. This
 -- one ticker is reused for two back-to-back phases of the same flow:
--- "Waiting" while the shared queue matches players (numeric ticker hides for
--- the last Constants.Match.MapRevealSeconds so MapRevealController's
--- case-opening reel can take over), then "PreRace" once the group has been
+-- "Waiting" while the shared queue matches players -- which now counts all
+-- the way down to zero, at which point MapRevealController's case-opening
+-- reel takes over for its own spin -- then "PreRace" once the group has been
 -- teleported to the chosen stage and is standing there before the race
 -- actually starts.
 local endTime: number? = nil
@@ -283,11 +282,6 @@ local function buildUI()
 			container.Visible = false
 			endTime = nil
 			lastShownSecond = nil
-			return
-		end
-
-		if phase == "Waiting" and remaining <= Constants.Match.MapRevealSeconds then
-			container.Visible = false
 			return
 		end
 

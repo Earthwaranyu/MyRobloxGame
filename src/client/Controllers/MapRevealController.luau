@@ -240,8 +240,14 @@ function MapRevealController.Init()
 			return
 		end
 
-		local spinDelay = math.max(0, secondsRemaining - Constants.Match.MapRevealSeconds)
-		task.delay(spinDelay, startSpin)
+		-- The reel starts when the countdown hits ZERO and runs for
+		-- MapRevealSeconds after it, landing exactly as the group is
+		-- teleported (MatchService waits for both before teleporting).
+		--
+		-- It used to start MapRevealSeconds BEFORE zero so the two overlapped
+		-- inside one flat window, which meant the countdown number stopped at
+		-- 3 and disappeared -- indistinguishable from the timer breaking.
+		task.delay(math.max(0, secondsRemaining), startSpin)
 	end)
 end
 
