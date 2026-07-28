@@ -51,6 +51,11 @@ type Session = {
 	-- Unique per race. Several races can share a stage now (see `sessions`), so
 	-- the stage id no longer identifies one.
 	id: number,
+	-- Net rating change so far this race, per userId. Accumulated as each pair
+	-- is settled and reported to a player only when they themselves finish --
+	-- firing it the moment someone ahead crosses would pop the results panel in
+	-- the face of someone still running the course.
+	eloDelta: { [number]: number },
 	stageId: string,
 	participants: { [number]: Player },
 	totalParticipants: number,
@@ -699,6 +704,7 @@ function beginRace(stageId: string, participants: { [number]: Player })
 		participants = validParticipants,
 		totalParticipants = totalParticipants,
 		finishedCount = 0,
+		eloDelta = {},
 		winner = nil,
 		startTime = os.clock(),
 		spectators = {},
@@ -1476,35 +1482,199 @@ end
 -- the caller's own RaceOutcome payload to the winner -- pointsAwarded being
 -- the final figure AFTER the streak bonus and any VIP multiplier, so the
 -- number the player is shown is exactly the number that hit their balance.
-local function settleWin(winner: Player, opponents: { Player }): (number, number, number, number)
-	local winnerDelta = 0
+-- Rematch decay: beating the SAME opponent over and over is worth less each
+-- time, recovering once you stop.
+--
+-- Elo itself is already largely self-defending against alt-farming -- the loser
+-- is floored at 0, so a drained alt has nothing left to donate and a main
+-- feeding off one stalls at about 720 rating no matter how many wins it racks
+-- up (measured against EloCalculator directly). What is NOT self-limiting is
+-- everything else a win pays: win streak is unbounded and now broadcasts to the
+-- whole server, and Wins is a public profile stat. Two accounts trading
+-- deliberate losses could park a 50-win streak in everybody's feed.
+--
+-- Smooth rather than a hard cut-off after N, because on a quiet server racing
+-- the same person five times in a row is completely normal and shouldn't be
+-- punished like cheating. The curve only bites where the pattern is sustained.
+local REMATCH_WINDOW_SECONDS = 1800
+-- 1st win 100%, 2nd 75%, 3rd 50%, 4th 25%, 5th and beyond nothing.
+local REMATCH_DECAY_STEPS = 4
+
+type RematchRecord = {
+	count: number,
+	lastAt: number,
+}
+local rematchHistory: { [number]: { [number]: RematchRecord } } = {}
+
+-- How much this win over this opponent is worth, and record that it happened.
+-- Directional on purpose: A beating B repeatedly damps A's gains, but it says
+-- nothing about what B earns if B ever wins one back.
+local function consumeRematchWeight(winnerUserId: number, loserUserId: number): number
+	local byOpponent = rematchHistory[winnerUserId]
+	if not byOpponent then
+		byOpponent = {}
+		rematchHistory[winnerUserId] = byOpponent
+	end
+
+	local now = os.clock()
+	local record = byOpponent[loserUserId]
+	-- A gap longer than the window wipes the slate rather than merely pausing
+	-- it, so someone who plays a friend a lot on Monday isn't still damped on
+	-- Tuesday.
+	if not record or now - record.lastAt > REMATCH_WINDOW_SECONDS then
+		record = { count = 0, lastAt = now }
+		byOpponent[loserUserId] = record
+	end
+
+	record.lastAt = now
+	local weight = math.max(0, 1 - record.count / REMATCH_DECAY_STEPS)
+	record.count += 1
+	return weight
+end
+
+-- How much a result against THIS player is worth to their opponent, based on
+-- how old their Roblox account is.
+--
+-- This is the only defence that actually reaches alt mills. The rematch decay
+-- above is keyed per-pair, so rotating a fresh alt in for every race sidesteps
+-- it entirely -- every new account is a new pairing at full value. Account age
+-- can't be rotated: Player.AccountAge is reported by Roblox, is server-side,
+-- and can't be faked by the client. Farming past this means creating hundreds
+-- of accounts and then waiting a week before using any of them.
+--
+-- Researched alternatives were weaker. Glicko's g(RD) and TrueSkill's
+-- normaliser both damp wins over uncertain opponents, but only by roughly a
+-- third -- they reduce the yield of farming, they don't stop it, because no
+-- rating algorithm has access to identity. Worse, both are floorless, so
+-- adopting one would have removed the 0-floor that currently caps a farm at
+-- ~720 rating.
+--
+-- Applied ASYMMETRICALLY (see EloService): it damps what the OPPONENT earns
+-- from the new account, never what the new account earns itself. A real new
+-- player still gains and loses rating at full speed and calibrates normally --
+-- they're just not a worthwhile thing to farm.
+local ACCOUNT_AGE_FULL_VALUE_DAYS = 7
+
+local function accountAgeWeight(player: Player): number
+	-- Ramped rather than a hard cut-off, so a 6-day-old account and an 8-day-old
+	-- one aren't arbitrarily different. Day 0 accounts are worth nothing at all,
+	-- which is the case that matters: a mill spins up accounts and uses them
+	-- immediately.
+	return math.clamp(player.AccountAge / ACCOUNT_AGE_FULL_VALUE_DAYS, 0, 1)
+end
+
+local function forgetRematchHistory(userId: number)
+	rematchHistory[userId] = nil
+	for _, byOpponent in rematchHistory do
+		byOpponent[userId] = nil
+	end
+end
+
+-- Settles rating for ONE finisher against everyone still out on the course.
+--
+-- Called every time anybody crosses the line, not just the winner, which is
+-- what finally makes placement matter. A race of N is treated as the N(N-1)/2
+-- pairwise results it actually contains: when you finish, you have beaten
+-- exactly the people still racing, and you were already beaten by everyone who
+-- crossed before you (settled when THEY finished). Every pair is settled once,
+-- in order, with no need to wait for the race to end.
+--
+-- Before this, rating was only ever computed for the winner, so 2nd place out
+-- of 8 and last place out of 8 lost exactly the same amount -- the finishing
+-- order, the whole result of a race, was thrown away.
+--
+-- K is divided by (N-1) so a big race isn't worth more total rating than a
+-- small one: the winner of an 8-player race settles 7 pairs, and without this
+-- their swing would be seven times a duel's.
+-- Returns the rating gained, and the best per-opponent weight seen. The weight
+-- is handed back rather than recomputed by the caller because consuming it
+-- ADVANCES the rematch counter -- asking twice for the same pair would count
+-- one race as two and damp the next result too hard.
+local function settleFinisherElo(
+	finisher: Player,
+	stillRacing: { Player },
+	totalParticipants: number,
+	tally: { [number]: number }?
+): (number, number)
+	local gained = 0
+	local bestWeight = 0
+	local pairShare = 1 / math.max(1, totalParticipants - 1)
+
+	for _, behind in stillRacing do
+		-- Both damping factors multiply: a repeat opponent AND a fresh account
+		-- is worth less than either alone.
+		local resultWeight = consumeRematchWeight(finisher.UserId, behind.UserId) * accountAgeWeight(behind)
+		bestWeight = math.max(bestWeight, resultWeight)
+		local winnerWeight = resultWeight * pairShare
+		-- The loser's side is damped only by how established the WINNER is --
+		-- never by the rematch count, which is the winner's own history and
+		-- says nothing about how much rating the loser should shed.
+		local loserWeight = accountAgeWeight(finisher) * pairShare
+
+		local delta, behindDelta = EloService.ReportMatchResult(finisher, behind, winnerWeight, loserWeight)
+		gained += delta
+
+		local behindProfile = PlayerDataService.GetProfile(behind)
+		if behindProfile then
+			LeaderstatsService.Refresh(behind)
+			LeaderboardService.SubmitElo(behind, behindProfile.Elo)
+		end
+		if tally then
+			tally[behind.UserId] = (tally[behind.UserId] or 0) + behindDelta
+		end
+	end
+
+	if tally then
+		tally[finisher.UserId] = (tally[finisher.UserId] or 0) + gained
+	end
+
+	return gained, bestWeight
+end
+
+-- The win-only half: streak, points, badges, announcements. Rating is settled
+-- separately by settleFinisherElo, for EVERY finisher rather than just this one.
+--
+-- `raceWeight` is the best per-opponent weight from that settlement, and decides
+-- what the race is worth for points and progression: beating one familiar rival
+-- alongside three fresh opponents is a real win and shouldn't be dragged down by
+-- the rival.
+local function settleWin(
+	winner: Player,
+	opponents: { Player },
+	winnerDelta: number,
+	raceWeight: number
+): (number, number, number, number)
 	local pointsAwarded = 0
 	for _, opponent in opponents do
-		local delta, opponentDelta = EloService.ReportMatchResult(winner, opponent)
-		winnerDelta += delta
 		local opponentProfile = PlayerDataService.GetProfile(opponent)
 		if opponentProfile then
 			opponentProfile.WinStreak = 0
 			opponentProfile.Losses += 1
 			ReferralService.HandleFirstRealRace(opponent, opponentProfile)
-			LeaderstatsService.Refresh(opponent) -- Elo (via EloService above) and Losses are both final now
-			LeaderboardService.SubmitElo(opponent, opponentProfile.Elo) -- keeps the physical board's global ranking current
 		end
-		raceOutcomeRemote:FireClient(opponent, { Won = false, EloDelta = opponentDelta })
 	end
 
 	-- Points are awarded once per race won, not once per opponent beaten.
 	local winnerProfile = PlayerDataService.GetProfile(winner)
 	local winStreak, streakBonus = 0, 0
 	if winnerProfile then
-		winnerProfile.Wins += 1
 		ReferralService.HandleFirstRealRace(winner, winnerProfile)
-		winnerProfile.WinStreak += 1
-		winnerProfile.BestWinStreak = math.max(winnerProfile.BestWinStreak, winnerProfile.WinStreak)
+
+		-- A fully damped win (the 5th+ over the same person inside the window)
+		-- pays nothing and counts for nothing -- no Wins, no streak. Anything
+		-- above zero still counts as a win for progression; only the points
+		-- scale. Otherwise the streak, which is the loudest farmable thing in
+		-- the game now that it broadcasts, would keep climbing on wins the
+		-- system has already decided are worthless.
+		if raceWeight > 0 then
+			winnerProfile.Wins += 1
+			winnerProfile.WinStreak += 1
+			winnerProfile.BestWinStreak = math.max(winnerProfile.BestWinStreak, winnerProfile.WinStreak)
+		end
 		winStreak = winnerProfile.WinStreak
 		streakBonus = streakBonusPoints(winStreak)
 		local multiplier = if MonetizationService.HasVIP(winner) then MonetizationService.PointsMultiplier else 1
-		pointsAwarded = (Constants.Match.PointsPerWin + streakBonus) * multiplier
+		pointsAwarded = math.floor((Constants.Match.PointsPerWin + streakBonus) * multiplier * raceWeight)
 		winnerProfile.Points += pointsAwarded
 		TelemetryService.Economy(
 			winner,
@@ -1586,7 +1756,7 @@ function awardWalkover(session: Session): boolean
 		teleportToStageSpawn(winner, lobbyCFrame)
 	end
 
-	local _, winStreak, streakBonus, points = settleWin(winner, {})
+	local _, winStreak, streakBonus, points = settleWin(winner, {}, 0, 1)
 	raceOutcomeRemote:FireClient(winner, {
 		Won = true,
 		Placement = 1,
@@ -1660,7 +1830,8 @@ local function finishDuelMatch(player: Player, match: DuelMatch)
 		end
 
 		if opponent then
-			local winnerDelta, winStreak, streakBonus, points = settleWin(player, { opponent })
+			local winnerDelta, raceWeight = settleFinisherElo(player, { opponent }, 2)
+			local _, winStreak, streakBonus, points = settleWin(player, { opponent }, winnerDelta, raceWeight)
 			raceOutcomeRemote:FireClient(player, {
 				Won = true,
 				Points = points + finishPoints,
@@ -1760,17 +1931,25 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 		racePositionRemote:FireClient(opponent, placement + 1, session.totalParticipants)
 	end
 
+	-- Everyone still on the course finished behind this player, so this is the
+	-- moment those pairs are decided -- for the winner and for every placement
+	-- after them. Settling here, per finisher, is what makes 2nd out of 8 worth
+	-- more than 8th out of 8.
+	local behind = {}
+	for _, opponent in session.participants do
+		table.insert(behind, opponent)
+	end
+	local _, raceWeight = settleFinisherElo(player, behind, session.totalParticipants, session.eloDelta)
+	-- Their NET change across the whole race: what they just gained from the
+	-- field behind them, minus everything they already shed to whoever beat
+	-- them home earlier.
+	local eloDelta = math.round(session.eloDelta[userId] or 0)
+
 	local isWinner = not session.winner
 	if isWinner then
 		session.winner = player
 
-		-- Elo is settled once, at the moment the winner crosses the line, against
-		-- every opponent still racing at that instant (see the module comment).
-		local opponents = {}
-		for _, opponent in session.participants do
-			table.insert(opponents, opponent)
-		end
-		local winnerDelta, winStreak, streakBonus, points = settleWin(player, opponents)
+		local winnerDelta, winStreak, streakBonus, points = settleWin(player, behind, eloDelta, raceWeight)
 
 		raceOutcomeRemote:FireClient(player, {
 			Won = true,
@@ -1781,14 +1960,14 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 			Points = points + finishPoints,
 		})
 	else
-		-- Elo for this player was already settled when the winner finished;
-		-- this is just their personal placement confirmation -- plus the
-		-- finish reward, which is the whole point of this branch no longer
-		-- being an empty-handed one.
+		-- Not a win, but no longer a flat loss either: this player still gained
+		-- rating from everyone they beat home, so their own delta is reported
+		-- rather than the winner's.
 		raceOutcomeRemote:FireClient(player, {
 			Won = false,
 			Placement = placement,
 			Total = session.totalParticipants,
+			EloDelta = eloDelta,
 			Points = finishPoints,
 		})
 	end
@@ -1946,6 +2125,7 @@ local function removePlayer(player: Player)
 	-- Drop their cached weather value too, or a rejoining player reusing this
 	-- UserId would be told "no change" and left on the previous session's sky.
 	WeatherService.Forget(player)
+	forgetRematchHistory(userId)
 	rosterCleared[userId] = nil
 	playerSession[userId] = nil
 

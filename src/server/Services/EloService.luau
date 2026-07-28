@@ -11,7 +11,22 @@ local EloService = {}
 
 -- Call this once a race's winner/loser is determined by matchmaking logic.
 -- Returns (winnerDelta, loserDelta) so callers can report the change to players.
-function EloService.ReportMatchResult(winner: Player, loser: Player): (number, number)
+--
+-- `winnerWeight` / `loserWeight` (0..1, default 1) scale the K-factor for each
+-- side independently. Callers use them to damp results that shouldn't count for
+-- full value -- repeated wins over the same opponent, and results involving
+-- brand-new accounts (see MatchService's rematch decay and account-age ramp).
+--
+-- Per-side rather than one shared weight so the damping can be aimed: beating a
+-- day-old alt is worth almost nothing to an established player, while the
+-- newcomer's own rating still moves normally so real new players calibrate at
+-- the usual speed.
+function EloService.ReportMatchResult(
+	winner: Player,
+	loser: Player,
+	winnerWeight: number?,
+	loserWeight: number?
+): (number, number)
 	local winnerProfile = PlayerDataService.GetProfile(winner)
 	local loserProfile = PlayerDataService.GetProfile(loser)
 
@@ -22,8 +37,18 @@ function EloService.ReportMatchResult(winner: Player, loser: Player): (number, n
 	local oldWinnerElo = winnerProfile.Elo
 	local oldLoserElo = loserProfile.Elo
 
-	local newWinnerElo, newLoserElo =
-		EloCalculator.CalculateNewRatings(winnerProfile.Elo, loserProfile.Elo, Constants.Elo.KFactor)
+	local k = Constants.Elo.KFactor
+	local winnerDelta, loserDelta = EloCalculator.CalculateDeltas(
+		winnerProfile.Elo,
+		loserProfile.Elo,
+		k * math.clamp(winnerWeight or 1, 0, 1),
+		k * math.clamp(loserWeight or 1, 0, 1)
+	)
+
+	-- Floored at 0 -- see EloCalculator.CalculateNewRatings for why that floor
+	-- matters beyond tidiness.
+	local newWinnerElo = math.round(winnerProfile.Elo + winnerDelta)
+	local newLoserElo = math.round(math.max(0, loserProfile.Elo + loserDelta))
 
 	winnerProfile.Elo = newWinnerElo
 	loserProfile.Elo = newLoserElo
