@@ -115,7 +115,9 @@ local function buildUI()
 	container = Instance.new("Frame")
 	container.Name = "CountdownContainer"
 	container.Size = UDim2.fromOffset(300, 104)
-	container.Position = UDim2.new(0.5, -150, 0, 12)
+	-- y = 24, not flush to 12: the cancel X straddles the top edge and hangs 18px
+	-- above it, so anything tighter pushes it up under the Roblox topbar.
+	container.Position = UDim2.new(0.5, -150, 0, 24)
 	container.BackgroundColor3 = Theme.Candy.PanelFace
 	container.BorderSizePixel = 0
 	container.Visible = false
@@ -206,13 +208,50 @@ local function buildUI()
 	-- you out of the waiting list and clears queuedTarget), and its reply --
 	-- QueueStatusChanged with nil -- is what actually hides this card, so there
 	-- is no local guess about whether the cancel took.
-	cancelButton = Widgets.Button("✕", UDim2.fromOffset(36, 36), UDim2.fromScale(1, 0), {
-		Variant = "Danger",
-		TextSize = 20,
-	})
+	-- Built by hand rather than via Widgets.Button, to match Widgets.Modal's
+	-- close button exactly -- same red circle, same white ring, same X drawn
+	-- from two crossed bars. That drawn X is not decoration: a Unicode "✕"
+	-- glyph renders as a missing-glyph BOX in Roblox's Gotham family, which is
+	-- exactly what a first attempt here did (confirmed by screenshot). The two
+	-- ways out of a screen in this game now look the same as each other.
+	cancelButton = Instance.new("TextButton")
+	cancelButton.Name = "CancelQueueButton"
+	cancelButton.Text = ""
+	cancelButton.AutoButtonColor = false
+	cancelButton.BackgroundColor3 = Theme.Candy.Red.Face
+	cancelButton.BorderSizePixel = 0
+	cancelButton.Size = UDim2.fromOffset(36, 36)
+	-- Centre-anchored ON the corner, so it straddles the border rather than
+	-- sitting inside the card (where it would crowd the caption) or fully
+	-- outside it (where it would read as unrelated to the card).
 	cancelButton.AnchorPoint = Vector2.new(0.5, 0.5)
+	cancelButton.Position = UDim2.fromScale(1, 0)
 	cancelButton.Visible = false
 	cancelButton.Parent = container
+
+	local cancelCorner = Instance.new("UICorner")
+	cancelCorner.CornerRadius = UDim.new(1, 0)
+	cancelCorner.Parent = cancelButton
+
+	local cancelBorder = Instance.new("UIStroke")
+	cancelBorder.Color = Theme.Candy.Border
+	cancelBorder.Thickness = 2.5
+	cancelBorder.Parent = cancelButton
+
+	for _, rotation in { 45, -45 } do
+		local bar = Instance.new("Frame")
+		bar.AnchorPoint = Vector2.new(0.5, 0.5)
+		bar.Position = UDim2.fromScale(0.5, 0.5)
+		bar.Size = UDim2.fromOffset(16, 2.5)
+		bar.Rotation = rotation
+		bar.BackgroundColor3 = Color3.new(1, 1, 1)
+		bar.BorderSizePixel = 0
+		local barCorner = Instance.new("UICorner")
+		barCorner.CornerRadius = UDim.new(1, 0)
+		barCorner.Parent = bar
+		bar.Parent = cancelButton
+	end
+
 	cancelButton.MouseButton1Click:Connect(function()
 		Net.GetRemoteEvent(RemoteNames.QuitMatch):FireServer()
 	end)
