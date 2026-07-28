@@ -9,11 +9,13 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 local QueueModes = require(Shared.QueueModes)
 local Stages = require(Shared.Stages)
+local RankTiers = require(Shared.RankTiers)
 
 local AbilityService = require(script.Parent.AbilityService)
 local BadgeMilestoneService = require(script.Parent.BadgeMilestoneService)
 local BotService = require(script.Parent.BotService)
 local EloService = require(script.Parent.EloService)
+local HypeFeedService = require(script.Parent.HypeFeedService)
 local LeaderboardService = require(script.Parent.LeaderboardService)
 local LeaderstatsService = require(script.Parent.LeaderstatsService)
 local LobbyService = require(script.Parent.LobbyService)
@@ -1222,6 +1224,10 @@ local function finishPracticeMatch(player: Player, match: { stageId: string, sta
 
 	local elapsed = os.clock() - match.startTime
 	LeaderboardService.SubmitTime(player, match.stageId, elapsed)
+	-- Practice is zero-stakes for Elo and points, but the TIME is real (it
+	-- goes to the same leaderboard as any other run), so a practice lap that
+	-- genuinely beats the server's best is a genuine record.
+	HypeFeedService.CheckStageRecord(player, match.stageId, elapsed)
 
 	practiceCompleteRemote:FireClient(player, elapsed)
 end
@@ -1276,6 +1282,18 @@ local function settleWin(winner: Player, opponents: { Player }): (number, number
 		)
 
 		BadgeMilestoneService.CheckWinMilestones(winner, winnerProfile)
+
+		-- Whole-server announcements for what this win just created. Both read
+		-- the profile AFTER the Elo/streak writes above have landed, so a
+		-- broadcast can never describe a state that didn't actually happen.
+		-- EloService has already applied winnerDelta, so subtracting it back
+		-- off is what the rank was a moment ago.
+		local oldRank = RankTiers.GetRankForElo(winnerProfile.Elo - winnerDelta)
+		local newRank = RankTiers.GetRankForElo(winnerProfile.Elo)
+		if newRank ~= oldRank then
+			HypeFeedService.AnnounceRankUp(winner, newRank)
+		end
+		HypeFeedService.AnnounceWinStreak(winner, winStreak)
 
 		LeaderstatsService.Refresh(winner) -- Elo (via EloService above), Wins, and Rank are all final now
 		LeaderboardService.SubmitElo(winner, winnerProfile.Elo) -- keeps the physical board's global ranking current
@@ -1391,6 +1409,7 @@ local function finishDuelMatch(player: Player, match: DuelMatch)
 
 	local elapsed = os.clock() - match.startTime
 	LeaderboardService.SubmitTime(player, match.stageId, elapsed)
+	HypeFeedService.CheckStageRecord(player, match.stageId, elapsed)
 
 	-- Same rule as a queued race: crossing the line always pays.
 	local finishPoints = awardFinishPoints(player)
@@ -1477,6 +1496,7 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 
 	local elapsed = os.clock() - session.startTime
 	LeaderboardService.SubmitTime(player, stageId, elapsed)
+	HypeFeedService.CheckStageRecord(player, stageId, elapsed)
 
 	session.finishedCount += 1
 	local placement = session.finishedCount

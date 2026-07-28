@@ -56,4 +56,7 @@ return {
 	ReferralReward = "ReferralReward",
 	RequestQueueMode = "RequestQueueMode",
 	OpenCustomQueuePicker = "OpenCustomQueuePicker",
+	-- The only broadcast remote in the game: fired to EVERY client, not one
+	-- (see HypeFeedService).
+	HypeAnnouncement = "HypeAnnouncement",
 }
