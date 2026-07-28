@@ -40,11 +40,26 @@ export type Presentation = {
 	Detail: string?,
 }
 
--- Win streaks below this aren't announced. Three is where a streak stops
--- being luck and starts being a claim someone else in the server might want
--- to end -- announcing every second win would turn the feed into noise and
--- train people to ignore it, which costs the rarer two kinds their impact.
-Hype.MinStreakToAnnounce = 3
+-- Win streaks announce at MILESTONES only: 3, 5, 10, then every 5.
+--
+-- Three is where a streak stops being luck and starts being a claim someone
+-- else in the server might want to end. But a plain ">= 3" floor announced
+-- every single win from there on, so one player on a hot run could hold the
+-- whole feed -- one toast per race, indefinitely. That is the exact "train
+-- everyone to ignore the feed" failure the threshold existed to prevent, and
+-- it would have cost the rarer rank-up and record toasts their impact too.
+--
+-- Milestones fix it in both directions: a streak stays an event, and a long
+-- run escalates (3 -> 5 -> 10 -> 15) instead of repeating itself.
+Hype.FirstStreakMilestone = 3
+
+function Hype.ShouldAnnounceStreak(streak: number): boolean
+	if streak == 3 or streak == 5 then
+		return true
+	end
+	-- 10, 15, 20, ... -- gated on >= 10 so this can't also catch 5.
+	return streak >= 10 and streak % 5 == 0
+end
 
 local FALLBACK_COLOR = Color3.fromRGB(255, 205, 60)
 

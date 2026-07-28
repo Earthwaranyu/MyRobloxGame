@@ -38,7 +38,7 @@ function HypeFeedService.AnnounceRankUp(player: Player, rankName: string)
 end
 
 function HypeFeedService.AnnounceWinStreak(player: Player, streak: number)
-	if streak < Hype.MinStreakToAnnounce then
+	if not Hype.ShouldAnnounceStreak(streak) then
 		return
 	end
 	announce({ Kind = "WinStreak", PlayerName = player.DisplayName, Streak = streak })

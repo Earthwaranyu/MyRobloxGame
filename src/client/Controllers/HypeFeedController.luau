@@ -9,6 +9,7 @@ local RemoteNames = require(Shared.RemoteNames)
 
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
 local Theme = require(script.Parent.Parent.Theme)
+local MatchStateController = require(script.Parent.MatchStateController)
 
 -- Renders HypeFeedService's server-wide announcements as a stack of toasts.
 --
@@ -200,7 +201,38 @@ function HypeFeedController.Init()
 		if typeof(announcement) ~= "table" or not announcement.Kind then
 			return
 		end
+		-- Dropped outright while RACING, not queued for later.
+		--
+		-- This is a first-person precision obby: a toast sliding into your
+		-- sight line mid-run is a hazard on a jump you can lose the race to,
+		-- and you're concentrating too hard to read it anyway. Queuing them
+		-- instead would dump three at once at the finish line, all about
+		-- things that happened minutes ago -- and immediacy is the entire
+		-- value of this feed, so stale news is worth less than no news.
+		--
+		-- Spectating deliberately still shows them: a spectator is watching
+		-- other people compete with nothing else to do, which is exactly when
+		-- someone else's rank-up lands hardest. The pre-race countdown isn't
+		-- "Racing" yet either (the server only flips that when the countdown
+		-- ends), so those few frozen seconds keep the feed too.
+		if MatchStateController.CurrentState == "Racing" then
+			return
+		end
 		show(announcement)
+	end)
+
+	-- Gating new toasts isn't enough on its own: one shown during the pre-race
+	-- countdown still has most of its 4 seconds left when the race actually
+	-- starts, and would ride into the first jumps -- the exact thing the gate
+	-- above exists to prevent. Clear the board on the way in.
+	MatchStateController.StateChanged:Connect(function(state: string)
+		if state ~= "Racing" then
+			return
+		end
+		-- Retire mutates `active`, so iterate over a copy.
+		for _, toast in table.clone(active) do
+			retire(toast)
+		end
 	end)
 end
 
