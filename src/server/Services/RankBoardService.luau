@@ -21,7 +21,23 @@ local RankTiers = require(Shared.RankTiers)
 local RankBoardService = {}
 
 local BOARD_NAME = "RankRequirementBoard"
-local ROW_HEIGHT = 60
+
+-- Board geometry, named because the row height is DERIVED from it rather than
+-- being its own magic number. A fixed 60px row fitted the seven tiers that
+-- happened to exist when this was written and silently overflowed the eighth
+-- (adding Iron needed 522px of a 518px list) -- which is exactly the drift the
+-- comment above promises can't happen. Rows now divide whatever space there is.
+local BOARD_SIZE = Vector3.new(10, 12, 1)
+local PIXELS_PER_STUD = 50
+local HEADER_HEIGHT = 70
+local LIST_INSET = 12
+local ROW_PADDING = 6
+
+local function rowHeight(): number
+	local listHeight = BOARD_SIZE.Y * PIXELS_PER_STUD - HEADER_HEIGHT - LIST_INSET * 2
+	local count = #RankTiers.Tiers
+	return math.floor((listHeight - ROW_PADDING * (count - 1)) / count)
+end
 
 -- Built at runtime for the same reason LeaderboardBoardService is: Workspace
 -- isn't Rojo-synced in this project, so this is the only way the board is
@@ -57,7 +73,7 @@ local function buildBoard()
 	part.Anchored = true
 	-- A display, not an obstacle -- same reasoning as the leaderboard board.
 	part.CanCollide = false
-	part.Size = Vector3.new(10, 12, 1)
+	part.Size = BOARD_SIZE
 	part.CFrame = CFrame.new(basePosition) * displayRotation
 	part.Color = Color3.fromRGB(20, 21, 30)
 	part.Material = Enum.Material.SmoothPlastic
@@ -67,13 +83,13 @@ local function buildBoard()
 	surfaceGui.Name = "Display"
 	surfaceGui.Face = Enum.NormalId.Front
 	surfaceGui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	surfaceGui.PixelsPerStud = 50
+	surfaceGui.PixelsPerStud = PIXELS_PER_STUD
 	surfaceGui.LightInfluence = 0
 	surfaceGui.Parent = part
 
 	local ribbon = Instance.new("Frame")
 	ribbon.Name = "Ribbon"
-	ribbon.Size = UDim2.new(1, 0, 0, 70)
+	ribbon.Size = UDim2.new(1, 0, 0, HEADER_HEIGHT)
 	ribbon.BackgroundColor3 = Color3.fromRGB(255, 205, 60)
 	ribbon.BorderSizePixel = 0
 	ribbon.Parent = surfaceGui
@@ -90,21 +106,21 @@ local function buildBoard()
 
 	local list = Instance.new("Frame")
 	list.Name = "List"
-	list.Size = UDim2.new(1, -24, 1, -82)
-	list.Position = UDim2.fromOffset(12, 78)
+	list.Size = UDim2.new(1, -LIST_INSET * 2, 1, -(HEADER_HEIGHT + LIST_INSET * 2))
+	list.Position = UDim2.fromOffset(LIST_INSET, HEADER_HEIGHT + LIST_INSET)
 	list.BackgroundTransparency = 1
 	list.Parent = surfaceGui
 
 	local layout = Instance.new("UIListLayout")
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Padding = UDim.new(0, 6)
+	layout.Padding = UDim.new(0, ROW_PADDING)
 	layout.Parent = list
 
 	for index, tier in RankTiers.Tiers do
 		local row = Instance.new("Frame")
 		row.Name = tier.Name
 		row.LayoutOrder = index
-		row.Size = UDim2.new(1, 0, 0, ROW_HEIGHT)
+		row.Size = UDim2.new(1, 0, 0, rowHeight())
 		row.BackgroundColor3 = Color3.fromRGB(34, 36, 50)
 		row.BackgroundTransparency = 0.15
 		row.BorderSizePixel = 0
