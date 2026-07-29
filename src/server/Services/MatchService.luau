@@ -281,24 +281,29 @@ local duelCancelledRemote: RemoteEvent
 
 local broadcastRoster: (session: Session) -> ()
 local tryStartCountdown: () -> ()
-local startSession: (target: number, stageId: string?) -> ()
+local startSession: (target: number, stageId: string?, roster: { Player }?) -> ()
 local beginRace: (stageId: string, participants: { [number]: Player }) -> ()
 local endSession: () -> ()
 local awardWalkover: (session: Session) -> boolean
 
 -- Levels are built directly in Studio (not synced from src/), following the
 -- convention Workspace.Stages.<StageId>.<StageId>Spawn for each stage's spawn point.
-local function getStageSpawnCFrame(stageId: string): CFrame?
+local function getStageSpawnPart(stageId: string): BasePart?
 	local stagesFolder = Workspace:FindFirstChild("Stages")
 	local stageFolder = stagesFolder and stagesFolder:FindFirstChild(stageId)
 	local spawnPart = stageFolder and stageFolder:FindFirstChild(stageId .. "Spawn")
 	if spawnPart and spawnPart:IsA("BasePart") then
-		return spawnPart.CFrame + Vector3.new(0, 3, 0)
+		return spawnPart
 	end
 	return nil
 end
 
--- Where the Nth racer of a wave starts, so an uncapped field spreads across a
+local function getStageSpawnCFrame(stageId: string): CFrame?
+	local spawnPart = getStageSpawnPart(stageId)
+	return spawnPart and spawnPart.CFrame + Vector3.new(0, 3, 0)
+end
+
+-- Where each racer of a wave starts, so an uncapped field spreads across a
 -- start grid instead of every player being dropped on one CFrame and standing
 -- inside each other until the physics shoves them apart.
 --
@@ -306,20 +311,50 @@ end
 -- enough single row would put the outer racers off the edge of the platform on
 -- the narrower stages, whereas depth is always available behind the line.
 -- Everyone is still behind the same line, so no row gets a head start.
-local START_GRID_COLUMNS = 6
+--
+-- The grid is fitted to the ACTUAL spawn pad rather than laid out on fixed
+-- constants. A fixed 6-column grid put a 4-player wave at -12.5..+2.5 studs --
+-- both lopsided (centred on six slots while only four existed) and, on the
+-- narrower pads, hanging over the edge, so players spent the countdown falling.
+-- Overlapping is the safe failure here and dropping off the pad is not, so when
+-- a field genuinely cannot fit, spacing shrinks rather than the grid growing:
+-- characters can't collide with each other anyway (see BotService's collision
+-- group), so a tight grid looks crowded and nothing worse.
 local START_GRID_SPACING = 5
+-- Keeps the outermost racer's body clear of the lip of the pad.
+local START_GRID_MARGIN = 3
 
-local function startGridCFrame(spawnCFrame: CFrame, index: number): CFrame
-	local slot = index - 1
-	local column = slot % START_GRID_COLUMNS
-	local row = math.floor(slot / START_GRID_COLUMNS)
-	-- Centre each row on the spawn point so the field stays symmetrical around
-	-- the middle of the platform however many turn up.
-	local offsetX = (column - (START_GRID_COLUMNS - 1) / 2) * START_GRID_SPACING
-	local offsetZ = row * START_GRID_SPACING
-	-- Applied in the spawn's own space, so the grid follows however the stage's
-	-- spawn part is rotated -- "back" is always back relative to the course.
-	return spawnCFrame * CFrame.new(offsetX, 0, offsetZ)
+local function buildStartGrid(spawnCFrame: CFrame, padSize: Vector3, count: number): { CFrame }
+	-- X is a span centred on the spawn point, so the whole width less both
+	-- margins is available. Z is not: rows only ever build BACKWARDS from the
+	-- spawn point, so the depth to play with is the half-pad behind it.
+	local usableX = math.max(0, padSize.X - START_GRID_MARGIN * 2)
+	local usableZ = math.max(0, padSize.Z / 2 - START_GRID_MARGIN)
+
+	-- Never more columns than there are racers, so a small field is a single
+	-- centred row instead of the left-hand end of a wide one.
+	local columns = math.clamp(math.floor(usableX / START_GRID_SPACING) + 1, 1, count)
+	local rows = math.ceil(count / columns)
+
+	local spacingX = if columns > 1 then math.min(START_GRID_SPACING, usableX / (columns - 1)) else 0
+	local spacingZ = if rows > 1 then math.min(START_GRID_SPACING, usableZ / (rows - 1)) else 0
+
+	local grid = table.create(count)
+	for index = 1, count do
+		local slot = index - 1
+		local column = slot % columns
+		local row = math.floor(slot / columns)
+		-- Centred on how many are actually IN this row, so a part-filled back
+		-- row sits under the middle of the one in front rather than flush left.
+		local inThisRow = math.min(columns, count - row * columns)
+		local offsetX = (column - (inThisRow - 1) / 2) * spacingX
+		local offsetZ = row * spacingZ
+		-- Applied in the spawn's own space, so the grid follows however the
+		-- stage's spawn part is rotated -- "back" is always back relative to
+		-- the course.
+		grid[index] = spawnCFrame * CFrame.new(offsetX, 0, offsetZ)
+	end
+	return grid
 end
 
 local function getLobbySpawnCFrame(): CFrame?
@@ -565,10 +600,22 @@ local function startWaveClock()
 
 			if #getQueue(QueueModes.AnySize) >= Constants.Match.MinPlayers then
 				local departing = waveStageId
+				-- Take the passengers OUT of the queue right now, at departure,
+				-- and hand them to startSession explicitly.
+				--
+				-- Letting startSession clear the queue itself was a race: this
+				-- loop continues the instant the delay is scheduled, rolls the
+				-- NEXT wave's stage, and broadcasts it to everyone still listed
+				-- as queued -- which, for the MapRevealSeconds the reel is
+				-- spinning, is exactly the people who just departed. They'd get
+				-- a second map reveal for a stage they aren't going to, on top
+				-- of their own pre-race countdown.
+				local passengers = getQueue(QueueModes.AnySize)
+				queues[QueueModes.AnySize] = {}
 				-- The reel spins for MapRevealSeconds after the clock hits zero,
 				-- and the teleport waits for it -- same pacing as a station race.
 				task.delay(Constants.Match.MapRevealSeconds, function()
-					startSession(QueueModes.AnySize, departing)
+					startSession(QueueModes.AnySize, departing, passengers)
 				end)
 			else
 				-- Nobody (or one person) waiting: tell whoever IS there that the
@@ -592,8 +639,11 @@ end
 -- Teleports the matched group to the chosen stage. They stay in "Lobby"
 -- (first-person, but frozen in place -- see setFrozen) for CountdownSeconds
 -- so everyone gets a moment to see the map before the clock starts.
-function startSession(target: number, stageId: string?)
-	local queued = getQueue(target)
+function startSession(target: number, stageId: string?, roster: { Player }?)
+	-- `roster` is for callers that already pulled their group out of the queue
+	-- (the wave clock, which must do so at departure -- see startWaveClock).
+	-- Everyone else hands over the queue as it stands.
+	local queued = roster or getQueue(target)
 	queues[target] = {}
 
 	-- An exact-size station must still have its exact number; the any-size
@@ -616,8 +666,12 @@ function startSession(target: number, stageId: string?)
 	-- No player cap. A wave takes everyone who queued for it, however many that
 	-- is -- the reason a cap existed (a spawn pad only fits so many before
 	-- players stand inside each other) is handled by spreading the start line
-	-- out instead, see startGridCFrame.
+	-- out instead, see buildStartGrid.
+	local spawnPart = getStageSpawnPart(stageId)
 	local spawnCFrame = getStageSpawnCFrame(stageId)
+	local grid = if spawnPart and spawnCFrame
+		then buildStartGrid(spawnCFrame, spawnPart.Size, #queued)
+		else nil
 
 	local participants: { [number]: Player } = {}
 	local gridIndex = 0
@@ -629,9 +683,9 @@ function startSession(target: number, stageId: string?)
 			-- starts) so fall-recovery already works during the pre-race
 			-- countdown, not only once CountdownSeconds elapses.
 			playerRaceStage[player.UserId] = stageId
-			if spawnCFrame then
+			if grid then
 				gridIndex += 1
-				local startCFrame = startGridCFrame(spawnCFrame, gridIndex)
+				local startCFrame = grid[gridIndex]
 				teleportToStageSpawn(player, startCFrame)
 				-- Their own grid slot is the first checkpoint, so an early fall
 				-- returns them to where they actually started rather than to a
@@ -678,15 +732,21 @@ function beginRace(stageId: string, participants: { [number]: Player })
 	end
 
 	-- Players were frozen in place for CountdownSeconds (see setFrozen), not
-	-- just left to wander -- but still snap everyone to the exact spawn CFrame
-	-- here rather than trusting wherever they were frozen at, since e.g. a
-	-- respawn mid-countdown would've left them unfrozen at whatever spot the
-	-- default spawn put them.
+	-- just left to wander -- but still snap everyone here rather than trusting
+	-- wherever they were frozen at, since e.g. a respawn mid-countdown would've
+	-- left them unfrozen at whatever spot the default spawn put them.
+	--
+	-- Snapped back to their own GRID SLOT, not the bare spawn point. Using the
+	-- spawn point undid the whole start grid at the instant it mattered: the
+	-- field spread out for the countdown and then teleported into one stack on
+	-- GO. lastCheckpoint holds the slot startSession assigned, and they were
+	-- frozen the whole countdown, so it's still exactly where they should be.
 	local spawnCFrame = getStageSpawnCFrame(stageId)
 	for userId, player in validParticipants do
-		if spawnCFrame then
-			teleportToStageSpawn(player, spawnCFrame)
-			lastCheckpoint[userId] = spawnCFrame
+		local startCFrame = lastCheckpoint[userId] or spawnCFrame
+		if startCFrame then
+			teleportToStageSpawn(player, startCFrame)
+			lastCheckpoint[userId] = startCFrame
 		end
 		setFrozen(player, false)
 		LobbyService.SetPlayerState(player, "Racing")
