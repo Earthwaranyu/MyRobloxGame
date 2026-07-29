@@ -100,6 +100,13 @@ function OverheadDisplayService.Refresh(player: Player)
 	local label = backdrop:FindFirstChild("Label") :: TextLabel
 	local stroke = backdrop:FindFirstChild("RankStroke") :: UIStroke
 
+	-- Published as a replicated attribute rather than drawn into this billboard.
+	-- The streak flame flickers and sheds embers, and animating that server-side
+	-- would mean replicating a property change per frame per player; as an
+	-- attribute it costs one small update per race and every client animates its
+	-- own copy. See StreakFlameController for the drawing.
+	player:SetAttribute("WinStreak", profile.WinStreak)
+
 	local rankColor = RankTiers.GetColorForElo(profile.Elo)
 	-- Name included, not just rank/elo -- without it there was no way to
 	-- visually tell two characters apart in the 3D world at all (confirmed

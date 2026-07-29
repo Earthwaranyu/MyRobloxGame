@@ -1748,6 +1748,9 @@ local function settleWin(
 			opponentProfile.WinStreak = 0
 			opponentProfile.Losses += 1
 			ReferralService.HandleFirstRealRace(opponent, opponentProfile)
+			-- Their streak just ended, so the flame above their head has to go
+			-- out now rather than lingering until whatever next refreshes them.
+			OverheadDisplayService.Refresh(opponent)
 		end
 	end
 
@@ -1802,6 +1805,10 @@ local function settleWin(
 		end
 		HypeFeedService.AnnounceWinStreak(winner, winStreak)
 
+		-- Re-published AFTER the streak write above: settleFinisherElo already
+		-- refreshed this player, but that ran before the streak existed, so the
+		-- flame would otherwise show the previous race's number.
+		OverheadDisplayService.Refresh(winner)
 		LeaderstatsService.Refresh(winner) -- Elo (via settleFinisherElo above), Wins, and Rank are all final now
 		LeaderboardService.SubmitElo(winner, winnerProfile.Elo) -- keeps the physical board's global ranking current
 	end
