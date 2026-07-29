@@ -90,10 +90,30 @@ end
 local BOT_MODEL_NAME = "RaceBot"
 local bots: { [Model]: true } = {}
 
+-- Set the moment the pre-race countdown starts, i.e. as soon as everyone is
+-- teleported to the start line, and cleared on the way back to the lobby.
+--
+-- The countdown is not yet "Racing" and no roster has been broadcast, so
+-- without this there was a window -- standing on the start grid waiting for GO
+-- -- where every other racer was still fully clickable. That's precisely the
+-- moment someone has nothing else to do, and it let you read the profile of a
+-- player from a race you aren't in.
+local staging = false
+
 -- True for every kind of race, not just the ones that broadcast a roster:
--- station, wave and bot matches all need clicks closed off.
+-- station, wave and bot matches all need clicks closed off, and so does the
+-- start-line wait before any of them begin.
 local function inRace(): boolean
-	return racing or MatchStateController.CurrentState == "Racing"
+	return racing or staging or MatchStateController.CurrentState == "Racing"
+end
+
+-- Exposed because CanQuery does NOT stop a ClickDetector: ProfileCardController
+-- attaches one per body part, and MouseClick still fires on parts that answer no
+-- spatial queries. The visibility rules and the click rules therefore have to be
+-- enforced in two different places from one shared answer, rather than the
+-- second falling out of the first as originally assumed.
+function RaceVisibilityController.IsInRace(): boolean
+	return inRace()
 end
 
 local function refresh()
@@ -134,13 +154,25 @@ end
 
 function RaceVisibilityController.Init()
 	local function onStateChanged()
-		setInspectionEnabled(MatchStateController.CurrentState ~= "Racing")
+		-- Back in the lobby means the staging window is over, however it ended
+		-- -- raced, quit, or a countdown that never departed.
+		if MatchStateController.CurrentState == "Lobby" then
+			staging = false
+		end
+		setInspectionEnabled(not inRace())
 		-- Also refresh, because entering a bot or station race changes who may
 		-- be clicked without any roster arriving to trigger it.
 		refresh()
 	end
 	onStateChanged()
 	MatchStateController.StateChanged:Connect(onStateChanged)
+
+	-- Teleported to the start line: close clicks off now, not at GO.
+	Net.GetRemoteEvent(RemoteNames.PreRaceCountdown).OnClientEvent:Connect(function()
+		staging = true
+		setInspectionEnabled(false)
+		refresh()
+	end)
 
 	Net.GetRemoteEvent(RemoteNames.RaceRosterChanged).OnClientEvent:Connect(function(userIds: { number }?)
 		roster = {}

@@ -7,6 +7,8 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 local Stages = require(Shared.Stages)
 
+local RaceVisibilityController = require(script.Parent.RaceVisibilityController)
+
 local AvatarThumbnail = require(script.Parent.Parent.AvatarThumbnail)
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
 local Theme = require(script.Parent.Parent.Theme)
@@ -672,7 +674,23 @@ local function watchCharacter(target: Player, character: Model)
 
 	local hint = head and buildHoverHint(head)
 
+	-- Suppressed for the whole time you're committed to a race -- from the
+	-- teleport to the start line through to crossing the finish -- not just
+	-- while the clock is running.
+	--
+	-- Enforced HERE, on the detector's own callbacks, rather than by making the
+	-- character unqueryable: a ClickDetector's MouseClick fires regardless of
+	-- CanQuery, so the parts can be invisible to every spatial query and still
+	-- open this card. The start grid was the visible symptom -- a third-person
+	-- wait with a free mouse, next to racers you may not even be racing.
+	local function suppressed(): boolean
+		return RaceVisibilityController.IsInRace()
+	end
+
 	local function onHoverEnter()
+		if suppressed() then
+			return
+		end
 		highlight.Enabled = true
 		if hint then
 			hint.Enabled = true
@@ -687,6 +705,9 @@ local function watchCharacter(target: Player, character: Model)
 	end
 
 	local function onClick()
+		if suppressed() then
+			return
+		end
 		local now = os.clock()
 		local last = lastClickTime[target.UserId]
 		lastClickTime[target.UserId] = now
@@ -778,6 +799,13 @@ function ProfileCardController.Init()
 			end
 			task.wait(0.5)
 		end
+	end)
+
+	-- Already-open cards don't survive the teleport to the start line. Blocking
+	-- new opens isn't enough on its own: a card opened a moment before the
+	-- countdown would otherwise sit on screen over the start grid.
+	Net.GetRemoteEvent(RemoteNames.PreRaceCountdown).OnClientEvent:Connect(function()
+		closePanel()
 	end)
 
 	getSummaryRemote = Net.GetRemoteFunction(RemoteNames.GetPlayerProfileSummary)

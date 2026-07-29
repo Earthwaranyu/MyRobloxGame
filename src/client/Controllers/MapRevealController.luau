@@ -46,6 +46,10 @@ local reel: Frame
 local stageEntries: { { Id: string, Name: string, Color: Color3, Difficulty: string } } = {}
 local pendingStageId: string? = nil
 local spinning = false
+-- Bumped by every queue-status update. A spin is scheduled up to a full wave
+-- ahead, so it has to be able to tell "still the booking I was made for" from
+-- "superseded" when it finally fires. See the QueueStatusChanged handler.
+local spinGeneration = 0
 
 local function getStageEntry(stageId: string)
 	for _, entry in stageEntries do
@@ -166,6 +170,24 @@ local function playSpinTicks(duration: number)
 	end)
 end
 
+-- Incremented by every spin AND every abort, so the deferred settle/close
+-- callbacks below can tell whether they still belong to the spin on screen.
+-- Without it, cancelling a spin and immediately starting a real one would let
+-- the dead spin's close timer shut the live reel mid-animation.
+local spinRun = 0
+
+-- Ends a spin that turned out to have no departure behind it. Safe to call when
+-- nothing is spinning.
+local function abortSpin()
+	if not spinning then
+		return
+	end
+	spinning = false
+	spinRun += 1
+	Widgets.Close(overlay)
+	backdrop.Visible = false
+end
+
 local function startSpin()
 	if spinning or not pendingStageId then
 		return
@@ -175,6 +197,8 @@ local function startSpin()
 		return
 	end
 	spinning = true
+	spinRun += 1
+	local run = spinRun
 
 	for _, child in reel:GetChildren() do
 		child:Destroy()
@@ -202,11 +226,17 @@ local function startSpin()
 	-- reports completion (see Widgets.Open/Close for why that can't be
 	-- assumed under heavy frame-scheduling load).
 	task.delay(duration, function()
+		if run ~= spinRun then
+			return
+		end
 		reel.Position = UDim2.fromOffset(targetX, 0)
 		Sounds.Play("Reveal")
 	end)
 
 	task.delay(duration + 0.6, function()
+		if run ~= spinRun then
+			return
+		end
 		Widgets.Close(overlay)
 		backdrop.Visible = false
 		spinning = false
@@ -232,11 +262,22 @@ function MapRevealController.Init()
 
 	local queueRemote = Net.GetRemoteEvent(RemoteNames.QueueStatusChanged)
 	queueRemote.OnClientEvent:Connect(function(secondsRemaining: (number | boolean)?)
+		-- Every status supersedes whatever was scheduled before it. A spin is
+		-- booked a whole wave ahead, and plenty can happen in between -- most
+		-- often the wave hitting zero WITHOUT enough players and being skipped,
+		-- which fires `true` here. Before this, that pending spin still fired:
+		-- the reel span up, landed on a map, and nothing happened, because
+		-- there was no departure behind it.
+		spinGeneration += 1
+		local generation = spinGeneration
+
 		-- `true` means "queued, but MatchService.Constants.Match.MinPlayers
-		-- hasn't been met yet" (see QueueStatusController) -- no real
-		-- countdown running yet, so there's nothing to time the reveal spin
-		-- against until a number actually arrives.
+		-- hasn't been met yet" (see QueueStatusController); nil means no longer
+		-- queued at all. Neither has a departure to reveal, so any spin already
+		-- in flight is for a race that isn't happening -- close it rather than
+		-- letting it play out.
 		if typeof(secondsRemaining) ~= "number" then
+			abortSpin()
 			return
 		end
 
@@ -247,7 +288,14 @@ function MapRevealController.Init()
 		-- It used to start MapRevealSeconds BEFORE zero so the two overlapped
 		-- inside one flat window, which meant the countdown number stopped at
 		-- 3 and disappeared -- indistinguishable from the timer breaking.
-		task.delay(math.max(0, secondsRemaining), startSpin)
+		task.delay(math.max(0, secondsRemaining), function()
+			-- Anything newer than this booking wins -- see the generation bump
+			-- above.
+			if generation ~= spinGeneration then
+				return
+			end
+			startSpin()
+		end)
 	end)
 end
 

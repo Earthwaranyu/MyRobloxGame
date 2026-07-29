@@ -192,6 +192,11 @@ type DuelMatch = {
 	players: { [number]: Player }, -- userId -> Player, removed as each side finishes/leaves
 	startTime: number,
 	winner: Player?,
+	-- Net rating change per side, accumulated as pairs settle -- same role as
+	-- Session.eloDelta. A duel settles the loser's rating the moment the WINNER
+	-- crosses, so without somewhere to record it the loser's own outcome had no
+	-- number to report and silently omitted it.
+	eloDelta: { [number]: number },
 }
 local duelMatches: { [number]: DuelMatch } = {}
 
@@ -1927,7 +1932,7 @@ local function finishDuelMatch(player: Player, match: DuelMatch)
 		end
 
 		if opponent then
-			local winnerDelta, raceWeight = settleFinisherElo(player, { opponent }, 2)
+			local winnerDelta, raceWeight = settleFinisherElo(player, { opponent }, 2, match.eloDelta)
 			local _, winStreak, streakBonus, points = settleWin(player, { opponent }, winnerDelta, raceWeight)
 			raceOutcomeRemote:FireClient(player, {
 				Won = true,
@@ -1940,9 +1945,16 @@ local function finishDuelMatch(player: Player, match: DuelMatch)
 		end
 	else
 		-- Elo for this player was already settled when the opponent (the real
-		-- winner) finished first -- this is just their personal placement,
-		-- plus the finish reward for having actually completed the course.
-		raceOutcomeRemote:FireClient(player, { Won = false, Placement = 2, Total = 2, Points = finishPoints })
+		-- winner) finished first, so it's read from the tally rather than
+		-- recomputed -- reporting it matters, because otherwise the rating
+		-- moved and the player was never told a number at all.
+		raceOutcomeRemote:FireClient(player, {
+			Won = false,
+			Placement = 2,
+			Total = 2,
+			EloDelta = math.round(match.eloDelta[userId] or 0),
+			Points = finishPoints,
+		})
 	end
 end
 
@@ -2157,6 +2169,25 @@ function MatchService.QuitMatch(player: Player)
 	if raceSession then
 		raceSession.participants[userId] = nil
 		playerSession[userId] = nil
+
+		-- Rating settles pairwise the moment somebody AHEAD of you crosses, not
+		-- when you finish -- so a player can already have lost rating to the
+		-- winner and then quit without ever being shown a number. Quitting still
+		-- costs no rating of its own (nothing is settled here), but what was
+		-- already settled has to be reported, or it just drains silently.
+		local pendingDelta = math.round(raceSession.eloDelta[userId] or 0)
+		if pendingDelta ~= 0 then
+			raceOutcomeRemote:FireClient(player, {
+				Won = false,
+				Placement = raceSession.finishedCount + 1,
+				Total = raceSession.totalParticipants,
+				EloDelta = pendingDelta,
+				-- No finish reward -- PointsPerFinish is deliberately gated on
+				-- actually crossing the line.
+				Points = 0,
+			})
+		end
+
 		if next(raceSession.participants) == nil then
 			endSession(raceSession)
 		elseif not awardWalkover(raceSession) then
@@ -2362,6 +2393,7 @@ function MatchService.StartDuelMatch(playerA: Player, playerB: Player)
 				players = { [userIdA] = playerA, [userIdB] = playerB },
 				startTime = os.clock(),
 				winner = nil,
+				eloDelta = {},
 			}
 			duelMatches[userIdA] = match
 			duelMatches[userIdB] = match
