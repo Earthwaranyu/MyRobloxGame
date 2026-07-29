@@ -1,11 +1,14 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
+
+local MatchStateController = require(script.Parent.MatchStateController)
 
 -- Hides every character that isn't in THIS player's race.
 --
@@ -79,7 +82,38 @@ local function refresh()
 	end
 end
 
+-- Hiding a character is only half the job: an invisible player is still there
+-- to be clicked, and Roblox's own inspect UI will happily name them. That makes
+-- the whole separation cosmetic and trivially bypassable -- you could sit on the
+-- start line double-clicking your way through a race you aren't in.
+--
+-- So while racing, the two routes to another player's identity are closed: the
+-- avatar context menu (double-clicking a character) and the player list (whose
+-- rows open the same profile popup). Both come back the moment the race ends.
+--
+-- Keyed off MatchStateController rather than the roster, because it has to hold
+-- for EVERY kind of race -- station, wave and bot matches alike -- not just the
+-- ones that broadcast a roster.
+--
+-- pcall'd because SetCore/SetCoreGuiEnabled throw if the CoreGui hasn't
+-- registered the callback yet, which can happen on the first frames of a
+-- session; losing the lockdown is survivable, an error during Init is not.
+local function setInspectionEnabled(enabled: boolean)
+	pcall(function()
+		StarterGui:SetCore("AvatarContextMenuEnabled", enabled)
+	end)
+	pcall(function()
+		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, enabled)
+	end)
+end
+
 function RaceVisibilityController.Init()
+	local function updateInspection()
+		setInspectionEnabled(MatchStateController.CurrentState ~= "Racing")
+	end
+	updateInspection()
+	MatchStateController.StateChanged:Connect(updateInspection)
+
 	Net.GetRemoteEvent(RemoteNames.RaceRosterChanged).OnClientEvent:Connect(function(userIds: { number }?)
 		roster = {}
 		racing = userIds ~= nil
