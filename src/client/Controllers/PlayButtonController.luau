@@ -4,12 +4,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local Net = require(Shared.Net)
+local QueueModes = require(Shared.QueueModes)
 local RemoteNames = require(Shared.RemoteNames)
 local Signal = require(Shared.Signal)
 
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
 local Widgets = require(script.Parent.Parent.Widgets)
 local MatchStateController = require(script.Parent.MatchStateController)
+local PlayModePickerController = require(script.Parent.PlayModePickerController)
 
 -- Primary way to enter matchmaking (touching a physical start line still
 -- works too for the real-players queue, and feeds the exact same shared
@@ -85,7 +87,9 @@ local function refresh()
 	end
 end
 
-local function startQueue(mode: string?)
+-- `target` is the exact race size chosen in the play menu, or nil for the
+-- size-agnostic wave queue. Ignored for Bots/Practice, which aren't queues.
+local function startQueue(mode: string?, target: number?)
 	if busy then
 		return
 	end
@@ -93,7 +97,7 @@ local function startQueue(mode: string?)
 	PlayButtonController.CurrentMode = mode
 	PlayButtonController.ModeChanged:Fire(mode)
 	refresh()
-	Net.GetRemoteEvent(RemoteNames.RequestQueue):FireServer(mode)
+	Net.GetRemoteEvent(RemoteNames.RequestQueue):FireServer(mode, target)
 end
 
 -- QuitMatch already handles both "still sitting in the shared queue" and
@@ -136,9 +140,20 @@ end
 local function onButtonClicked(mode: string?)
 	if busy then
 		cancelQueue()
-	else
-		startQueue(mode)
+		return
 	end
+
+	-- PLAY now asks WHICH race first (see PlayModePickerController) instead of
+	-- dropping straight into the size-agnostic queue. VS BOTS and PRACTICE skip
+	-- the picker -- neither has a size to choose.
+	if mode == nil then
+		PlayModePickerController.Open(function(target: number)
+			startQueue(nil, if target == QueueModes.AnySize then nil else target)
+		end)
+		return
+	end
+
+	startQueue(mode)
 end
 
 local function buildUI()

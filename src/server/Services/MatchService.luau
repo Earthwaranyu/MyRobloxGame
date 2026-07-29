@@ -2504,13 +2504,26 @@ function MatchService.Init()
 	-- -> solo, no opponent at all. (Was a plain vsBots boolean before
 	-- Practice mode existed; a string reads better now that there are three.)
 	local requestQueueRemote = Net.CreateRemoteEvent(RemoteNames.RequestQueue)
-	requestQueueRemote.OnServerEvent:Connect(function(player: Player, mode: string?)
+	-- `target` is the exact race size the player picked in the play menu (see
+	-- PlayModePickerController), or nil/0 for the size-agnostic wave queue. It
+	-- reaches the same per-size queues the physical lobby stations already feed,
+	-- so the menu is a second door onto them rather than a parallel system.
+	--
+	-- Validated, not trusted: a client can send any number, and an unchecked one
+	-- would create a queue that requiredFor() waits on forever -- a race that can
+	-- never start, holding a stage.
+	requestQueueRemote.OnServerEvent:Connect(function(player: Player, mode: string?, target: unknown)
 		if mode == "Bots" then
 			MatchService.StartBotMatch(player)
 		elseif mode == "Practice" then
 			MatchService.StartPracticeMatch(player)
 		else
-			MatchService.Enqueue(player)
+			local size = tonumber(target)
+			if size and QueueModes.IsValidTarget(size) then
+				MatchService.Enqueue(player, size)
+			else
+				MatchService.Enqueue(player)
+			end
 		end
 	end)
 
