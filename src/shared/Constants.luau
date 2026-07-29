@@ -87,6 +87,15 @@ return {
 		-- rather than as a handover to the reveal. Counting to zero and then
 		-- spinning costs 2.5s per race and sequences the two clearly.
 		MapRevealSeconds = 2.5,
+		-- How long the winning map stays on screen AFTER the reel stops.
+		--
+		-- Used to live only inside MapRevealController as a bare 0.6, which the
+		-- server knew nothing about -- so every mode teleported the player the
+		-- instant the reel LANDED, while the card announcing where they were
+		-- going was still up. The reveal existed and then was immediately
+		-- talked over by the teleport. Shared now, so the server can wait for
+		-- the whole reveal instead of just the spin.
+		MapRevealHoldSeconds = 0.6,
 		-- The "RACE STARTING IN" countdown that plays on the map itself,
 		-- after the group has been teleported there but before the race
 		-- actually starts (first-person, timer, finish-line detection).

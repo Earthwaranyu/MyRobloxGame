@@ -229,6 +229,25 @@ local function checkPlayerSpeed(player: Player, stageId: string)
 		return
 	end
 
+	-- Registered for a stage but not standing on it yet.
+	--
+	-- Every mode sets playerRaceStage the moment it's requested, then plays the
+	-- map reveal for several seconds before teleporting -- so the watchdog spends
+	-- that whole window checking a player who is still walking around the lobby.
+	-- lastCheckedPosition was left over from their PREVIOUS race, out on a stage
+	-- hundreds of studs away, so the very first check read as an impossible jump
+	-- and "recovered" them onto the new stage instantly, cutting the reveal off.
+	-- It only ever looked right on the first race after joining, where there was
+	-- no stale reading to compare against.
+	--
+	-- lastCheckpoint is the reliable "has actually been placed on the stage"
+	-- signal: every mode sets it at the exact moment it teleports the player,
+	-- and clears it on quit.
+	if not lastCheckpoint[userId] then
+		lastCheckedPosition[userId] = nil
+		return
+	end
+
 	local last = lastCheckedPosition[userId]
 	lastCheckedPosition[userId] = root.Position
 	-- Still record the position above even during a grace window (rather
@@ -549,7 +568,7 @@ local function beginCountdown(target: number, stageId: string, window: number)
 	-- MapRevealSeconds on top of it before anyone is teleported (see
 	-- Constants.Match.MapRevealSeconds). The teleport has to wait for both or
 	-- the reveal would be cut off mid-spin by the stage loading around it.
-	task.delay(window + Constants.Match.MapRevealSeconds, function()
+	task.delay(window + Constants.Match.MapRevealSeconds + Constants.Match.MapRevealHoldSeconds, function()
 		pending[target] = nil
 		startSession(target, stageId)
 	end)
@@ -610,7 +629,7 @@ local function startWaveClock()
 				queues[QueueModes.AnySize] = {}
 				-- The reel spins for MapRevealSeconds after the clock hits zero,
 				-- and the teleport waits for it -- same pacing as a station race.
-				task.delay(Constants.Match.MapRevealSeconds, function()
+				task.delay(Constants.Match.MapRevealSeconds + Constants.Match.MapRevealHoldSeconds, function()
 					startSession(QueueModes.AnySize, departing, passengers)
 				end)
 			else
@@ -1060,7 +1079,7 @@ function MatchService.StartBotMatch(player: Player)
 	queueStatusRemote:FireClient(player, Constants.Match.SoloRevealSeconds)
 	mapSelectedRemote:FireClient(player, stageId)
 
-	task.delay(Constants.Match.SoloRevealSeconds + Constants.Match.MapRevealSeconds, function()
+	task.delay(Constants.Match.SoloRevealSeconds + Constants.Match.MapRevealSeconds + Constants.Match.MapRevealHoldSeconds, function()
 		if not player.Parent or playerRaceStage[userId] ~= stageId then
 			return -- quit or disconnected during the reveal
 		end
@@ -1157,7 +1176,7 @@ function MatchService.StartPracticeMatch(player: Player)
 	queueStatusRemote:FireClient(player, Constants.Match.SoloRevealSeconds)
 	mapSelectedRemote:FireClient(player, stageId)
 
-	task.delay(Constants.Match.SoloRevealSeconds + Constants.Match.MapRevealSeconds, function()
+	task.delay(Constants.Match.SoloRevealSeconds + Constants.Match.MapRevealSeconds + Constants.Match.MapRevealHoldSeconds, function()
 		if not player.Parent or playerRaceStage[userId] ~= stageId then
 			return
 		end
@@ -1222,7 +1241,25 @@ function MatchService.PlayerFellOff(player: Player, stageId: string)
 		return
 	end
 
-	local recoverTo = lastCheckpoint[userId] or getStageSpawnCFrame(stageId)
+	-- Registered for the stage but not yet standing on it.
+	--
+	-- Every mode sets playerRaceStage the moment the race is REQUESTED, then
+	-- plays the map reveal for several seconds before teleporting -- so for that
+	-- whole window the player is still in the lobby while counting as "racing on
+	-- stageId". A VoidZone touch (they are enormous, and the lobby sits within
+	-- reach of one) or a speed-check trip would then "recover" them onto a stage
+	-- they had not been sent to yet, teleporting them mid-reveal. That is the
+	-- bug where pressing PLAY WITH BOTS or PRACTICE warped you to the course
+	-- before the map selection had finished.
+	--
+	-- lastCheckpoint is the reliable "has actually been placed on the stage"
+	-- signal: every mode sets it at the exact moment it teleports the player,
+	-- and clears it on quit. Nil therefore means there is nothing to recover to
+	-- and nothing to recover from.
+	local recoverTo = lastCheckpoint[userId]
+	if not recoverTo then
+		return
+	end
 	if not recoverTo then
 		return
 	end
@@ -2403,7 +2440,7 @@ function MatchService.StartDuelMatch(playerA: Player, playerB: Player)
 		end
 	end
 
-	task.delay(Constants.Match.SoloRevealSeconds + Constants.Match.MapRevealSeconds, function()
+	task.delay(Constants.Match.SoloRevealSeconds + Constants.Match.MapRevealSeconds + Constants.Match.MapRevealHoldSeconds, function()
 		if playerRaceStage[userIdA] ~= stageId or playerRaceStage[userIdB] ~= stageId then
 			releaseBoth()
 			return

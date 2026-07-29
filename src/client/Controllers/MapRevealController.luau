@@ -233,7 +233,7 @@ local function startSpin()
 		Sounds.Play("Reveal")
 	end)
 
-	task.delay(duration + 0.6, function()
+	task.delay(duration + Constants.Match.MapRevealHoldSeconds, function()
 		if run ~= spinRun then
 			return
 		end
@@ -272,12 +272,21 @@ function MapRevealController.Init()
 		local generation = spinGeneration
 
 		-- `true` means "queued, but MatchService.Constants.Match.MinPlayers
-		-- hasn't been met yet" (see QueueStatusController); nil means no longer
-		-- queued at all. Neither has a departure to reveal, so any spin already
-		-- in flight is for a race that isn't happening -- close it rather than
-		-- letting it play out.
-		if typeof(secondsRemaining) ~= "number" then
+		-- hasn't been met yet" (see QueueStatusController) -- the wave reached
+		-- zero without enough players and isn't going. A spin in flight is for a
+		-- race that will never happen, so close it.
+		if secondsRemaining == true then
 			abortSpin()
+			return
+		end
+
+		-- nil is the OPPOSITE case and must not abort. The server sends it at
+		-- the moment the race actually starts, so a running spin here is the
+		-- successful reveal, mid-flight -- cutting it made the map card vanish
+		-- exactly as the player was teleported, which is the one moment the
+		-- reveal exists to cover. (It also arrives on a manual cancel, where the
+		-- spin simply closes itself a moment later on its own timer.)
+		if typeof(secondsRemaining) ~= "number" then
 			return
 		end
 
