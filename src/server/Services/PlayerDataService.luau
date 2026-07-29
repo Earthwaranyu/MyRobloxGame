@@ -18,8 +18,14 @@ local function getStore(): DataStore?
 	return if success then store else nil
 end
 
+-- Bumped when the rating SCALE changes, so old saves can be rebased rather than
+-- silently reinterpreted against new tier thresholds. Version 1 started players
+-- at 0 (on the rating floor); version 2 starts them at Constants.Elo.StartingRating.
+local ELO_SCALE_VERSION = 2
+
 local DEFAULT_PROFILE = {
 	Elo = Constants.Elo.StartingRating,
+	EloScaleVersion = ELO_SCALE_VERSION,
 	Points = 0,
 	OwnedTrails = { "Basic" },
 	EquippedTrail = "Basic",
@@ -94,6 +100,18 @@ local function loadProfile(player: Player)
 		else
 			warn(("Failed to load data for %s: %s"):format(player.Name, tostring(result)))
 		end
+	end
+
+	-- Rebase pre-v2 saves onto the new scale BEFORE the default-fill below,
+	-- which would otherwise stamp the current version onto a legacy profile and
+	-- make it indistinguishable from an already-migrated one.
+	--
+	-- A flat shift rather than a rescale: it preserves every player's standing
+	-- relative to each other exactly, and lands the old starting point (0) on
+	-- the new one. Someone who had climbed to 300 keeps that 300 of progress.
+	if data and data.EloScaleVersion == nil then
+		data.Elo = math.max(0, tonumber(data.Elo) or 0) + Constants.Elo.StartingRating
+		data.EloScaleVersion = ELO_SCALE_VERSION
 	end
 
 	local profile = data or table.clone(DEFAULT_PROFILE)

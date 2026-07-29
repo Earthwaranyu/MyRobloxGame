@@ -1612,9 +1612,10 @@ end
 -- Researched alternatives were weaker. Glicko's g(RD) and TrueSkill's
 -- normaliser both damp wins over uncertain opponents, but only by roughly a
 -- third -- they reduce the yield of farming, they don't stop it, because no
--- rating algorithm has access to identity. Worse, both are floorless, so
--- adopting one would have removed the 0-floor that currently caps a farm at
--- ~720 rating.
+-- rating algorithm has access to identity. This weighting does, which is why it
+-- carries the protection rather than any property of the rating maths: repeated
+-- wins are limited by the rating gap regardless (the pair converges ~720 apart
+-- and gains round to nothing), but only account age tells a farm from a rival.
 --
 -- Applied ASYMMETRICALLY (see EloService): it damps what the OPPONENT earns
 -- from the new account, never what the new account earns itself. A real new

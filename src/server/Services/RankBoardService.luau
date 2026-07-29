@@ -2,6 +2,7 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
+local Constants = require(Shared.Constants)
 local RankTiers = require(Shared.RankTiers)
 
 -- "What Elo do I need for the next rank?" answered in the world, on a board
@@ -150,14 +151,19 @@ local function buildBoard()
 		nameSizeCap.Parent = nameLabel
 		nameLabel.Parent = row
 
-		-- The starting tier reads "START" rather than "0+", which would imply
-		-- a threshold you have to earn your way to.
+		-- The tier players actually START in is marked as such rather than
+		-- showing a threshold, which would imply something to earn your way to.
+		-- Keyed off StartingRating, not off the bottom of the table: players
+		-- begin mid-ladder now, so the lowest tier is somewhere you FALL to and
+		-- wants its real threshold shown like any other.
 		local eloLabel = Instance.new("TextLabel")
 		eloLabel.Name = "Requirement"
 		eloLabel.Size = UDim2.new(0, 170, 1, 0)
 		eloLabel.Position = UDim2.new(1, -180, 0, 0)
 		eloLabel.BackgroundTransparency = 1
-		eloLabel.Text = if tier.MinElo <= 0 then "START" else ("%d+ elo"):format(tier.MinElo)
+		eloLabel.Text = if tier.Name == RankTiers.GetRankForElo(Constants.Elo.StartingRating)
+			then "START"
+			else ("%d+ elo"):format(tier.MinElo)
 		eloLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
 		eloLabel.TextXAlignment = Enum.TextXAlignment.Right
 		eloLabel.Font = Enum.Font.Gotham

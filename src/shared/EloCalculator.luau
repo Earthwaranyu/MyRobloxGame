@@ -29,12 +29,17 @@ end
 function EloCalculator.CalculateNewRatings(winnerRating: number, loserRating: number, kFactor: number): (number, number)
 	local winnerDelta, loserDelta = EloCalculator.CalculateDeltas(winnerRating, loserRating, kFactor, kFactor)
 
-	-- The 0 floor is load-bearing beyond just "ratings shouldn't be negative":
-	-- it's what stops alt-farming from running away, since a drained opponent
-	-- has nothing further to give and the winner's expected score against 0
-	-- approaches 1 (so the gain rounds to nothing). Any future move to a
-	-- floorless system -- TrueSkill, OpenSkill -- has to replace this
-	-- protection deliberately rather than inherit it.
+	-- A backstop, not a balancing mechanism. It used to be load-bearing, back
+	-- when players started AT 0 -- but that also meant a new player could never
+	-- lose rating, so the start moved to Constants.Elo.StartingRating and the
+	-- floor stopped being the thing anyone actually touches.
+	--
+	-- What limits repeated wins over one opponent now is the RATING GAP, which
+	-- binds first: the pair converges about 720 points apart (1360 vs 640 from
+	-- an even start), at which point the winner's expected score is high enough
+	-- that further gains round to nothing. The deliberate protections are
+	-- MatchService's rematch decay and account-age weighting; neither depends on
+	-- this clamp.
 	return math.round(winnerRating + winnerDelta), math.round(math.max(0, loserRating + loserDelta))
 end
 

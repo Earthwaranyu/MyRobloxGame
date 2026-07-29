@@ -3,7 +3,16 @@ return {
 	SprintSpeed = 24,
 
 	Elo = {
-		StartingRating = 0,
+		-- Deliberately well clear of the 0 floor. Starting AT the floor meant a
+		-- new player could not lose rating at all -- every loss clamped back to
+		-- 0 -- so finishing last cost exactly the same as not racing, placement
+		-- Elo was a no-op for anyone at the bottom, and ratings only ever
+		-- inflated because losers never paid what winners collected.
+		--
+		-- 1000 leaves room to fall as well as climb, which is what makes the
+		-- climb mean anything, and turns the 0 floor back into a backstop
+		-- nobody normally touches. RankTiers is anchored to this value.
+		StartingRating = 1000,
 		KFactor = 32,
 	},
 
