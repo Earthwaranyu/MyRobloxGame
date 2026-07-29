@@ -11,7 +11,10 @@ return {
 		--
 		-- 1000 leaves room to fall as well as climb, which is what makes the
 		-- climb mean anything, and turns the 0 floor back into a backstop
-		-- nobody normally touches. RankTiers is anchored to this value.
+		-- nobody normally touches. RankTiers anchors to this value and puts it
+		-- inside BRONZE, so players still start at the bottom rank -- the room
+		-- below them is headroom within that rank, not tiers to be demoted
+		-- through.
 		StartingRating = 1000,
 		KFactor = 32,
 	},

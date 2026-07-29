@@ -8,23 +8,29 @@ local RankTiers = {}
 
 -- Ascending by MinElo; adjust freely, the lookup functions don't assume specific values.
 --
--- Anchored to Constants.Elo.StartingRating (1000): everyone starts in GOLD, with
--- two tiers below them to fall into and four above to climb to. Deliberately not
--- a ladder that starts at the bottom -- rating has a 0 floor, so a bottom-anchored
--- start put every new player where losing was impossible, which is the one place
--- a rating system must not put people. Keeping Bronze and Silver below the start
--- is what lets a loss actually cost something from race one.
+-- Anchored to Constants.Elo.StartingRating (1000), which sits INSIDE Bronze:
+-- everyone still starts at the bottom rank and climbs, which is the progression
+-- the ladder is meant to read as.
 --
--- Bands widen as they go up (200, 300, 400, 500, 600) so the early tiers turn
--- over quickly while the top ones stay scarce.
+-- The separate thing the start has to satisfy is that it must not sit ON the
+-- rating floor. It used to (start 0, floor 0), and a player standing on the
+-- floor cannot lose -- every loss clamps straight back, so finishing last cost
+-- nothing and placement Elo was a no-op at the bottom. Starting at 1000 leaves
+-- a thousand points of room to fall while still being Bronze, so losses bite
+-- from the very first race without demoting anyone below the first rank.
+--
+-- Bronze is therefore a wide band (0..1199) by design: it holds both new players
+-- and anyone who has slid backwards, and there is no rank beneath it to fall to.
+-- The bands above widen as they go (250, 300, 350, 400, 500) so early promotions
+-- come quickly and the top ranks stay scarce.
 RankTiers.Tiers = {
 	{ Name = "Bronze", MinElo = 0, Color = Color3.fromRGB(205, 127, 80) },
-	{ Name = "Silver", MinElo = 800, Color = Color3.fromRGB(198, 205, 216) },
-	{ Name = "Gold", MinElo = 1000, Color = Color3.fromRGB(255, 209, 102) },
-	{ Name = "Platinum", MinElo = 1300, Color = Color3.fromRGB(126, 224, 224) },
-	{ Name = "Diamond", MinElo = 1700, Color = Color3.fromRGB(108, 178, 255) },
-	{ Name = "Master", MinElo = 2200, Color = Color3.fromRGB(191, 110, 255) },
-	{ Name = "Grandmaster", MinElo = 2800, Color = Color3.fromRGB(255, 92, 122) },
+	{ Name = "Silver", MinElo = 1200, Color = Color3.fromRGB(198, 205, 216) },
+	{ Name = "Gold", MinElo = 1450, Color = Color3.fromRGB(255, 209, 102) },
+	{ Name = "Platinum", MinElo = 1750, Color = Color3.fromRGB(126, 224, 224) },
+	{ Name = "Diamond", MinElo = 2100, Color = Color3.fromRGB(108, 178, 255) },
+	{ Name = "Master", MinElo = 2500, Color = Color3.fromRGB(191, 110, 255) },
+	{ Name = "Grandmaster", MinElo = 3000, Color = Color3.fromRGB(255, 92, 122) },
 }
 
 function RankTiers.GetTierForElo(elo: number): RankTier
