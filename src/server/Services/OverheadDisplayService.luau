@@ -53,6 +53,32 @@ end
 
 function OverheadDisplayService.Refresh(player: Player)
 	local character = player.Character
+
+	-- Roblox's own nameplate is turned off, for two reasons.
+	--
+	-- It duplicates this billboard, which already carries the player's name --
+	-- so every character was wearing two nameplates saying the same thing.
+	--
+	-- And it's the click target for Roblox's built-in profile page, which is a
+	-- SECOND, competing way to look someone up: one click for Roblox's page,
+	-- double-click for ProfileCardController's. That one shows strictly more
+	-- (rank, win rate, equipped ability, W/L, playtime, best time per stage,
+	-- and the 1v1 / party buttons), so the native page isn't worth keeping a
+	-- separate gesture for -- removing the nameplate leaves the double-click
+	-- card as the single route to another player's details.
+	--
+	-- Also closes a smaller hole: RaceVisibilityController blocks clicks during
+	-- a race so you can't identify racers you can't see, and a native nameplate
+	-- is exactly the sort of thing that would have quietly reopened it.
+	--
+	-- Done before the head guard below: the nameplate should go even in the
+	-- rare case the billboard can't be built, or a character would briefly wear
+	-- the native plate with nothing replacing it.
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	end
+
 	local head = character and character:FindFirstChild("Head")
 	if not head then
 		return

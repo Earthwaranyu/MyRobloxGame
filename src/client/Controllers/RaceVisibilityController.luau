@@ -115,19 +115,18 @@ local function refresh()
 	end
 end
 
--- Belt and braces alongside the CanQuery block in setCharacterHidden. On its
--- own this was NOT enough -- the profile popup still opened on a double-click
--- with the avatar context menu disabled -- so CanQuery is what actually closes
--- the click path, and this only removes the player list as a second, more
--- obvious route to the same popup.
+-- The player list is a second route to another player's identity, so it goes
+-- away during a race for the same reason the characters do.
 --
--- pcall'd because SetCore/SetCoreGuiEnabled throw if the CoreGui hasn't
--- registered the callback yet, which can happen on the first frames of a
--- session; losing the lockdown is survivable, an error during Init is not.
+-- The avatar context menu is NOT handled here: ProfileCardController disables
+-- it outright for the whole session, since it conflicts with the profile card
+-- everywhere, not just mid-race. The click block that actually protects a race
+-- is CanQuery in setCharacterHidden above.
+--
+-- pcall'd because SetCoreGuiEnabled throws if the CoreGui hasn't registered the
+-- callback yet, which can happen on the first frames of a session; losing the
+-- lockdown is survivable, an error during Init is not.
 local function setInspectionEnabled(enabled: boolean)
-	pcall(function()
-		StarterGui:SetCore("AvatarContextMenuEnabled", enabled)
-	end)
 	pcall(function()
 		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, enabled)
 	end)

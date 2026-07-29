@@ -1,4 +1,5 @@
 local Players = game:GetService("Players")
+local StarterGui = game:GetService("StarterGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
@@ -63,6 +64,7 @@ local statRows: { [string]: TextLabel } = {}
 local bestTimesLabels: { TextLabel } = {}
 local duelButton: TextButton
 local joinPartyButton: TextButton
+local friendButton: TextButton
 -- duelButton/joinPartyButton are fixed, reused instances (the card is
 -- rebuilt in place for whoever was last double-clicked, not recreated per
 -- open) -- their click handlers are wired ONCE in buildUI and read this
@@ -186,13 +188,14 @@ local function openProfileCard(target: Player)
 
 	currentTarget = target
 
-	-- Dueling/party-requesting yourself isn't a real action, so those two
-	-- buttons are swapped for a small note whenever this is the local
-	-- player's own profile (opened via the "My Profile" HUD button) rather
-	-- than someone else's (opened via double-click).
+	-- Duelling, party-requesting or friending yourself isn't a real action, so
+	-- those three buttons are swapped for a small note whenever this is the
+	-- local player's own profile (opened via the "My Profile" HUD button)
+	-- rather than someone else's (opened via double-click).
 	local isSelf = target == player
 	duelButton.Visible = not isSelf
 	joinPartyButton.Visible = not isSelf
+	friendButton.Visible = not isSelf
 	selfNoteLabel.Visible = isSelf
 
 	nameLabel.Text = summary.Name
@@ -335,7 +338,8 @@ local function buildUI()
 
 	local duelY = bestTimesY + bestTimesFrameHeight + 12
 	local joinY = duelY + 40 + 8
-	local PANEL_HEIGHT = joinY + 40 + PAD_X
+	local friendY = joinY + 40 + 8
+	local PANEL_HEIGHT = friendY + 40 + PAD_X
 
 	panel, openPanel, closePanel = Widgets.Modal(
 		"ProfileCard",
@@ -485,9 +489,38 @@ local function buildUI()
 		closePanel()
 	end)
 
-	-- Same slot as duelButton/joinPartyButton -- swapped in over both of them
-	-- (see openProfileCard's isSelf check) when viewing your own profile.
-	selfNoteLabel = Widgets.Label("This is your profile", UDim2.fromOffset(CONTENT_WIDTH, joinY + 40 - duelY), UDim2.fromOffset(PAD_X, duelY), {
+	-- Replaces the "Add Friend" the Roblox avatar context menu used to offer.
+	-- That menu opened on the SAME double-click as this card and landed on top
+	-- of it (see Init's AvatarContextMenuEnabled), so the two were competing
+	-- for one gesture; disabling it there means the one action worth keeping
+	-- has to live here instead.
+	--
+	-- Player:RequestFriendship is the local player asking, so it's called on
+	-- the TARGET from the client -- no remote, and nothing the server needs to
+	-- vouch for. It does nothing between Studio's simulated test accounts, so
+	-- this button only really answers in a live session.
+	friendButton = Widgets.Button("Add Friend", UDim2.fromOffset(CONTENT_WIDTH, 40), UDim2.fromOffset(PAD_X, friendY), {
+		Variant = "Secondary",
+		TextSize = 15,
+	})
+	friendButton.Parent = panel
+	friendButton.MouseButton1Click:Connect(function()
+		if not currentTarget then
+			return
+		end
+		local ok = pcall(function()
+			currentTarget:RequestFriendship()
+		end)
+		showNotice(if ok
+			then "Friend request sent to " .. currentTarget.Name .. "!"
+			else "Couldn't send a friend request right now.")
+		closePanel()
+	end)
+
+	-- Same slot as duelButton/joinPartyButton/friendButton -- swapped in over
+	-- all three (see openProfileCard's isSelf check) when viewing your own
+	-- profile.
+	selfNoteLabel = Widgets.Label("This is your profile", UDim2.fromOffset(CONTENT_WIDTH, friendY + 40 - duelY), UDim2.fromOffset(PAD_X, duelY), {
 		TextSize = 15,
 		Align = Enum.TextXAlignment.Center,
 		Color = Theme.Color.TextMuted,
@@ -720,6 +753,32 @@ end
 
 function ProfileCardController.Init()
 	buildUI()
+
+	-- Roblox's avatar context menu opens on the same double-click as this card,
+	-- so both appeared at once and the grey native menu landed squarely on top
+	-- of the profile -- two panels competing for one gesture, with the smaller
+	-- one covering the stats the player actually double-clicked to read.
+	--
+	-- Turned off for the whole session rather than only during races (which is
+	-- where this started, as an anti-peeking measure) because the conflict is
+	-- not race-specific: it was always the wrong second panel. Of what it
+	-- offered, Add Friend now lives on the card; View duplicates the avatar
+	-- already shown at the top of it, and Wave duplicates the emote wheel.
+	--
+	-- Retried on a short loop because SetCore silently does nothing if CoreGui
+	-- hasn't registered the callback yet, which is common on the first frames
+	-- of a session -- exactly when a controller's Init runs.
+	task.spawn(function()
+		for _ = 1, 10 do
+			local ok = pcall(function()
+				StarterGui:SetCore("AvatarContextMenuEnabled", false)
+			end)
+			if ok then
+				break
+			end
+			task.wait(0.5)
+		end
+	end)
 
 	getSummaryRemote = Net.GetRemoteFunction(RemoteNames.GetPlayerProfileSummary)
 	getBestTimesRemote = Net.GetRemoteFunction(RemoteNames.GetPlayerBestTimes)
