@@ -1497,8 +1497,14 @@ end
 -- the same person five times in a row is completely normal and shouldn't be
 -- punished like cheating. The curve only bites where the pattern is sustained.
 local REMATCH_WINDOW_SECONDS = 1800
--- 1st win 100%, 2nd 75%, 3rd 50%, 4th 25%, 5th and beyond nothing.
-local REMATCH_DECAY_STEPS = 4
+-- 1st win 100%, 2nd 87.5%, 3rd 75%, ... 8th 12.5%, 9th and beyond nothing.
+--
+-- Eight rather than four because four bites too early on legitimate play: with
+-- waves every 60 seconds, two friends on a quiet server can genuinely race each
+-- other five times inside ten minutes and would have been earning nothing by
+-- then. Eight still shuts a farm down well inside the 30-minute window, just
+-- without taxing the normal case to do it.
+local REMATCH_DECAY_STEPS = 8
 
 type RematchRecord = {
 	count: number,

@@ -128,6 +128,10 @@ function Widgets.Ribbon(text: string, size: UDim2, position: UDim2): Frame
 	bevelMaskCorner.Parent = bevelMask
 
 	local bevelStrip = Instance.new("Frame")
+	-- Named so callers that recolour the ribbon (WaveClockController swaps gold
+	-- for red in the last ten seconds) can find the strip and shift it with the
+	-- face, instead of the ribbon flattening into a plain pill.
+	bevelStrip.Name = "Bevel"
 	bevelStrip.AnchorPoint = Vector2.new(0.5, 1)
 	bevelStrip.Position = UDim2.fromScale(0.5, 1)
 	bevelStrip.Size = UDim2.new(1, 0, 0, 6)

@@ -115,13 +115,10 @@ local function buildUI()
 
 	label = container:FindFirstChild("Label") :: TextLabel
 
-	-- The bevel strip is nested inside Ribbon's clipping mask and is
-	-- deliberately unnamed there, so it has to be reached positionally: the
-	-- ribbon's only Frame child is the mask, whose only Frame child is the
-	-- strip. Guarded rather than asserted -- if Ribbon's internals ever change,
-	-- the tab should lose its colour-shift, not throw on startup.
-	local bevelMask = container:FindFirstChildWhichIsA("Frame")
-	bevelStrip = bevelMask and bevelMask:FindFirstChildWhichIsA("Frame")
+	-- Nested inside Ribbon's clipping mask. Guarded rather than asserted -- if
+	-- Ribbon's internals ever change, the tab should lose its colour-shift, not
+	-- throw on startup.
+	bevelStrip = container:FindFirstChild("Bevel", true) :: Frame?
 
 	scale = Instance.new("UIScale")
 	scale.Parent = container

@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
@@ -55,12 +56,26 @@ local function shouldHide(other: Player): boolean
 	return not roster[other.UserId]
 end
 
+-- Practice bots are plain Models parented to Workspace, not Players, so the
+-- roster can't speak about them at all -- a wave sharing a stage with somebody's
+-- bot match would otherwise see a stray runner nobody is racing.
+--
+-- The rule is simply "hide every bot while I'm in a session race". It needs no
+-- server flag because a bot match is never a session: MatchService keeps
+-- botMatches separate from sessions and never broadcasts a roster for one, so
+-- the player who owns the bot has `racing == false` here and keeps seeing it.
+local BOT_MODEL_NAME = "RaceBot"
+local bots: { [Model]: true } = {}
+
 local function refresh()
 	for _, other in Players:GetPlayers() do
 		local character = other.Character
 		if character then
 			setCharacterHidden(character, shouldHide(other))
 		end
+	end
+	for bot in bots do
+		setCharacterHidden(bot, racing)
 	end
 end
 
@@ -96,6 +111,27 @@ function RaceVisibilityController.Init()
 	end)
 	for _, other in Players:GetPlayers() do
 		other.CharacterAdded:Connect(refresh)
+	end
+
+	-- Tracked by signal rather than rescanning Workspace on the heartbeat loop,
+	-- since Workspace holds every stage part in the game and bots appear a
+	-- handful at a time.
+	local function trackBot(child: Instance)
+		if child:IsA("Model") and child.Name == BOT_MODEL_NAME then
+			bots[child] = true
+			-- Hidden on arrival rather than on the next tick, or a bot spawning
+			-- next to a wave pops into view for a frame.
+			setCharacterHidden(child, racing)
+		end
+	end
+	Workspace.ChildAdded:Connect(trackBot)
+	Workspace.ChildRemoved:Connect(function(child)
+		if child:IsA("Model") then
+			bots[child :: Model] = nil
+		end
+	end)
+	for _, child in Workspace:GetChildren() do
+		trackBot(child)
 	end
 end
 
