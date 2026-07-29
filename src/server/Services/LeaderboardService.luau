@@ -8,6 +8,20 @@ local RemoteNames = require(Shared.RemoteNames)
 local Constants = require(Shared.Constants)
 local Stages = require(Shared.Stages)
 
+local PlayerDataService = require(script.Parent.PlayerDataService)
+
+-- Studio's simulated test clients get NEGATIVE UserIds; every real Roblox
+-- account is positive. Without this check those fake accounts write straight
+-- into the live leaderboards -- confirmed on the published place, where
+-- Player_-1..Player_-4 had taken the top four Elo slots ahead of the only real
+-- account on it.
+--
+-- Checked here rather than on RunService:IsStudio() because the property that
+-- matters is "is this a real account", not "where is the server running".
+local function isRealAccount(player: Player): boolean
+	return player.UserId > 0
+end
+
 local LeaderboardService = {}
 
 -- Friends' times are looked up individually (OrderedDataStore's sorted pages
@@ -119,7 +133,7 @@ end
 -- Lower time is better; only writes when it improves the player's best.
 function LeaderboardService.SubmitTime(player: Player, stageId: string, timeSeconds: number)
 	local store = getStore(stageId)
-	if not store then
+	if not store or not isRealAccount(player) then
 		return
 	end
 
@@ -175,7 +189,7 @@ end
 -- with no cooldown needed (same as SubmitTime already does per-race).
 function LeaderboardService.SubmitElo(player: Player, elo: number)
 	local store = getEloStore()
-	if not store then
+	if not store or not isRealAccount(player) then
 		return
 	end
 
@@ -216,6 +230,32 @@ function LeaderboardService.GetTopElo(count: number?)
 end
 
 function LeaderboardService.Init()
+	-- Push each player's rating to the board when they join.
+	--
+	-- SubmitElo otherwise only runs when a race SETTLES, so a rating that
+	-- changed any other way never reached the board -- most obviously the
+	-- v1->v2 rescale, which moved every profile by +1000 without touching the
+	-- leaderboard. Confirmed live: a profile reading 1000 sat on the board as 0.
+	--
+	-- One write per join, which is nothing against the write budget, and it
+	-- self-heals every stale entry the first time its owner comes back.
+	Players.PlayerAdded:Connect(function(player)
+		task.spawn(function()
+			-- The profile load is async, so wait for it rather than racing it.
+			local profile
+			for _ = 1, 200 do
+				profile = PlayerDataService.GetProfile(player)
+				if profile then
+					break
+				end
+				task.wait(0.1)
+			end
+			if profile and player.Parent then
+				LeaderboardService.SubmitElo(player, profile.Elo)
+			end
+		end)
+	end)
+
 	local remote = Net.CreateRemoteFunction(RemoteNames.GetLeaderboard)
 	remote.OnServerInvoke = function(player: Player, stageId: string, friendsOnly: boolean?)
 		if friendsOnly then

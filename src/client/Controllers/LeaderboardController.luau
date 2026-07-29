@@ -12,6 +12,13 @@ local Widgets = require(script.Parent.Parent.Widgets)
 
 local LeaderboardController = {}
 
+-- Panel geometry, named because the stage-tab row is sized FROM it. A tab strip
+-- laid out on numbers that don't refer to the panel's actual width is how Stage
+-- 4 ended up rendering off the edge of its own row.
+local PANEL_WIDTH = 360
+local TAB_ROW_INSET = 8
+local TAB_PADDING = 6
+
 local player = Players.LocalPlayer
 
 local panel: CanvasGroup
@@ -138,7 +145,7 @@ local function buildUI()
 
 	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a
 	-- bare Widgets.Panel only closable via this one toggle button.
-	panel, openPanel, closePanel = Widgets.Modal("Leaderboard", UDim2.fromOffset(360, 454), UDim2.fromOffset(10, 116), {
+	panel, openPanel, closePanel = Widgets.Modal("Leaderboard", UDim2.fromOffset(PANEL_WIDTH, 454), UDim2.fromOffset(10, 116), {
 		DisplayOrder = 30,
 	})
 
@@ -152,19 +159,29 @@ local function buildUI()
 	-- by a real 32x6px, not just a harmless bounding-box graze like most of
 	-- that scan's other (false-positive) hits.
 	local tabRow = Instance.new("Frame")
-	tabRow.Size = UDim2.new(1, -16, 0, 30)
-	tabRow.Position = UDim2.fromOffset(8, 44)
+	tabRow.Size = UDim2.new(1, -TAB_ROW_INSET * 2, 0, 30)
+	tabRow.Position = UDim2.fromOffset(TAB_ROW_INSET, 44)
 	tabRow.BackgroundTransparency = 1
 	tabRow.Parent = panel
 
 	local tabLayout = Instance.new("UIListLayout")
 	tabLayout.FillDirection = Enum.FillDirection.Horizontal
-	tabLayout.Padding = UDim.new(0, 6)
+	tabLayout.Padding = UDim.new(0, TAB_PADDING)
 	tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	tabLayout.Parent = tabRow
 
+	-- Tab width DIVIDES the row rather than being a fixed number.
+	--
+	-- It used to be a flat 110px, which fitted the three stages that existed
+	-- when this was written and silently broke on the fourth: 4 x 110 + 3 x 6 =
+	-- 458px in a 344px row, so Stage 4 rendered entirely outside its parent and
+	-- could not be clicked at all. Dividing the space means the strip absorbs
+	-- however many stages Stages.luau happens to define -- the button's own
+	-- shrink-to-fit takes care of the label at narrower widths.
+	local tabWidth = math.floor((PANEL_WIDTH - TAB_ROW_INSET * 2 - TAB_PADDING * (#Stages - 1)) / #Stages)
+
 	for i, stage in Stages do
-		local tabButton, setActive = Widgets.Button(stage.Name, UDim2.fromOffset(110, 30), UDim2.fromOffset(0, 0), {
+		local tabButton, setActive = Widgets.Button(stage.Name, UDim2.fromOffset(tabWidth, 30), UDim2.fromOffset(0, 0), {
 			Variant = "Tab",
 			TextSize = 15,
 		})

@@ -149,10 +149,20 @@ local function buildUI()
 	})
 	hint.Parent = panel
 
-	local grid = Instance.new("Frame")
+	-- Scrolls rather than being a fixed grid area. A UIGridLayout wraps onto new
+	-- rows as emotes are added, and any row past the frame's height was simply
+	-- invisible and unreachable -- the same failure that hid Stage 4 on the
+	-- leaderboard, just on the vertical axis. AutomaticCanvasSize means the
+	-- canvas tracks whatever the layout actually produces.
+	local grid = Instance.new("ScrollingFrame")
 	grid.Size = UDim2.new(1, -16, 1, -36)
 	grid.Position = UDim2.fromOffset(8, 32)
 	grid.BackgroundTransparency = 1
+	grid.BorderSizePixel = 0
+	grid.CanvasSize = UDim2.new()
+	grid.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	grid.ScrollBarThickness = 4
+	grid.ScrollingDirection = Enum.ScrollingDirection.Y
 	grid.Parent = panel
 
 	local layout = Instance.new("UIGridLayout")

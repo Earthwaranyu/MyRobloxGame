@@ -577,6 +577,16 @@ VARIANT_STYLE.Tab = VARIANT_STYLE.Secondary
 -- by this table.
 local ICON_BUILDERS: { [TextButton]: (Instance, Color3) -> () } = setmetatable({}, { __mode = "k" }) :: any
 
+-- The colours a button should wear when it IS enabled, so the disabled styling
+-- can be applied and removed without destroying whatever the caller last set
+-- (a Tab toggle, or Widgets.SetButtonColors for a cooldown). Weak-keyed like
+-- ICON_BUILDERS so a destroyed button doesn't pin an entry here forever.
+type ButtonPalette = { Face: Color3, Shadow: Color3, Text: Color3 }
+local BUTTON_PALETTE: { [TextButton]: ButtonPalette } = setmetatable({}, { __mode = "k" }) :: any
+-- Repaint hooks, so SetButtonColors can go through the same enabled/disabled
+-- path the constructor uses instead of poking properties behind its back.
+local BUTTON_REPAINT: { [TextButton]: () -> () } = setmetatable({}, { __mode = "k" }) :: any
+
 -- How far the bevel strip peeks out along the bottom edge -- big enough to
 -- read as "3D depth" at every button size used in the game, small enough to
 -- never eat into a short button's text.
@@ -587,10 +597,40 @@ local function lighten(color: Color3, amount: number): Color3
 end
 
 local HOVER_SCALE_INFO = TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
--- Squishy toy feel: pressing puffs the button OUT bigger, not smaller.
-local PRESS_SCALE_INFO = TweenInfo.new(0.09, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-local PRESS_SCALE_TARGET = 1.22
+
+-- Pressing pushes the button DOWN onto its own bevel, rather than inflating it.
+--
+-- This used to puff out to 1.22 -- larger than the 1.08 hover -- so a press read
+-- as "more hover" instead of as the control being depressed, which is the one
+-- thing a press state exists to communicate. Every physical-button convention
+-- runs the other way, and the bevel strip below only makes sense as a lip the
+-- button sits down into.
+--
+-- The scale dip is deliberately slight; most of the effect comes from the bevel
+-- collapsing, which is what reads as travel rather than as shrinking.
+local PRESS_SCALE_INFO = TweenInfo.new(0.07, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local PRESS_SCALE_TARGET = 0.96
+-- What the bevel collapses to while held: a sliver, not nothing, so the button
+-- still has an edge at the bottom of the press.
+local PRESS_BEVEL_DEPTH = 1
 local SPARK_COUNT = 6
+
+-- Disabled buttons. A button that can't be used has to LOOK like it, and this
+-- is the state the set was missing entirely -- six call sites already set
+-- `.Active = false` (inventory/shop "owned" rows, the party invite button, the
+-- gacha luck toggle, VIP) and every one of them stayed fully bright and
+-- clickable-looking.
+--
+-- Derived from whatever colours the button currently has rather than being a
+-- fixed grey, so a disabled Primary and a disabled Danger still read as related
+-- to their enabled selves instead of all collapsing into one anonymous slab.
+local DISABLED_DESATURATION = 0.55
+local DISABLED_TEXT_FADE = 0.45
+
+local function toGrey(color: Color3, amount: number): Color3
+	local luminance = color.R * 0.3 + color.G * 0.59 + color.B * 0.11
+	return color:Lerp(Color3.new(luminance, luminance, luminance), amount)
+end
 
 -- Tiny burst of dots flying out from the button's center on a successful
 -- click -- pure "juice", no gameplay meaning, just makes tapping it feel fun.
@@ -843,6 +883,41 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	)
 	button.Position = originalPosition
 
+	-- Paints the button from its stored palette, dimmed if it's disabled.
+	--
+	-- Driven off `button.Active`, which every caller that disables a button
+	-- already sets -- so the whole disabled treatment arrives at six existing
+	-- call sites with no edits at any of them, exactly like the Label sync above.
+	BUTTON_PALETTE[button] = { Face = style.Face, Shadow = style.Shadow, Text = style.Text }
+
+	local function paint()
+		local palette = BUTTON_PALETTE[button]
+		local enabled = button.Active
+		local face = if enabled then palette.Face else toGrey(palette.Face, DISABLED_DESATURATION)
+		local shadow = if enabled then palette.Shadow else toGrey(palette.Shadow, DISABLED_DESATURATION)
+		local textColor = if enabled then palette.Text else palette.Text:Lerp(face, DISABLED_TEXT_FADE)
+
+		button.BackgroundColor3 = face
+		button.TextColor3 = textColor
+		bevelStrip.BackgroundColor3 = shadow
+		label.TextColor3 = textColor
+		-- The white border is what makes a button look "live"; softening it is
+		-- most of what separates a disabled button from a merely dark one.
+		border.Transparency = if enabled then 0 else 0.55
+
+		-- MenuIcons glyphs are baked Frames, not tinted images, so the icon has
+		-- to be redrawn to change colour (same reason SetButtonColors does it).
+		local builder = ICON_BUILDERS[button]
+		local iconHolder = button:FindFirstChild("Icon")
+		if builder and iconHolder then
+			builder(iconHolder, textColor)
+		end
+	end
+
+	BUTTON_REPAINT[button] = paint
+	button:GetPropertyChangedSignal("Active"):Connect(paint)
+	paint()
+
 	local hovering = false
 	local pressed = false
 	local currentScaleTween: Tween? = nil
@@ -866,7 +941,20 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 		currentScaleTween:Play()
 	end
 
+	-- The bevel is the button's visible thickness, so collapsing it while held is
+	-- what makes a press read as travel rather than as the button shrinking.
+	local function setBevel(depth: number, info: TweenInfo)
+		TweenService:Create(bevelStrip, info, {
+			Size = UDim2.new(1, -bevelInset * 2, 0, depth),
+		}):Play()
+	end
+
+	-- MouseEnter/MouseLeave still fire on an inactive button, so every handler
+	-- checks rather than trusting Active to have suppressed the event.
 	button.MouseEnter:Connect(function()
+		if not button.Active then
+			return
+		end
 		hovering = true
 		if not pressed then
 			settleScale(1.08, HOVER_SCALE_INFO)
@@ -875,32 +963,43 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	end)
 	button.MouseLeave:Connect(function()
 		hovering = false
-		pressed = false
+		if pressed then
+			pressed = false
+			setBevel(BEVEL_DEPTH, Theme.Anim.Ease)
+		end
 		settleScale(1, Theme.Anim.Pop)
 	end)
 	button.MouseButton1Down:Connect(function()
+		if not button.Active then
+			return
+		end
 		pressed = true
 		stopScaleTween()
 		currentScaleTween = TweenService:Create(scale, PRESS_SCALE_INFO, { Scale = PRESS_SCALE_TARGET })
 		currentScaleTween:Play()
+		setBevel(PRESS_BEVEL_DEPTH, PRESS_SCALE_INFO)
 	end)
 	button.MouseButton1Up:Connect(function()
 		pressed = false
+		setBevel(BEVEL_DEPTH, Theme.Anim.Pop)
 		settleScale(if hovering then 1.08 else 1, Theme.Anim.Pop)
 	end)
 	button.MouseButton1Click:Connect(function()
+		if not button.Active then
+			return
+		end
 		Sounds.Play("Click")
-		spawnClickSparkles(button, style.Face)
+		spawnClickSparkles(button, BUTTON_PALETTE[button].Face)
 	end)
 
 	local function setActive(isActive: boolean)
 		local target = if isActive then VARIANT_STYLE.Primary else VARIANT_STYLE.Secondary
-		button.BackgroundColor3 = target.Face
-		button.TextColor3 = target.Text
-		bevelStrip.BackgroundColor3 = target.Shadow
-		if label then
-			label.TextColor3 = target.Text
-		end
+		-- Updates the STORED palette and repaints, rather than writing colours
+		-- straight onto the instance. Poking properties directly would paint
+		-- over a disabled button's dimming and leave it looking usable, and the
+		-- next Active change would then restore the wrong colours.
+		BUTTON_PALETTE[button] = { Face = target.Face, Shadow = target.Shadow, Text = target.Text }
+		paint()
 	end
 
 	return button, setActive
@@ -914,6 +1013,17 @@ end
 -- do now that the "shadow" is a separate child instead of part of one flat
 -- color.
 function Widgets.SetButtonColors(button: TextButton, face: Color3, shadow: Color3, text: Color3)
+	-- Goes through the button's own repaint where one exists, so a button that
+	-- is currently DISABLED keeps its dimming instead of being painted back to
+	-- full brightness by a caller that only meant to change its base colours
+	-- (AbilityController swaps these on every cooldown tick).
+	BUTTON_PALETTE[button] = { Face = face, Shadow = shadow, Text = text }
+	local repaint = BUTTON_REPAINT[button]
+	if repaint then
+		repaint()
+		return
+	end
+
 	button.BackgroundColor3 = face
 	button.TextColor3 = text
 	local strip = button:FindFirstChild("BevelStrip")

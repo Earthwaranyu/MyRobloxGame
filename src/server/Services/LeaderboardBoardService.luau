@@ -16,13 +16,28 @@ local LeaderboardBoardService = {}
 
 local BOARD_NAME = "GlobalLeaderboardBoard"
 local TOP_COUNT = 10
+
+-- Board geometry, named because the row height is DERIVED from it rather than
+-- being its own magic number. A fixed row height only ever fits one particular
+-- TOP_COUNT: raising this to 15 would have silently pushed the bottom rows off
+-- the board with no error, the same way a fixed tab width hid Stage 4 on the
+-- leaderboard panel and a fixed 60px row hid the eighth rank tier.
+local BOARD_SIZE = Vector3.new(10, 12, 1)
+local PIXELS_PER_STUD = 50
+local HEADER_HEIGHT = 70
+local LIST_INSET = 12
+local ROW_PADDING = 4
+
+local function rowHeight(): number
+	local listHeight = BOARD_SIZE.Y * PIXELS_PER_STUD - HEADER_HEIGHT - LIST_INSET * 2
+	return math.floor((listHeight - ROW_PADDING * (TOP_COUNT - 1)) / TOP_COUNT)
+end
 -- GetSortedAsync reads have a much tighter budget than the SetAsync writes
 -- SubmitElo does per match-end (see LeaderboardService), so the board
 -- refreshes on its own modest timer instead of re-querying every time
 -- anyone's Elo changes.
 local REFRESH_INTERVAL = 90
 
-local ROW_HEIGHT = 34
 
 -- Built once via Instance.new (same "server builds it at runtime" idiom
 -- OverheadDisplayService already uses for the overhead BillboardGui) rather
@@ -70,7 +85,7 @@ local function buildBoard(): BasePart
 	-- Non-collidable -- this is a display, not an obstacle; a mispositioned
 	-- board (see above) should never be able to physically block a player.
 	part.CanCollide = false
-	part.Size = Vector3.new(10, 12, 1)
+	part.Size = BOARD_SIZE
 	part.CFrame = CFrame.new(basePosition) * displayRotation
 	part.Color = Color3.fromRGB(20, 21, 30)
 	part.Material = Enum.Material.SmoothPlastic
@@ -80,7 +95,7 @@ local function buildBoard(): BasePart
 	surfaceGui.Name = "Display"
 	surfaceGui.Face = Enum.NormalId.Front
 	surfaceGui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	surfaceGui.PixelsPerStud = 50
+	surfaceGui.PixelsPerStud = PIXELS_PER_STUD
 	surfaceGui.LightInfluence = 0
 	surfaceGui.Parent = part
 
@@ -103,21 +118,21 @@ local function buildBoard(): BasePart
 
 	local list = Instance.new("Frame")
 	list.Name = "List"
-	list.Size = UDim2.new(1, -24, 1, -82)
-	list.Position = UDim2.fromOffset(12, 78)
+	list.Size = UDim2.new(1, -LIST_INSET * 2, 1, -(HEADER_HEIGHT + LIST_INSET * 2))
+	list.Position = UDim2.fromOffset(LIST_INSET, HEADER_HEIGHT + LIST_INSET)
 	list.BackgroundTransparency = 1
 	list.Parent = surfaceGui
 
 	local layout = Instance.new("UIListLayout")
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Padding = UDim.new(0, 4)
+	layout.Padding = UDim.new(0, ROW_PADDING)
 	layout.Parent = list
 
 	for i = 1, TOP_COUNT do
 		local row = Instance.new("Frame")
 		row.Name = "Row" .. i
 		row.LayoutOrder = i
-		row.Size = UDim2.new(1, 0, 0, ROW_HEIGHT)
+		row.Size = UDim2.new(1, 0, 0, rowHeight())
 		row.BackgroundColor3 = Color3.fromRGB(34, 36, 50)
 		row.BackgroundTransparency = 0.15
 		row.BorderSizePixel = 0

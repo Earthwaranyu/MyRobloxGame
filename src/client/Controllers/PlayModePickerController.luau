@@ -20,6 +20,13 @@ local Sounds = require(script.Parent.Parent.Sounds)
 -- big that race is faster than any label does, so the picker can be read at a
 -- glance before a single word is processed.
 --
+-- The card treatment is claymorphic -- a saturated face, a COLOURED drop shadow
+-- rather than a black one, and a bright inner highlight along the top edge.
+-- Colour-matched shadows are what make cards read as solid objects sitting above
+-- the panel instead of rectangles printed on it; a grey shadow under a pink card
+-- just looks like dirt. Every layer is Frames and gradients, so there is still
+-- nothing downloaded and nothing that can infringe.
+--
 -- Every card feeds a queue that ALREADY EXISTS -- the physical station pads in
 -- the lobby use exactly the same per-size queues (see QueueModes.Stations). This
 -- is a second door onto them for players who never walk over to the pads, not a
@@ -28,9 +35,13 @@ local PlayModePickerController = {}
 
 local CARD_WIDTH = 148
 local CARD_HEIGHT = 196
-local CARD_GAP = 12
-local PAD = 22
-local HEADER = 62
+local CARD_GAP = 14
+local PAD = 24
+local HEADER = 66
+-- How far the card floats above its own shadow. Small, but it is the whole
+-- difference between "object sitting on the panel" and "flat sticker".
+local SHADOW_DROP = 7
+local HOVER_LIFT = 8
 
 -- Quick Play first and visually distinct: it's the one that always fills,
 -- because it takes any size. An exact-size card on a quiet server can wait a
@@ -45,7 +56,7 @@ local CARDS = {
 }
 
 local PANEL_WIDTH = PAD * 2 + #CARDS * CARD_WIDTH + (#CARDS - 1) * CARD_GAP
-local PANEL_HEIGHT = HEADER + CARD_HEIGHT + PAD * 2
+local PANEL_HEIGHT = HEADER + CARD_HEIGHT + SHADOW_DROP + PAD * 2
 
 local panel: CanvasGroup
 local openModal: () -> ()
@@ -59,6 +70,8 @@ local blurbText: { [number]: string } = {}
 -- Keyed by tostring(target) -- see the broadcast in MatchService for why the
 -- wire format can't use the raw numbers.
 local queueCounts: { [string]: number } = {}
+-- Card holders in row order, for the staggered entrance.
+local holders: { Frame } = {}
 
 local IDLE_COLOR = Color3.fromRGB(240, 236, 255)
 local WAITING_COLOR = Color3.fromRGB(255, 240, 150)
@@ -86,103 +99,208 @@ local function refreshCounts()
 	end
 end
 
--- Builds one card: artwork, a scrim so the label stays readable over it, the
--- title, and a full-card button on top.
+local function rounded(parent: Instance, name: string, zIndex: number, radius: UDim?): Frame
+	local f = Instance.new("Frame")
+	f.Name = name
+	f.BorderSizePixel = 0
+	f.ZIndex = zIndex
+	f.Parent = parent
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = radius or Theme.Corner.Card
+	corner.Parent = f
+	return f
+end
+
 local function buildCard(spec, index: number)
 	local x = PAD + (index - 1) * (CARD_WIDTH + CARD_GAP)
 
-	local card = Instance.new("Frame")
-	card.Name = spec.Title
-	card.Size = UDim2.fromOffset(CARD_WIDTH, CARD_HEIGHT)
-	card.Position = UDim2.fromOffset(x, HEADER)
-	card.BackgroundColor3 = spec.Palette.Shadow
-	card.BorderSizePixel = 0
-	card.ClipsDescendants = true
-	card.Parent = panel
+	-- The holder carries position and hover motion; the card inside never moves
+	-- on its own. Keeping them separate is what lets the shadow sit OUTSIDE the
+	-- card's clipping mask -- otherwise there can be no drop shadow at all.
+	local holder = Instance.new("Frame")
+	holder.Name = spec.Title
+	holder.Size = UDim2.fromOffset(CARD_WIDTH, CARD_HEIGHT)
+	holder.Position = UDim2.fromOffset(x, HEADER)
+	holder.BackgroundTransparency = 1
+	holder.Parent = panel
 
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = Theme.Corner.Card
-	corner.Parent = card
+	local holderScale = Instance.new("UIScale")
+	holderScale.Parent = holder
+
+	-- Claymorphic drop shadow: the card's OWN dark tone, not black, offset
+	-- straight down and inset slightly so it reads as contact shadow rather than
+	-- a second card peeking out from behind.
+	local shadow = rounded(holder, "Shadow", 0)
+	shadow.Size = UDim2.new(1, -6, 1, 0)
+	shadow.Position = UDim2.fromOffset(3, SHADOW_DROP)
+	shadow.BackgroundColor3 = spec.Palette.Shadow
+	shadow.BackgroundTransparency = 0.35
+
+	local card = rounded(holder, "Card", 1)
+	card.Size = UDim2.fromScale(1, 1)
+	card.BackgroundColor3 = spec.Palette.Face
+	card.ClipsDescendants = true
 
 	local stroke = Instance.new("UIStroke")
 	stroke.Color = Theme.Candy.Border
 	stroke.Thickness = 3
 	stroke.Parent = card
 
-	-- Vertical gradient on the face rather than a flat fill: it gives the card
-	-- a light source and stops five saturated rectangles side by side from
-	-- reading as flat swatches.
-	local face = Instance.new("Frame")
-	face.Name = "Face"
-	face.Size = UDim2.fromScale(1, 1)
-	face.BackgroundColor3 = spec.Palette.Face
-	face.BorderSizePixel = 0
-	face.Parent = card
-
-	local faceCorner = Instance.new("UICorner")
-	faceCorner.CornerRadius = Theme.Corner.Card
-	faceCorner.Parent = face
-
+	-- Light at the top, the palette's own shadow at the bottom. Gives the card a
+	-- light source, so five saturated rectangles side by side stop reading as
+	-- flat swatches.
 	local gradient = Instance.new("UIGradient")
 	gradient.Rotation = 90
-	gradient.Color = ColorSequence.new(spec.Palette.Face, spec.Palette.Shadow)
-	gradient.Parent = face
+	gradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, spec.Palette.Face:Lerp(Color3.new(1, 1, 1), 0.25)),
+		ColorSequenceKeypoint.new(0.55, spec.Palette.Face),
+		ColorSequenceKeypoint.new(1, spec.Palette.Shadow),
+	})
+	gradient.Parent = card
 
-	-- The artwork. Sits high in the card so the runners aren't cropped by the
-	-- label band along the bottom.
+	-- Soft pool of light behind the runners. An ellipse with a transparency
+	-- gradient rather than a true radial -- close enough at this size, and it
+	-- lifts the figures off the face instead of leaving them sitting flat.
+	local spotlight = rounded(card, "Spotlight", 2, UDim.new(1, 0))
+	spotlight.AnchorPoint = Vector2.new(0.5, 0.5)
+	spotlight.Position = UDim2.fromOffset(CARD_WIDTH / 2, 84)
+	spotlight.Size = UDim2.fromOffset(CARD_WIDTH + 20, 110)
+	spotlight.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	local spotGradient = Instance.new("UIGradient")
+	spotGradient.Rotation = 90
+	spotGradient.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(0.5, 0.82),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	spotGradient.Parent = spotlight
+
+	-- The headcount as a big ghosted numeral behind everything: a second,
+	-- instant read at a distance where the runners blur together, and it fills
+	-- what was otherwise dead space in the upper corner.
+	local watermark = Instance.new("TextLabel")
+	watermark.Name = "Watermark"
+	watermark.BackgroundTransparency = 1
+	watermark.Size = UDim2.fromOffset(96, 96)
+	watermark.Position = UDim2.fromOffset(CARD_WIDTH - 72, -14)
+	watermark.Font = Theme.Font.Display
+	watermark.Text = if spec.Target == QueueModes.AnySize then "?" else tostring(spec.Target)
+	watermark.TextSize = 86
+	watermark.TextColor3 = Color3.fromRGB(255, 255, 255)
+	watermark.TextTransparency = 0.86
+	watermark.ZIndex = 3
+	watermark.Parent = card
+
+	-- Contact shadow under the pack, so the runners stand on something.
+	local ground = rounded(card, "Ground", 4, UDim.new(1, 0))
+	ground.AnchorPoint = Vector2.new(0.5, 0.5)
+	ground.Position = UDim2.fromOffset(CARD_WIDTH / 2, 118)
+	ground.Size = UDim2.fromOffset(CARD_WIDTH - 34, 16)
+	ground.BackgroundColor3 = spec.Palette.Shadow
+	ground.BackgroundTransparency = 0.45
+
 	local art = Instance.new("Frame")
 	art.Name = "Art"
 	art.Size = UDim2.fromOffset(CARD_WIDTH - 12, CARD_WIDTH - 12)
 	art.Position = UDim2.fromOffset(6, 14)
 	art.BackgroundTransparency = 1
-	art.Parent = face
+	art.ZIndex = 5
+	art.Parent = card
 	RacerCrowd.Populate(art, spec.Count, Color3.fromRGB(255, 255, 255))
+	-- Every limb inherits the artwork's layer, so the figures sit above the
+	-- spotlight and watermark but below the label band.
+	for _, d in art:GetDescendants() do
+		if d:IsA("Frame") then
+			d.ZIndex = 5
+		end
+	end
 
-	-- Darkened band behind the text. Without it the title fights the runners'
-	-- legs for the same pixels and both lose.
+	-- Label band, fading UP into the artwork rather than cutting across it with
+	-- a hard edge -- that hard edge was the most obviously unfinished part of
+	-- the first version.
 	local band = Instance.new("Frame")
 	band.Name = "Band"
 	band.AnchorPoint = Vector2.new(0, 1)
 	band.Position = UDim2.fromScale(0, 1)
-	band.Size = UDim2.new(1, 0, 0, 58)
+	band.Size = UDim2.new(1, 0, 0, 78)
 	band.BackgroundColor3 = spec.Palette.Shadow
-	band.BackgroundTransparency = 0.15
 	band.BorderSizePixel = 0
-	band.Parent = face
+	band.ZIndex = 6
+	band.Parent = card
+	local bandGradient = Instance.new("UIGradient")
+	bandGradient.Rotation = 90
+	bandGradient.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(0.45, 0.25),
+		NumberSequenceKeypoint.new(1, 0.05),
+	})
+	bandGradient.Parent = band
 
-	local title = Widgets.Label(spec.Title, UDim2.new(1, -10, 0, 24), UDim2.fromOffset(5, CARD_HEIGHT - 52), {
+	local title = Widgets.Label(spec.Title, UDim2.new(1, -10, 0, 24), UDim2.fromOffset(5, CARD_HEIGHT - 54), {
 		Font = Theme.Font.Display,
 		TextSize = 19,
 		Align = Enum.TextXAlignment.Center,
 		Color = Color3.fromRGB(255, 255, 255),
 	})
-	title.Parent = face
+	title.ZIndex = 7
+	title.TextStrokeColor3 = Theme.Candy.TextOutline
+	title.TextStrokeTransparency = 0.4
+	title.Parent = card
 
-	local blurb = Widgets.Label(spec.Blurb, UDim2.new(1, -10, 0, 18), UDim2.fromOffset(5, CARD_HEIGHT - 28), {
+	local blurb = Widgets.Label(spec.Blurb, UDim2.new(1, -10, 0, 18), UDim2.fromOffset(5, CARD_HEIGHT - 30), {
 		Font = Theme.Font.Body,
 		TextSize = 14,
 		Align = Enum.TextXAlignment.Center,
-		Color = Color3.fromRGB(240, 236, 255),
+		Color = IDLE_COLOR,
 	})
-	blurb.Parent = face
+	blurb.ZIndex = 7
+	blurb.Parent = card
 	blurbLabels[spec.Target] = blurb
 	blurbText[spec.Target] = spec.Blurb
+
+	-- Inner highlight along the top edge -- the "bright rim" half of the clay
+	-- look. Without it the card's top edge and its white border merge into one
+	-- flat line and the whole thing deflates.
+	local rim = rounded(card, "Rim", 8, UDim.new(0, 10))
+	rim.Size = UDim2.new(1, -16, 0, 5)
+	rim.Position = UDim2.fromOffset(8, 5)
+	rim.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	rim.BackgroundTransparency = 0.62
+
+	-- Diagonal gloss sweep across the upper corner, clipped by the card so it
+	-- reads as light falling on a surface rather than as a stripe.
+	local gloss = Instance.new("Frame")
+	gloss.Name = "Gloss"
+	gloss.AnchorPoint = Vector2.new(0.5, 0.5)
+	gloss.Position = UDim2.fromOffset(22, 34)
+	gloss.Size = UDim2.fromOffset(58, 240)
+	gloss.Rotation = 28
+	gloss.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	gloss.BorderSizePixel = 0
+	gloss.ZIndex = 9
+	gloss.Parent = card
+	local glossGradient = Instance.new("UIGradient")
+	glossGradient.Rotation = 90
+	glossGradient.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(0.5, 0.88),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	glossGradient.Parent = gloss
 
 	if spec.Best then
 		-- One card gets a flag, because "any size" is otherwise indistinguishable
 		-- from the numbered options at a glance despite behaving differently.
-		local flag = Instance.new("Frame")
-		flag.Name = "Flag"
+		local flag = rounded(card, "Flag", 10, UDim.new(0, 8))
 		flag.AnchorPoint = Vector2.new(0.5, 0)
-		flag.Position = UDim2.new(0.5, 0, 0, -2)
-		flag.Size = UDim2.fromOffset(96, 22)
+		flag.Position = UDim2.fromScale(0.5, 0)
+		flag.Size = UDim2.fromOffset(98, 24)
 		flag.BackgroundColor3 = Theme.Candy.Red.Face
-		flag.BorderSizePixel = 0
-		flag.Parent = face
 
-		local flagCorner = Instance.new("UICorner")
-		flagCorner.CornerRadius = UDim.new(0, 8)
-		flagCorner.Parent = flag
+		local flagStroke = Instance.new("UIStroke")
+		flagStroke.Color = Theme.Candy.Border
+		flagStroke.Thickness = 2
+		flagStroke.Parent = flag
 
 		local flagLabel = Widgets.Label("FASTEST", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), {
 			Font = Theme.Font.Display,
@@ -190,6 +308,7 @@ local function buildCard(spec, index: number)
 			Align = Enum.TextXAlignment.Center,
 			Color = Color3.fromRGB(255, 255, 255),
 		})
+		flagLabel.ZIndex = 11
 		flagLabel.Parent = flag
 	end
 
@@ -201,17 +320,27 @@ local function buildCard(spec, index: number)
 	hit.BackgroundTransparency = 1
 	hit.Text = ""
 	hit.AutoButtonColor = false
-	hit.Parent = card
+	hit.ZIndex = 20
+	hit.Parent = holder
 
-	local scale = Instance.new("UIScale")
-	scale.Parent = card
-
+	-- Hover lifts the card AND drops its shadow further away. Moving both is
+	-- what sells it as height rather than as the card simply getting bigger.
 	hit.MouseEnter:Connect(function()
-		TweenService:Create(scale, Theme.Anim.Ease, { Scale = 1.05 }):Play()
+		TweenService:Create(holderScale, Theme.Anim.Ease, { Scale = 1.06 }):Play()
+		TweenService:Create(holder, Theme.Anim.Ease, { Position = UDim2.fromOffset(x, HEADER - HOVER_LIFT) }):Play()
+		TweenService:Create(shadow, Theme.Anim.Ease, {
+			Position = UDim2.fromOffset(3, SHADOW_DROP + HOVER_LIFT),
+			BackgroundTransparency = 0.2,
+		}):Play()
 		TweenService:Create(stroke, Theme.Anim.Ease, { Thickness = 5 }):Play()
 	end)
 	hit.MouseLeave:Connect(function()
-		TweenService:Create(scale, Theme.Anim.Ease, { Scale = 1 }):Play()
+		TweenService:Create(holderScale, Theme.Anim.Ease, { Scale = 1 }):Play()
+		TweenService:Create(holder, Theme.Anim.Ease, { Position = UDim2.fromOffset(x, HEADER) }):Play()
+		TweenService:Create(shadow, Theme.Anim.Ease, {
+			Position = UDim2.fromOffset(3, SHADOW_DROP),
+			BackgroundTransparency = 0.35,
+		}):Play()
 		TweenService:Create(stroke, Theme.Anim.Ease, { Thickness = 3 }):Play()
 	end)
 	hit.MouseButton1Click:Connect(function()
@@ -222,7 +351,8 @@ local function buildCard(spec, index: number)
 		end
 	end)
 
-	return card
+	holders[index] = holder
+	return holder
 end
 
 local function buildUI()
@@ -235,11 +365,27 @@ local function buildUI()
 	)
 	screenGui.Name = "PlayModePickerGui"
 
-	local heading = Widgets.Ribbon("CHOOSE YOUR RACE", UDim2.fromOffset(300, 44), UDim2.new(0.5, 0, 0, -16))
+	local heading = Widgets.Ribbon("CHOOSE YOUR RACE", UDim2.fromOffset(320, 46), UDim2.new(0.5, 0, 0, -18))
+	heading.ZIndex = 30
 	heading.Parent = panel
 
 	for index, spec in CARDS do
 		buildCard(spec, index)
+	end
+end
+
+-- Cards pop in left to right rather than all at once. Everything appearing on
+-- one frame reads as a screenshot; a 40ms stagger reads as the menu dealing them
+-- out, and costs nothing.
+local function playEntrance()
+	for index, holder in holders do
+		local holderScale = holder:FindFirstChildOfClass("UIScale")
+		if holderScale then
+			holderScale.Scale = 0.86
+			task.delay((index - 1) * 0.04, function()
+				TweenService:Create(holderScale, Theme.Anim.Pop, { Scale = 1 }):Play()
+			end)
+		end
 	end
 end
 
@@ -248,6 +394,7 @@ end
 function PlayModePickerController.Open(callback: (number) -> ())
 	onChosen = callback
 	openModal()
+	playEntrance()
 end
 
 function PlayModePickerController.Init()

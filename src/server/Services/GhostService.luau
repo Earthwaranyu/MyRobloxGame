@@ -74,6 +74,12 @@ local function submitGhostRun(player: Player, stageId: string, positions: { numb
 		return
 	end
 
+	-- Simulated Studio clients have negative UserIds and shouldn't leave ghost
+	-- runs in the live store (see LeaderboardService.isRealAccount).
+	if player.UserId <= 0 then
+		return
+	end
+
 	local key = "Player_" .. player.UserId
 	local record = {
 		Positions = positions,

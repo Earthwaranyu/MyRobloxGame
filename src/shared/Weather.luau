@@ -87,7 +87,17 @@ Weather.Lobby = {
 		TintColor = Color3.fromRGB(255, 250, 244),
 	},
 	SunRays = { Intensity = 0.14, Spread = 0.9 },
-	MusicSoundId = "rbxassetid://9043769892", -- APM Music: "Throw Your Hands in the Air (c 60)"
+	-- Chosen partly for LENGTH. The lobby is where players spend most of their
+	-- time -- queueing, shopping, comparing profiles -- and the previous track
+	-- was a 60-second cut, so it restarted every single minute. That is the kind
+	-- of repetition nobody consciously notices and everybody eventually mutes.
+	-- This one runs 189s, a bit over three times as long, so the loop point
+	-- comes round far less often.
+	--
+	-- Kept quieter and calmer than Weather.Race below on purpose: the race track
+	-- is meant to read as a step UP in energy when a stage loads, which only
+	-- works if the lobby isn't already at that level.
+	MusicSoundId = "rbxassetid://1845742740", -- APM Music: "Fun Gang" (189s)
 	MusicVolume = 0.4,
 }
 

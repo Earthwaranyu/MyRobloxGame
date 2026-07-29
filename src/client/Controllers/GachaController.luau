@@ -614,10 +614,18 @@ local function buildMainPanel()
 	oddsSubtitle.TextWrapped = true
 	oddsSubtitle.Parent = content
 
-	local oddsList = Instance.new("Frame")
+	-- Scrolls: one row per pullable ability, so the list grows every time an
+	-- ability is added and a fixed frame would quietly cut the newest ones off
+	-- the bottom -- exactly the class of bug that hid Stage 4 on the leaderboard.
+	local oddsList = Instance.new("ScrollingFrame")
 	oddsList.Size = UDim2.new(1, 0, 1, -218)
 	oddsList.Position = UDim2.fromOffset(0, 218)
 	oddsList.BackgroundTransparency = 1
+	oddsList.BorderSizePixel = 0
+	oddsList.CanvasSize = UDim2.new()
+	oddsList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	oddsList.ScrollBarThickness = 4
+	oddsList.ScrollingDirection = Enum.ScrollingDirection.Y
 	oddsList.Parent = content
 
 	local oddsLayout = Instance.new("UIListLayout")

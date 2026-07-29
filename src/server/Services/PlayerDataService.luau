@@ -87,18 +87,57 @@ local profiles = {}
 -- (resets every server run) -- see GetLiveTotalPlaySeconds.
 local sessionStartTime: { [number]: number } = {}
 
+-- Retries around every DataStore call. Transient failures (throttling, a brief
+-- Roblox-side outage) are normal rather than exceptional, and the cost of
+-- treating one as final is severe on both sides -- see saveBlocked below for
+-- the read half, and saveProfile for the write half.
+local DATASTORE_ATTEMPTS = 4
+local DATASTORE_RETRY_DELAY = 1.5
+
+local function withRetry<T>(label: string, fn: () -> T): (boolean, T?)
+	local lastErr
+	for attempt = 1, DATASTORE_ATTEMPTS do
+		local success, result = pcall(fn)
+		if success then
+			return true, result
+		end
+		lastErr = result
+		if attempt < DATASTORE_ATTEMPTS then
+			task.wait(DATASTORE_RETRY_DELAY * attempt)
+		end
+	end
+	warn(("%s failed after %d attempts: %s"):format(label, DATASTORE_ATTEMPTS, tostring(lastErr)))
+	return false, nil
+end
+
+-- Players whose profile could NOT be read. Their in-memory profile is a default
+-- one, which is emphatically not the same thing as their real data.
+--
+-- Saving one of these would overwrite a real, populated save with a blank
+-- profile -- wiping rating, points, purchases and cosmetics because of a single
+-- transient read failure. It's the classic Roblox data-loss bug and it only
+-- ever shows up in production, since Studio has no DataStore access to fail in
+-- the first place: every load here "fails" identically and harmlessly.
+local saveBlocked: { [number]: boolean } = {}
+
 local function loadProfile(player: Player)
 	local store = getStore()
 	local data = nil
+	-- Cleared up front so a stale entry can never outlive the session it
+	-- belonged to and block a healthy load's save.
+	saveBlocked[player.UserId] = nil
 
 	if store then
-		local success, result = pcall(function()
+		local ok, result = withRetry("Load for " .. player.Name, function()
 			return store:GetAsync("Player_" .. player.UserId)
 		end)
-		if success then
+		if ok then
 			data = result
 		else
-			warn(("Failed to load data for %s: %s"):format(player.Name, tostring(result)))
+			-- A nil result from a SUCCESSFUL read means a genuinely new player
+			-- and is perfectly safe to save over. A failed read means we simply
+			-- don't know, so this session becomes read-only.
+			saveBlocked[player.UserId] = true
 		end
 	end
 
@@ -139,22 +178,54 @@ local function flushSessionPlaytime(player: Player)
 	sessionStartTime[player.UserId] = os.time()
 end
 
-local function saveProfile(player: Player)
+-- Returns whether the profile is now safely on disk, so callers that must not
+-- acknowledge something until it's durable (see PurchaseService) can tell.
+local function saveProfile(player: Player): boolean
 	local profile = profiles[player.UserId]
 	local store = getStore()
-	if not profile or not store then
-		return
+	if not profile then
+		return false
+	end
+	-- Studio's simulated test clients have negative UserIds. Persisting them
+	-- fills the live store with junk profiles keyed to accounts that don't
+	-- exist. Reported as success: there is nothing to lose, and a caller
+	-- waiting on durability (PurchaseService) must not stall on a fake player.
+	if player.UserId <= 0 then
+		return true
+	end
+	-- No store at all means DataStores are unavailable for the whole place
+	-- (an unpublished Studio session). Nothing can be persisted and nothing can
+	-- be lost, so this isn't a failure worth blocking callers on.
+	if not store then
+		return true
+	end
+
+	-- Refuse rather than overwrite. This session's profile is a default one
+	-- standing in for data we couldn't read, so writing it would destroy the
+	-- real save. Losing one session's progress is bad; losing the account is
+	-- not recoverable.
+	if saveBlocked[player.UserId] then
+		warn(("Skipping save for %s -- their profile never loaded, so saving would overwrite real data"):format(player.Name))
+		return false
 	end
 
 	flushSessionPlaytime(player)
 
-	local success, err = pcall(function()
+	local ok = withRetry("Save for " .. player.Name, function()
 		store:SetAsync("Player_" .. player.UserId, profile)
 	end)
+	return ok
+end
 
-	if not success then
-		warn(("Failed to save data for %s: %s"):format(player.Name, tostring(err)))
-	end
+-- Persists NOW rather than waiting for the player to leave, and reports whether
+-- it worked.
+--
+-- For anything bought with Robux: Roblox treats a receipt as consumed the moment
+-- ProcessReceipt returns PurchaseGranted, so acknowledging a purchase that only
+-- exists in memory means a server crash (or a failed save on the way out) takes
+-- the item and keeps the money. See PurchaseService.
+function PlayerDataService.SaveNow(player: Player): boolean
+	return saveProfile(player)
 end
 
 function PlayerDataService.GetProfile(player: Player)
@@ -180,6 +251,7 @@ function PlayerDataService.Init()
 		saveProfile(player)
 		profiles[player.UserId] = nil
 		sessionStartTime[player.UserId] = nil
+		saveBlocked[player.UserId] = nil
 	end)
 
 	for _, player in Players:GetPlayers() do

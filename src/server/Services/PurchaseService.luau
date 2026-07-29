@@ -63,9 +63,31 @@ local function findPointBundle(productId: number): PointBundles.PointBundle?
 	return nil
 end
 
+-- Grants live only in the in-memory profile, which is normally written when the
+-- player leaves. That is far too late for something bought with Robux: Roblox
+-- treats the receipt as consumed the moment this returns PurchaseGranted, so a
+-- server crash -- or a save that fails on the way out -- takes the item and
+-- keeps the money.
+--
+-- So the profile is persisted here, and the purchase is only acknowledged if
+-- that worked. Returning NotProcessedYet asks Roblox to deliver the receipt
+-- again later, which is safe because every grant above is idempotent on replay:
+-- trails and emotes check ownership, and points and gacha pulls are guarded by
+-- ProcessedPurchaseIds.
+local function commit(player: Player): Enum.ProductPurchaseDecision
+	if not PlayerDataService.SaveNow(player) then
+		warn(("Purchase for %s not acknowledged -- save failed, will retry on redelivery"):format(player.Name))
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	purchaseGrantedRemote:FireClient(player)
+	return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+
 -- Roblox requires this to be idempotent: a receipt can be replayed if the
 -- prior call didn't return PurchaseGranted in time, so re-granting an
--- already-owned item must be a safe no-op rather than an error.
+-- already-owned item must be a safe no-op rather than an error. That property
+-- is what lets commit() above decline to acknowledge a purchase it couldn't
+-- persist.
 local function processReceipt(receiptInfo): Enum.ProductPurchaseDecision
 	local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
 	if not player then
@@ -82,8 +104,7 @@ local function processReceipt(receiptInfo): Enum.ProductPurchaseDecision
 		if not table.find(profile.OwnedTrails, trailId) then
 			table.insert(profile.OwnedTrails, trailId)
 		end
-		purchaseGrantedRemote:FireClient(player)
-		return Enum.ProductPurchaseDecision.PurchaseGranted
+		return commit(player)
 	end
 
 	local emoteId = findEmoteId(receiptInfo.ProductId)
@@ -92,8 +113,7 @@ local function processReceipt(receiptInfo): Enum.ProductPurchaseDecision
 		if not table.find(profile.OwnedEmotes, emoteId) then
 			table.insert(profile.OwnedEmotes, emoteId)
 		end
-		purchaseGrantedRemote:FireClient(player)
-		return Enum.ProductPurchaseDecision.PurchaseGranted
+		return commit(player)
 	end
 
 	local gachaPullCount = findGachaPullCount(receiptInfo.ProductId)
@@ -102,8 +122,7 @@ local function processReceipt(receiptInfo): Enum.ProductPurchaseDecision
 		if not granted then
 			return Enum.ProductPurchaseDecision.NotProcessedYet
 		end
-		purchaseGrantedRemote:FireClient(player)
-		return Enum.ProductPurchaseDecision.PurchaseGranted
+		return commit(player)
 	end
 
 	local pointBundle = findPointBundle(receiptInfo.ProductId)
@@ -115,8 +134,7 @@ local function processReceipt(receiptInfo): Enum.ProductPurchaseDecision
 			profile.ProcessedPurchaseIds[receiptInfo.PurchaseId] = true
 			profile.Points += pointBundle.Points
 		end
-		purchaseGrantedRemote:FireClient(player)
-		return Enum.ProductPurchaseDecision.PurchaseGranted
+		return commit(player)
 	end
 
 	return Enum.ProductPurchaseDecision.NotProcessedYet
