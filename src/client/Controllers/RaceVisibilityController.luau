@@ -35,10 +35,30 @@ local racing = false
 -- property that never replicates and never touches the real Transparency the
 -- server (or a trail/accessory) set, so restoring is just putting it back to 0
 -- rather than having to remember what each part looked like.
-local function setCharacterHidden(character: Model, hidden: boolean)
+--
+-- `queryable` is separate from `hidden` because they answer different
+-- questions. Hiding is about who you can SEE (only your own race); querying is
+-- about who you can CLICK, which has to be closed for every other player while
+-- racing, opponents included.
+--
+-- Blocking clicks via CanQuery rather than by turning core UI off: disabling
+-- the avatar context menu through SetCore did not actually stop the profile
+-- popup. Roblox's inspect UI finds what you clicked by querying the world, so
+-- a character whose parts don't answer queries can't be picked in the first
+-- place -- that holds regardless of which core UI is doing the asking.
+--
+-- Safe to write from the client on someone else's character: CanQuery is not a
+-- physics property being fought over by the owner (unlike velocity/Anchored),
+-- nothing on the server ever writes it on characters, and the Heartbeat loop
+-- below re-asserts it anyway. It's local-only, so the server's own raycasts --
+-- including StageService's checkpoint sweep -- are untouched.
+local function setCharacterHidden(character: Model, hidden: boolean, queryable: boolean)
 	local modifier = if hidden then 1 else 0
 	for _, part in character:GetDescendants() do
-		if part:IsA("BasePart") or part:IsA("Decal") then
+		if part:IsA("BasePart") then
+			part.LocalTransparencyModifier = modifier
+			part.CanQuery = queryable
+		elseif part:IsA("Decal") then
 			part.LocalTransparencyModifier = modifier
 		elseif part:IsA("BillboardGui") or part:IsA("ParticleEmitter") or part:IsA("Trail") then
 			-- Nameplates, emote bubbles and trails aren't parts, so the
@@ -70,30 +90,36 @@ end
 local BOT_MODEL_NAME = "RaceBot"
 local bots: { [Model]: true } = {}
 
+-- True for every kind of race, not just the ones that broadcast a roster:
+-- station, wave and bot matches all need clicks closed off.
+local function inRace(): boolean
+	return racing or MatchStateController.CurrentState == "Racing"
+end
+
 local function refresh()
+	local blockClicks = inRace()
 	for _, other in Players:GetPlayers() do
 		local character = other.Character
 		if character then
-			setCharacterHidden(character, shouldHide(other))
+			-- Your own character stays queryable -- blocking it would break
+			-- anything that raycasts against yourself, and you can't open your
+			-- own profile popup by clicking anyway.
+			local queryable = other == player or not blockClicks
+			setCharacterHidden(character, shouldHide(other), queryable)
 		end
 	end
+	-- Bots stay queryable: they aren't players, so clicking one reveals nothing
+	-- about anybody, and the bot's own owner needs to see it normally.
 	for bot in bots do
-		setCharacterHidden(bot, racing)
+		setCharacterHidden(bot, racing, true)
 	end
 end
 
--- Hiding a character is only half the job: an invisible player is still there
--- to be clicked, and Roblox's own inspect UI will happily name them. That makes
--- the whole separation cosmetic and trivially bypassable -- you could sit on the
--- start line double-clicking your way through a race you aren't in.
---
--- So while racing, the two routes to another player's identity are closed: the
--- avatar context menu (double-clicking a character) and the player list (whose
--- rows open the same profile popup). Both come back the moment the race ends.
---
--- Keyed off MatchStateController rather than the roster, because it has to hold
--- for EVERY kind of race -- station, wave and bot matches alike -- not just the
--- ones that broadcast a roster.
+-- Belt and braces alongside the CanQuery block in setCharacterHidden. On its
+-- own this was NOT enough -- the profile popup still opened on a double-click
+-- with the avatar context menu disabled -- so CanQuery is what actually closes
+-- the click path, and this only removes the player list as a second, more
+-- obvious route to the same popup.
 --
 -- pcall'd because SetCore/SetCoreGuiEnabled throw if the CoreGui hasn't
 -- registered the callback yet, which can happen on the first frames of a
@@ -108,11 +134,14 @@ local function setInspectionEnabled(enabled: boolean)
 end
 
 function RaceVisibilityController.Init()
-	local function updateInspection()
+	local function onStateChanged()
 		setInspectionEnabled(MatchStateController.CurrentState ~= "Racing")
+		-- Also refresh, because entering a bot or station race changes who may
+		-- be clicked without any roster arriving to trigger it.
+		refresh()
 	end
-	updateInspection()
-	MatchStateController.StateChanged:Connect(updateInspection)
+	onStateChanged()
+	MatchStateController.StateChanged:Connect(onStateChanged)
 
 	Net.GetRemoteEvent(RemoteNames.RaceRosterChanged).OnClientEvent:Connect(function(userIds: { number }?)
 		roster = {}
@@ -132,7 +161,9 @@ function RaceVisibilityController.Init()
 	-- Cheap enough at this rate to simply reassert the truth every so often
 	-- rather than trying to hook every event that could disturb it.
 	RunService.Heartbeat:Connect(function()
-		if not racing then
+		-- inRace rather than `racing`, so a bot or station match -- which never
+		-- broadcasts a roster -- still gets its click block re-asserted.
+		if not inRace() then
 			return
 		end
 		refresh()
