@@ -1,5 +1,6 @@
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -1622,6 +1623,18 @@ end
 local ACCOUNT_AGE_FULL_VALUE_DAYS = 7
 
 local function accountAgeWeight(player: Player): number
+	-- Studio's simulated test clients ALWAYS report AccountAge 0, so without
+	-- this every rating change in a local multi-client test settles to exactly
+	-- zero -- the ramp working correctly on what look like four brand-new
+	-- accounts, but indistinguishable from Elo being broken. Treating them as
+	-- established is what makes the system testable at all.
+	--
+	-- Studio-only by construction: RunService:IsStudio() is false on every live
+	-- server, so this can never weaken the real anti-farm protection.
+	if RunService:IsStudio() then
+		return 1
+	end
+
 	-- Ramped rather than a hard cut-off, so a 6-day-old account and an 8-day-old
 	-- one aren't arbitrarily different. Day 0 accounts are worth nothing at all,
 	-- which is the case that matters: a mill spins up accounts and uses them
