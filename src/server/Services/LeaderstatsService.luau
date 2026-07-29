@@ -37,9 +37,9 @@ end
 
 -- Pushes the player's CURRENT profile values into their leaderstats -- call
 -- this any time Wins/Elo actually change, not just once at load. Elo changes
--- in EloService.ReportMatchResult, but Wins/Losses/WinStreak change
+-- in settleFinisherElo, but Wins/Losses/WinStreak change
 -- separately afterward in MatchService.settleWin, so this is called from
--- settleWin (once both are already final) rather than from EloService, to
+-- settleWin (once both are already final) rather than from settlement, to
 -- avoid publishing a stale Wins count.
 function LeaderstatsService.Refresh(player: Player)
 	local folder = player:FindFirstChild("leaderstats")

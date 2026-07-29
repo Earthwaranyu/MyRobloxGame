@@ -11,33 +11,23 @@ local RemoteNames = require(Shared.RemoteNames)
 local QueueModes = require(Shared.QueueModes)
 local Stages = require(Shared.Stages)
 local RankTiers = require(Shared.RankTiers)
+local RaceSettlement = require(Shared.RaceSettlement)
 
 local AbilityService = require(script.Parent.AbilityService)
 local BadgeMilestoneService = require(script.Parent.BadgeMilestoneService)
 local BotService = require(script.Parent.BotService)
-local EloService = require(script.Parent.EloService)
 local HypeFeedService = require(script.Parent.HypeFeedService)
 local LeaderboardService = require(script.Parent.LeaderboardService)
 local LeaderstatsService = require(script.Parent.LeaderstatsService)
 local LobbyService = require(script.Parent.LobbyService)
 local MonetizationService = require(script.Parent.MonetizationService)
 local MovementService = require(script.Parent.MovementService)
+local OverheadDisplayService = require(script.Parent.OverheadDisplayService)
 local PartyService = require(script.Parent.PartyService)
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local ReferralService = require(script.Parent.ReferralService)
 local TelemetryService = require(script.Parent.TelemetryService)
 local WeatherService = require(script.Parent.WeatherService)
-
--- Streak level N (2 wins in a row = level 1) is worth STREAK_BONUS_PER_LEVEL
--- extra points, capped at STREAK_BONUS_MAX_LEVEL so it stays a fun escalation
--- instead of spiraling.
-local STREAK_BONUS_PER_LEVEL = 10
-local STREAK_BONUS_MAX_LEVEL = 5
-
-local function streakBonusPoints(winStreak: number): number
-	local level = math.clamp(winStreak - 1, 0, STREAK_BONUS_MAX_LEVEL)
-	return level * STREAK_BONUS_PER_LEVEL
-end
 
 -- Flow: touch a start line / click Play -> shared queue -> once the waiting
 -- window ends, roll a random stage and teleport everyone there (still
@@ -1617,7 +1607,7 @@ end
 -- wins are limited by the rating gap regardless (the pair converges ~720 apart
 -- and gains round to nothing), but only account age tells a farm from a rival.
 --
--- Applied ASYMMETRICALLY (see EloService): it damps what the OPPONENT earns
+-- Applied ASYMMETRICALLY (see RaceSettlement.SettleFinisher): it damps what the OPPONENT earns
 -- from the new account, never what the new account earns itself. A real new
 -- player still gains and loses rating at full speed and calibrates normally --
 -- they're just not a worthwhile thing to farm.
@@ -1670,45 +1660,67 @@ end
 -- is handed back rather than recomputed by the caller because consuming it
 -- ADVANCES the rematch counter -- asking twice for the same pair would count
 -- one race as two and damp the next result too hard.
+-- The rating maths itself lives in Shared.RaceSettlement, which is pure and can
+-- be exercised for any field size without Player instances. What stays here is
+-- everything that touches the world: reading profiles, consuming the rematch
+-- counters, writing ratings back, and refreshing the boards.
 local function settleFinisherElo(
 	finisher: Player,
 	stillRacing: { Player },
 	totalParticipants: number,
 	tally: { [number]: number }?
 ): (number, number)
-	local gained = 0
-	local bestWeight = 0
-	local pairShare = 1 / math.max(1, totalParticipants - 1)
+	local finisherProfile = PlayerDataService.GetProfile(finisher)
+	if not finisherProfile then
+		return 0, 0
+	end
 
+	-- Built before settling so the pure call sees one consistent snapshot.
+	-- consumeRematchWeight ADVANCES a counter, so it's called exactly once per
+	-- pair here rather than inside the settlement.
+	local opponents: { RaceSettlement.Opponent } = {}
+	local profiles: { [number]: any } = {}
 	for _, behind in stillRacing do
-		-- Both damping factors multiply: a repeat opponent AND a fresh account
-		-- is worth less than either alone.
-		local resultWeight = consumeRematchWeight(finisher.UserId, behind.UserId) * accountAgeWeight(behind)
-		bestWeight = math.max(bestWeight, resultWeight)
-		local winnerWeight = resultWeight * pairShare
-		-- The loser's side is damped only by how established the WINNER is --
-		-- never by the rematch count, which is the winner's own history and
-		-- says nothing about how much rating the loser should shed.
-		local loserWeight = accountAgeWeight(finisher) * pairShare
-
-		local delta, behindDelta = EloService.ReportMatchResult(finisher, behind, winnerWeight, loserWeight)
-		gained += delta
-
 		local behindProfile = PlayerDataService.GetProfile(behind)
 		if behindProfile then
+			profiles[behind.UserId] = behindProfile
+			table.insert(opponents, {
+				UserId = behind.UserId,
+				Rating = behindProfile.Elo,
+				AgeWeight = accountAgeWeight(behind),
+				RematchWeight = consumeRematchWeight(finisher.UserId, behind.UserId),
+			})
+		end
+	end
+
+	local result = RaceSettlement.SettleFinisher({
+		UserId = finisher.UserId,
+		Rating = finisherProfile.Elo,
+		AgeWeight = accountAgeWeight(finisher),
+	}, opponents, totalParticipants, Constants.Elo.KFactor)
+
+	finisherProfile.Elo += result.FinisherDelta
+	OverheadDisplayService.Refresh(finisher)
+
+	for _, behind in stillRacing do
+		local behindDelta = result.OpponentDeltas[behind.UserId]
+		local behindProfile = profiles[behind.UserId]
+		if behindDelta and behindProfile then
+			behindProfile.Elo += behindDelta
+			OverheadDisplayService.Refresh(behind)
 			LeaderstatsService.Refresh(behind)
 			LeaderboardService.SubmitElo(behind, behindProfile.Elo)
-		end
-		if tally then
-			tally[behind.UserId] = (tally[behind.UserId] or 0) + behindDelta
+			if tally then
+				tally[behind.UserId] = (tally[behind.UserId] or 0) + behindDelta
+			end
 		end
 	end
 
 	if tally then
-		tally[finisher.UserId] = (tally[finisher.UserId] or 0) + gained
+		tally[finisher.UserId] = (tally[finisher.UserId] or 0) + result.FinisherDelta
 	end
 
-	return gained, bestWeight
+	return result.FinisherDelta, result.BestWeight
 end
 
 -- The win-only half: streak, points, badges, announcements. Rating is settled
@@ -1740,21 +1752,26 @@ local function settleWin(
 	if winnerProfile then
 		ReferralService.HandleFirstRealRace(winner, winnerProfile)
 
-		-- A fully damped win (the 5th+ over the same person inside the window)
-		-- pays nothing and counts for nothing -- no Wins, no streak. Anything
-		-- above zero still counts as a win for progression; only the points
-		-- scale. Otherwise the streak, which is the loudest farmable thing in
-		-- the game now that it broadcasts, would keep climbing on wins the
-		-- system has already decided are worthless.
-		if raceWeight > 0 then
-			winnerProfile.Wins += 1
-			winnerProfile.WinStreak += 1
-			winnerProfile.BestWinStreak = math.max(winnerProfile.BestWinStreak, winnerProfile.WinStreak)
-		end
-		winStreak = winnerProfile.WinStreak
-		streakBonus = streakBonusPoints(winStreak)
+		-- The rules (does it count, resulting streak, bonus, points) come from
+		-- Shared.RaceSettlement; applying them to the profile stays here. See
+		-- WinReward for why a fully damped win counts for nothing.
 		local multiplier = if MonetizationService.HasVIP(winner) then MonetizationService.PointsMultiplier else 1
-		pointsAwarded = math.floor((Constants.Match.PointsPerWin + streakBonus) * multiplier * raceWeight)
+		local reward = RaceSettlement.WinReward(
+			winnerProfile.WinStreak,
+			raceWeight,
+			Constants.Match.PointsPerWin,
+			multiplier
+		)
+
+		if reward.CountsAsWin then
+			winnerProfile.Wins += 1
+		end
+		winnerProfile.WinStreak = reward.WinStreak
+		winnerProfile.BestWinStreak = math.max(winnerProfile.BestWinStreak, winnerProfile.WinStreak)
+
+		winStreak = reward.WinStreak
+		streakBonus = reward.StreakBonus
+		pointsAwarded = reward.Points
 		winnerProfile.Points += pointsAwarded
 		TelemetryService.Economy(
 			winner,
@@ -1771,7 +1788,7 @@ local function settleWin(
 		-- Whole-server announcements for what this win just created. Both read
 		-- the profile AFTER the Elo/streak writes above have landed, so a
 		-- broadcast can never describe a state that didn't actually happen.
-		-- EloService has already applied winnerDelta, so subtracting it back
+		-- settleFinisherElo has already applied winnerDelta, so subtracting it back
 		-- off is what the rank was a moment ago.
 		local oldRank = RankTiers.GetRankForElo(winnerProfile.Elo - winnerDelta)
 		local newRank = RankTiers.GetRankForElo(winnerProfile.Elo)
@@ -1780,7 +1797,7 @@ local function settleWin(
 		end
 		HypeFeedService.AnnounceWinStreak(winner, winStreak)
 
-		LeaderstatsService.Refresh(winner) -- Elo (via EloService above), Wins, and Rank are all final now
+		LeaderstatsService.Refresh(winner) -- Elo (via settleFinisherElo above), Wins, and Rank are all final now
 		LeaderboardService.SubmitElo(winner, winnerProfile.Elo) -- keeps the physical board's global ranking current
 	end
 
