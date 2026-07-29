@@ -68,4 +68,7 @@ return {
 	-- Seconds until the next PLAY wave departs. Broadcast to EVERYONE, queued
 	-- or not (see MatchService's wave clock).
 	WaveClock = "WaveClock",
+	-- Broadcast map of queue target -> players waiting, so the play menu can
+	-- show which sizes are close to filling.
+	QueueCounts = "QueueCounts",
 }

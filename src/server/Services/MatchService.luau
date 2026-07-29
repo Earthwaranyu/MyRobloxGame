@@ -624,6 +624,58 @@ local function startWaveClock()
 	end)
 end
 
+-- Pushes "how many are waiting for each size" to every client, so the play menu
+-- can show a queue that's one player short instead of leaving people to guess.
+--
+-- Polled and diffed rather than fired from each place a queue changes: queues
+-- are added to and drained from a dozen call sites (enqueue, quit, disconnect,
+-- session start, the restore path when a countdown falls under strength), and
+-- a broadcast hung off each one is a broadcast somebody eventually forgets. The
+-- diff means an idle server sends nothing at all.
+local QUEUE_COUNT_INTERVAL = 0.5
+local queueCountsRemote: RemoteEvent
+local lastQueueCountsKey = ""
+
+local function startQueueCountBroadcast()
+	task.spawn(function()
+		while true do
+			task.wait(QUEUE_COUNT_INTERVAL)
+
+			-- Keys are STRINGS, not the target numbers themselves.
+			--
+			-- QueueModes.AnySize is 0, and a table sent over a RemoteEvent with
+			-- an index-0 key arrives with that entry silently missing --
+			-- confirmed in a live session: keys 2..5 came through and 0 did not.
+			-- Everything is stringified rather than special-casing the one key,
+			-- so the wire format has no holes in it to fall down again later.
+			local counts: { [string]: number } = {}
+			local parts = {}
+			-- The size-agnostic queue plus every station size. Custom-size
+			-- queues are deliberately left out: the menu has no card for them,
+			-- and they'd just be noise on the wire.
+			local function record(target: number)
+				local waiting = #getQueue(target)
+				counts[tostring(target)] = waiting
+				table.insert(parts, ("%d=%d"):format(target, waiting))
+			end
+			record(QueueModes.AnySize)
+			for _, mode in QueueModes.Stations do
+				if mode.Target ~= QueueModes.AnySize then
+					record(mode.Target)
+				end
+			end
+
+			local key = table.concat(parts, ",")
+			if key ~= lastQueueCountsKey then
+				lastQueueCountsKey = key
+				if queueCountsRemote then
+					queueCountsRemote:FireAllClients(counts)
+				end
+			end
+		end
+	end)
+end
+
 function tryStartCountdown()
 	for _, target in readyTargets() do
 		-- A full station has its group already; the only reason to wait at all
@@ -2484,6 +2536,15 @@ function MatchService.Init()
 	spectateStatusRemote = Net.CreateRemoteEvent(RemoteNames.SpectateStatus)
 	raceRosterRemote = Net.CreateRemoteEvent(RemoteNames.RaceRosterChanged)
 	waveClockRemote = Net.CreateRemoteEvent(RemoteNames.WaveClock)
+	queueCountsRemote = Net.CreateRemoteEvent(RemoteNames.QueueCounts)
+
+	-- A joiner has missed every broadcast so far, and the diff means the next
+	-- one may not come for a long time on a quiet server. Clearing the key
+	-- forces the following tick to send, which costs one message and saves a
+	-- separate "send me the current counts" round trip.
+	Players.PlayerAdded:Connect(function()
+		lastQueueCountsKey = ""
+	end)
 	-- Someone joining mid-window needs the time LEFT, not a fresh 60 -- the
 	-- wave clock runs on server start and never restarts for an individual.
 	Players.PlayerAdded:Connect(function(player)
@@ -2499,6 +2560,7 @@ function MatchService.Init()
 	startProgressBroadcast()
 	startWeatherReconciler()
 	startWaveClock()
+	startQueueCountBroadcast()
 
 	-- mode: nil/"Real" -> shared queue, "Bots" -> solo vs. a bot, "Practice"
 	-- -> solo, no opponent at all. (Was a plain vsBots boolean before

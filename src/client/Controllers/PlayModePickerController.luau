@@ -2,7 +2,9 @@ local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
+local Net = require(Shared.Net)
 local QueueModes = require(Shared.QueueModes)
+local RemoteNames = require(Shared.RemoteNames)
 
 local RacerCrowd = require(script.Parent.Parent.RacerCrowd)
 local Theme = require(script.Parent.Parent.Theme)
@@ -49,6 +51,40 @@ local panel: CanvasGroup
 local openModal: () -> ()
 local closeModal: () -> ()
 local onChosen: ((number) -> ())? = nil
+
+-- target -> the card's second line, which shows flavour text when nobody is
+-- waiting and the live queue count when somebody is.
+local blurbLabels: { [number]: TextLabel } = {}
+local blurbText: { [number]: string } = {}
+-- Keyed by tostring(target) -- see the broadcast in MatchService for why the
+-- wire format can't use the raw numbers.
+local queueCounts: { [string]: number } = {}
+
+local IDLE_COLOR = Color3.fromRGB(240, 236, 255)
+local WAITING_COLOR = Color3.fromRGB(255, 240, 150)
+
+-- Deliberately reuses the blurb's line rather than adding a third one.
+--
+-- The card is already carrying a title and a picture; a permanent "0 / 2
+-- waiting" on every card would be four lines of furniture saying nothing most
+-- of the time. Showing it only when someone is actually queued means the line
+-- changing IS the signal -- and it swaps to a warm colour, so a size that's one
+-- player short pulls the eye instead of having to be hunted for.
+local function refreshCounts()
+	for target, label in blurbLabels do
+		local count = queueCounts[tostring(target)] or 0
+		if count <= 0 then
+			label.Text = blurbText[target]
+			label.TextColor3 = IDLE_COLOR
+		elseif target == QueueModes.AnySize then
+			label.Text = if count == 1 then "1 waiting" else ("%d waiting"):format(count)
+			label.TextColor3 = WAITING_COLOR
+		else
+			label.Text = ("%d / %d waiting"):format(count, target)
+			label.TextColor3 = WAITING_COLOR
+		end
+	end
+end
 
 -- Builds one card: artwork, a scrim so the label stays readable over it, the
 -- title, and a full-card button on top.
@@ -129,6 +165,8 @@ local function buildCard(spec, index: number)
 		Color = Color3.fromRGB(240, 236, 255),
 	})
 	blurb.Parent = face
+	blurbLabels[spec.Target] = blurb
+	blurbText[spec.Target] = spec.Blurb
 
 	if spec.Best then
 		-- One card gets a flag, because "any size" is otherwise indistinguishable
@@ -214,6 +252,12 @@ end
 
 function PlayModePickerController.Init()
 	buildUI()
+
+	Net.GetRemoteEvent(RemoteNames.QueueCounts).OnClientEvent:Connect(function(counts: { [string]: number })
+		queueCounts = counts or {}
+		refreshCounts()
+	end)
+	refreshCounts()
 end
 
 return PlayModePickerController
