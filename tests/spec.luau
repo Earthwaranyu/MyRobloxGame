@@ -18,6 +18,9 @@ local RaceSettlement = require("./RaceSettlement")
 local RankTiers = require("./RankTiers")
 local Constants = require("./Constants")
 local Hype = require("./Hype")
+local Stages = require("./Stages")
+local StageLayout = require("./StageLayout")
+local Weather = require("./Weather")
 
 local pass, fail = 0, 0
 local failures = {}
@@ -181,6 +184,284 @@ do
 		end
 	end
 	check("announces at 3, 5, 10 then every 5", ok, if #bad > 0 then "mismatch at " .. table.concat(bad, ", ") else nil)
+end
+
+print("\n-- stage roster --")
+do
+	local seenId, seenName, seenPair = {}, {}, {}
+	local idsUnique, namesUnique, pairsUnique = true, true, true
+	local difficultiesValid, gimmicksValid, weathersPresetted = true, true, true
+	local validDifficulty = { Easy = true, Medium = true, Hard = true }
+	local validGimmick = { Bounce = true, Moving = true, Vanishing = true, Speed = true }
+	local counts = { Easy = 0, Medium = 0, Hard = 0 }
+
+	for _, stage in Stages do
+		if seenId[stage.Id] then
+			idsUnique = false
+		end
+		if seenName[stage.Name] then
+			namesUnique = false
+		end
+		seenId[stage.Id], seenName[stage.Name] = true, true
+
+		-- A repeated weather+gimmick pair is two stages that play and look the
+		-- same, which is the one thing more stages is supposed to fix.
+		local pair = stage.Weather .. "+" .. stage.Gimmick
+		if seenPair[pair] then
+			pairsUnique = false
+		end
+		seenPair[pair] = true
+
+		difficultiesValid = difficultiesValid and validDifficulty[stage.Difficulty] == true
+		gimmicksValid = gimmicksValid and validGimmick[stage.Gimmick] == true
+		-- A weather with no preset is a stage that races under whatever
+		-- lighting the last stage left behind (Weather.GetForStage returns nil
+		-- and WeatherService has nothing to apply).
+		weathersPresetted = weathersPresetted and Weather.Presets[stage.Weather] ~= nil
+		if validDifficulty[stage.Difficulty] then
+			counts[stage.Difficulty] += 1
+		end
+	end
+
+	check("stage ids unique", idsUnique)
+	check("stage names unique", namesUnique)
+	check("no weather+gimmick pair repeats", pairsUnique)
+	check("every difficulty is a real tier", difficultiesValid)
+	check("every gimmick is a real kind", gimmicksValid)
+	check("every weather has a lighting preset", weathersPresetted)
+	check("every difficulty tier is represented", counts.Easy > 0 and counts.Medium > 0 and counts.Hard > 0,
+		("%d easy / %d medium / %d hard"):format(counts.Easy, counts.Medium, counts.Hard))
+	-- A random roll should land on a punishing course less than half the time.
+	check("hard stages are the minority", counts.Hard < #Stages / 2, ("%d of %d"):format(counts.Hard, #Stages))
+end
+
+print("\n-- jump reach --")
+do
+	local level = StageLayout.MaxJumpGap(0)
+	-- Sprinting off a level edge at the shipped constants. This is the number
+	-- every gap in every generated course is sized against, so if a tuning
+	-- change moves it, the courses move with it.
+	check("level sprint jump is ~12.2 studs", math.abs(level - 12.23) < 0.1, ("%.2f"):format(level))
+	check("climbing costs reach", StageLayout.MaxJumpGap(3) < level, ("%.2f"):format(StageLayout.MaxJumpGap(3)))
+	check("dropping adds reach", StageLayout.MaxJumpGap(-3) > level, ("%.2f"):format(StageLayout.MaxJumpGap(-3)))
+	check("unreachable height yields no gap", StageLayout.MaxJumpGap(50) == 0)
+	local monotonic = true
+	for rise = -6, 6 do
+		if StageLayout.MaxJumpGap(rise) >= StageLayout.MaxJumpGap(rise - 1) then
+			monotonic = false
+		end
+	end
+	check("reach falls off monotonically with climb", monotonic)
+end
+
+-- Every generated course, checked the way a player would fail it: can each
+-- jump actually be made, do the platforms the bots follow exist in order, and
+-- does the starting field fit on the pad. These are the failures that need a
+-- Studio session and a stopwatch to find otherwise -- and an unclearable gap
+-- is a stage nobody can ever finish.
+print("\n-- generated courses --")
+for _, stage in Stages do
+	if not stage.Generated then
+		continue
+	end
+
+	local plan = StageLayout.Build(stage)
+	local platforms = plan.Platforms
+	local label = stage.Id .. " (" .. stage.Difficulty .. "/" .. stage.Gimmick .. ")"
+
+	do
+		-- BotService walks Platform_Start, then counts up from Platform_1
+		-- until one is MISSING, then Platform_Finish. A hole in the numbering
+		-- silently truncates the bots' route at the hole.
+		local named = platforms[1].Name == "Platform_Start" and platforms[#platforms].Name == "Platform_Finish"
+		for i = 2, #platforms - 1 do
+			named = named and platforms[i].Name == "Platform_" .. tostring(i - 1)
+		end
+		check(label .. ": platform chain is contiguous", named, ("%d platforms"):format(#platforms))
+	end
+
+	do
+		-- StageGimmickService sorts platforms by position along the course's
+		-- dominant axis and assumes that order IS the running order, so any
+		-- backtracking in X would scramble which platforms get the gimmick.
+		local increasing = true
+		for i = 2, #platforms do
+			if platforms[i].X <= platforms[i - 1].X then
+				increasing = false
+			end
+		end
+		check(label .. ": runs monotonically down the course", increasing)
+	end
+
+	do
+		local worstMargin, worstAt = math.huge, 0
+		local clearance, overlapAt = true, 0
+		for i = 2, #platforms do
+			local previous, current = platforms[i - 1], platforms[i]
+			local forward = (current.X - current.SizeX / 2) - (previous.X + previous.SizeX / 2)
+			local lateral = current.Z - previous.Z
+			local rise = current.Y - previous.Y
+			-- The jump is the straight line between the two edges, not the
+			-- forward component alone.
+			local distance = math.sqrt(forward * forward + lateral * lateral)
+			local reach = StageLayout.MaxJumpGap(rise)
+			local margin = if reach > 0 then (reach - distance) / reach else -1
+			if margin < worstMargin then
+				worstMargin, worstAt = margin, i
+			end
+			if forward < 3 - 1e-9 then
+				clearance, overlapAt = false, i
+			end
+		end
+		-- 15%, against StageLayout's own 20% design margin: a player arrives
+		-- at a takeoff edge with whatever speed they have, not always a clean
+		-- sprint.
+		check(label .. ": every jump clearable with margin", worstMargin > 0.15,
+			("worst %.0f%% spare at platform %d"):format(worstMargin * 100, worstAt))
+		check(label .. ": platforms never touch", clearance,
+			if overlapAt > 0 then ("overlap at platform %d"):format(overlapAt) else nil)
+	end
+
+	do
+		-- Checkpoints must sit on the platforms StageGimmickService does NOT
+		-- animate (it takes list indices 2, 4, 6...), or a save point ends up
+		-- on a platform that fades out and drops away.
+		local onStillPlatforms, onTop = #plan.Checkpoints > 0, true
+		for _, checkpoint in plan.Checkpoints do
+			local host = nil
+			for index, platform in platforms do
+				if math.abs(platform.X - checkpoint.X) < 1e-6 then
+					host = index
+					-- Sitting ON the platform, not floating over it or sunk in
+					-- it: this CFrame is where a fall puts the player back.
+					onTop = onTop
+						and math.abs(checkpoint.Y - checkpoint.SizeY / 2 - (platform.Y + platform.SizeY / 2)) < 1e-6
+				end
+			end
+			if not host or host % 2 == 0 or host == 1 or host == #platforms then
+				onStillPlatforms = false
+			end
+		end
+		check(label .. ": checkpoints avoid gimmick platforms", onStillPlatforms,
+			("%d checkpoints"):format(#plan.Checkpoints))
+		check(label .. ": checkpoints sit on the deck", onTop)
+	end
+
+	do
+		local finishPad = platforms[#platforms]
+		local banner = plan.Finish
+		-- Across the pad's near edge and tall enough that an arc can't clear
+		-- it: this part is what win detection is bound to.
+		check(label .. ": finish banner crosses the pad", banner.SizeZ > finishPad.SizeZ * 0.9 and banner.SizeY >= 12,
+			("%.1f wide, %.1f tall"):format(banner.SizeZ, banner.SizeY))
+		check(label .. ": finish banner stands on the pad",
+			banner.Y - banner.SizeY / 2 >= finishPad.Y + finishPad.SizeY / 2 - 1e-6)
+	end
+
+	do
+		local lowest = math.huge
+		local minX, maxX = math.huge, -math.huge
+		for _, platform in platforms do
+			lowest = math.min(lowest, platform.Y - platform.SizeY / 2)
+			minX = math.min(minX, platform.X - platform.SizeX / 2)
+			maxX = math.max(maxX, platform.X + platform.SizeX / 2)
+		end
+		local void = plan.Void
+		check(label .. ": void hangs below the course", void.Y + void.SizeY / 2 < lowest)
+		-- Wider than the course on both sides, and generous past the finish:
+		-- overshooting the finish is a real outcome on a Speed stage.
+		check(label .. ": void covers the whole footprint",
+			void.X - void.SizeX / 2 < minX and void.X + void.SizeX / 2 > maxX + 40)
+	end
+
+	do
+		-- Replays MatchService.buildStartGrid against the pad this plan
+		-- actually produces, for a field far bigger than the queue usually
+		-- sends (there is no player cap), and asserts nobody is spawned off
+		-- the edge -- the bug the grid was written to fix.
+		local startPad = platforms[1]
+		local spawn = plan.Spawn
+		local SPACING, MARGIN = 5, 3
+		local fits = true
+		local worst = 0
+		-- The grid's own axes: columns spread ACROSS the course (the pad's Z
+		-- side), rows build backwards ALONG it (the pad's X side). The spawn
+		-- marker is rotated to face down the course, which is why its local
+		-- sizes are the other way round -- see buildSpawn.
+		local acrossHalf = startPad.SizeZ / 2
+		local alongHalf = startPad.SizeX / 2
+		for _, count in { 8, 16, 24 } do
+			local usableX = math.max(0, spawn.SizeX - MARGIN * 2)
+			local usableZ = math.max(0, spawn.SizeZ / 2 - MARGIN)
+			local columns = math.clamp(math.floor(usableX / SPACING) + 1, 1, count)
+			local rows = math.ceil(count / columns)
+			local spacingX = if columns > 1 then math.min(SPACING, usableX / (columns - 1)) else 0
+			local spacingZ = if rows > 1 then math.min(SPACING, usableZ / (rows - 1)) else 0
+			for index = 1, count do
+				local slot = index - 1
+				local column = slot % columns
+				local row = math.floor(slot / columns)
+				local inThisRow = math.min(columns, count - row * columns)
+				local offsetX = (column - (inThisRow - 1) / 2) * spacingX
+				local offsetZ = row * spacingZ
+				worst = math.max(worst, math.abs(offsetX) / acrossHalf, offsetZ / alongHalf)
+				if math.abs(offsetX) > acrossHalf - 1.5 or offsetZ > alongHalf - 1.5 then
+					fits = false
+				end
+			end
+		end
+		check(label .. ": start grid stays on the pad", fits, ("worst slot at %.0f%% of the pad"):format(worst * 100))
+		check(label .. ": spawn marker is most of the pad",
+			spawn.SizeX > startPad.SizeZ * 0.8 and spawn.SizeZ > startPad.SizeX * 0.8)
+	end
+end
+
+do
+	-- StageBuilderService stacks the generated courses in the sky on these
+	-- numbers, so the extent has to cover the parts that reach FURTHEST -- the
+	-- void slab below and the finish banner above, not just the decks.
+	local coversHiddenParts, tallerThanDecks = true, true
+	for _, stage in Stages do
+		if stage.Generated then
+			local plan = StageLayout.Build(stage)
+			local extent = StageLayout.Extent(plan)
+			local deckLow, deckHigh = math.huge, -math.huge
+			for _, platform in plan.Platforms do
+				deckLow = math.min(deckLow, platform.Y - platform.SizeY / 2)
+				deckHigh = math.max(deckHigh, platform.Y + platform.SizeY / 2)
+			end
+			if extent.MinY > plan.Void.Y - plan.Void.SizeY / 2 then
+				coversHiddenParts = false
+			end
+			if extent.MaxY < plan.Finish.Y + plan.Finish.SizeY / 2 then
+				coversHiddenParts = false
+			end
+			if (extent.MaxY - extent.MinY) <= (deckHigh - deckLow) then
+				tallerThanDecks = false
+			end
+		end
+	end
+	check("extent covers the void slab and the finish banner", coversHiddenParts)
+	check("extent is taller than the platforms alone", tallerThanDecks)
+end
+
+do
+	-- Identical courses on every server is what makes the per-stage top-100
+	-- boards comparable at all -- two players' times are only the same
+	-- measurement if they ran the same geometry.
+	local identical = true
+	for _, stage in Stages do
+		if stage.Generated then
+			local a, b = StageLayout.Build(stage), StageLayout.Build(stage)
+			for i, platform in a.Platforms do
+				local other = b.Platforms[i]
+				if platform.X ~= other.X or platform.Y ~= other.Y or platform.Z ~= other.Z then
+					identical = false
+				end
+			end
+		end
+	end
+	check("courses are byte-identical between builds", identical)
 end
 
 print(("\n%d passed, %d failed"):format(pass, fail))

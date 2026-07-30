@@ -18,6 +18,15 @@ local LeaderboardController = {}
 local PANEL_WIDTH = 360
 local TAB_ROW_INSET = 8
 local TAB_PADDING = 6
+local TAB_HEIGHT = 30
+-- Tabs WRAP instead of dividing the row ever more finely.
+--
+-- Dividing the row is what fixed Stage 4 rendering off the edge, but it only
+-- moved the ceiling: at 8 stages one row gives each tab (344 - 42) / 8 = 37px,
+-- and a 37px tab is a button whose label has been shrunk to nothing. Four per
+-- row holds the tab width at ~81px -- about what it was with 4 stages on one
+-- row -- and a fifth stage simply starts a second row.
+local TABS_PER_ROW = 4
 
 local player = Players.LocalPlayer
 
@@ -158,30 +167,36 @@ local function buildUI()
 	-- rightmost tab's top-right corner overlapped the button's bottom-left
 	-- by a real 32x6px, not just a harmless bounding-box graze like most of
 	-- that scan's other (false-positive) hits.
-	local tabRow = Instance.new("Frame")
-	tabRow.Size = UDim2.new(1, -TAB_ROW_INSET * 2, 0, 30)
-	tabRow.Position = UDim2.fromOffset(TAB_ROW_INSET, 44)
-	tabRow.BackgroundTransparency = 1
-	tabRow.Parent = panel
-
-	local tabLayout = Instance.new("UIListLayout")
-	tabLayout.FillDirection = Enum.FillDirection.Horizontal
-	tabLayout.Padding = UDim.new(0, TAB_PADDING)
-	tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	tabLayout.Parent = tabRow
-
-	-- Tab width DIVIDES the row rather than being a fixed number.
+	-- Tab width DIVIDES a row rather than being a fixed number.
 	--
 	-- It used to be a flat 110px, which fitted the three stages that existed
 	-- when this was written and silently broke on the fourth: 4 x 110 + 3 x 6 =
 	-- 458px in a 344px row, so Stage 4 rendered entirely outside its parent and
-	-- could not be clicked at all. Dividing the space means the strip absorbs
-	-- however many stages Stages.luau happens to define -- the button's own
-	-- shrink-to-fit takes care of the label at narrower widths.
-	local tabWidth = math.floor((PANEL_WIDTH - TAB_ROW_INSET * 2 - TAB_PADDING * (#Stages - 1)) / #Stages)
+	-- could not be clicked at all. Dividing the space (and now wrapping, see
+	-- TABS_PER_ROW) means the strip absorbs however many stages Stages.luau
+	-- happens to define -- the button's own shrink-to-fit takes care of the
+	-- label at narrower widths.
+	local columns = math.min(#Stages, TABS_PER_ROW)
+	local tabRows = math.ceil(#Stages / columns)
+	local tabWidth = math.floor((PANEL_WIDTH - TAB_ROW_INSET * 2 - TAB_PADDING * (columns - 1)) / columns)
+	local tabRowHeight = tabRows * TAB_HEIGHT + (tabRows - 1) * TAB_PADDING
+
+	local tabRow = Instance.new("Frame")
+	tabRow.Size = UDim2.new(1, -TAB_ROW_INSET * 2, 0, tabRowHeight)
+	tabRow.Position = UDim2.fromOffset(TAB_ROW_INSET, 44)
+	tabRow.BackgroundTransparency = 1
+	tabRow.Parent = panel
+
+	-- A grid, not a list: UIListLayout has no wrapping, so a second row of
+	-- tabs would otherwise have to be positioned by hand.
+	local tabLayout = Instance.new("UIGridLayout")
+	tabLayout.CellSize = UDim2.fromOffset(tabWidth, TAB_HEIGHT)
+	tabLayout.CellPadding = UDim2.fromOffset(TAB_PADDING, TAB_PADDING)
+	tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	tabLayout.Parent = tabRow
 
 	for i, stage in Stages do
-		local tabButton, setActive = Widgets.Button(stage.Name, UDim2.fromOffset(tabWidth, 30), UDim2.fromOffset(0, 0), {
+		local tabButton, setActive = Widgets.Button(stage.Name, UDim2.fromOffset(tabWidth, TAB_HEIGHT), UDim2.fromOffset(0, 0), {
 			Variant = "Tab",
 			TextSize = 15,
 		})
@@ -198,9 +213,16 @@ local function buildUI()
 	end
 	refreshTabHighlight()
 
+	-- Everything below the tabs is positioned OFF the tab strip's real height
+	-- rather than on the literal 78/108 it used to sit at, so a second row of
+	-- tabs pushes the scope buttons and the entry list down instead of being
+	-- drawn underneath them.
+	local scopeY = 44 + tabRowHeight + 4
+	local entriesY = scopeY + 26 + 4
+
 	local scopeRow = Instance.new("Frame")
 	scopeRow.Size = UDim2.new(1, -16, 0, 26)
-	scopeRow.Position = UDim2.fromOffset(8, 78)
+	scopeRow.Position = UDim2.fromOffset(8, scopeY)
 	scopeRow.BackgroundTransparency = 1
 	scopeRow.Parent = panel
 
@@ -228,8 +250,8 @@ local function buildUI()
 	refreshScopeHighlight()
 
 	entriesList = Instance.new("ScrollingFrame")
-	entriesList.Size = UDim2.new(1, -16, 1, -116)
-	entriesList.Position = UDim2.fromOffset(8, 108)
+	entriesList.Size = UDim2.new(1, -16, 1, -(entriesY + 8))
+	entriesList.Position = UDim2.fromOffset(8, entriesY)
 	entriesList.BackgroundTransparency = 1
 	entriesList.BorderSizePixel = 0
 	entriesList.CanvasSize = UDim2.new(0, 0, 0, 0)

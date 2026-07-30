@@ -43,6 +43,14 @@ local PALETTES: { [string]: Palette } = {
 		PlatformMaterial = Enum.Material.SmoothPlastic,
 		VoidColor = Color3.fromRGB(228, 242, 250),
 	},
+	-- Concrete under a white sky: the one palette with no colour cast at all,
+	-- to match how flat Weather's Cloudy preset lights everything (its stage
+	-- floats in the sky, so the "void" here is the cloud deck below it).
+	Cloudy = {
+		PlatformColor = Color3.fromRGB(168, 172, 178),
+		PlatformMaterial = Enum.Material.Concrete,
+		VoidColor = Color3.fromRGB(206, 212, 222),
+	},
 }
 
 -- StartLine/FinishLine (colored wall banners) and Checkpoint_* (neon

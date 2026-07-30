@@ -328,15 +328,25 @@ local function buildUI()
 	local row2Y = row1Y + STAT_ROW_HEIGHT + rowGap
 	local row3Y = row2Y + STAT_ROW_HEIGHT + rowGap
 
-	-- Best Times: one full-width row per stage (was two stages packed onto
-	-- each line, which reads fine for 2 stages but turns into a cramped grid
-	-- the moment a game has more) -- frame height comes straight from
-	-- #Stages so it always fits exactly however many stages currently exist.
+	-- Best Times: one row per stage, in as many columns as it takes to keep
+	-- the section (and therefore the whole panel) a sane height.
+	--
+	-- One row per stage was the fix for two stages sharing a single multi-line
+	-- label, and it reads well -- but it grows the panel by 20px per stage,
+	-- and at 8 stages that is a 646px-tall card that runs off the bottom of a
+	-- phone screen. Columns cap the growth instead: the section stays 5 rows
+	-- tall at most, and stage 6 starts a second column rather than a sixth
+	-- row. Up to 5 stages this is byte-for-byte the old single-column layout.
 	local BEST_TIME_HEADER_H = 22
 	local BEST_TIME_ROW_H = 20
 	local BEST_TIME_BOTTOM_PAD = 8
+	local BEST_TIME_MAX_ROWS = 5
+	local BEST_TIME_COL_GAP = 10
+	local bestTimeColumns = math.ceil(#Stages / BEST_TIME_MAX_ROWS)
+	local bestTimeRows = math.ceil(#Stages / bestTimeColumns)
+	local bestTimeColWidth = (CONTENT_WIDTH - 16 - BEST_TIME_COL_GAP * (bestTimeColumns - 1)) / bestTimeColumns
 	local bestTimesY = row3Y + STAT_ROW_HEIGHT + 12
-	local bestTimesFrameHeight = BEST_TIME_HEADER_H + (#Stages * BEST_TIME_ROW_H) + BEST_TIME_BOTTOM_PAD
+	local bestTimesFrameHeight = BEST_TIME_HEADER_H + (bestTimeRows * BEST_TIME_ROW_H) + BEST_TIME_BOTTOM_PAD
 
 	local duelY = bestTimesY + bestTimesFrameHeight + 12
 	local joinY = duelY + 40 + 8
@@ -444,14 +454,20 @@ local function buildUI()
 	bestTimesHeader.Parent = bestTimesFrame
 
 	-- One label per stage (was one shared multi-line label pairing two
-	-- stages per line) -- built straight from Stages so the row count always
-	-- matches however many stages currently exist.
+	-- stages per line) -- built straight from Stages so the count always
+	-- matches however many stages currently exist. Filled column-major, so
+	-- reading down the left column and then the right gives stage order.
 	bestTimesLabels = {}
 	for i, stage in Stages do
+		local column = math.floor((i - 1) / bestTimeRows)
+		local row = (i - 1) % bestTimeRows
 		local label = Widgets.Label(
 			("%s: --"):format(stage.Name),
-			UDim2.new(1, -16, 0, BEST_TIME_ROW_H),
-			UDim2.fromOffset(8, BEST_TIME_HEADER_H + (i - 1) * BEST_TIME_ROW_H),
+			UDim2.fromOffset(bestTimeColWidth, BEST_TIME_ROW_H),
+			UDim2.fromOffset(
+				8 + column * (bestTimeColWidth + BEST_TIME_COL_GAP),
+				BEST_TIME_HEADER_H + row * BEST_TIME_ROW_H
+			),
 			{
 				TextSize = 14,
 				Color = Theme.Color.TextPrimary,

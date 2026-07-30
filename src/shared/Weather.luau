@@ -203,6 +203,47 @@ Weather.Presets = {
 		SunRays = { Intensity = 0.16, Spread = 0.8 },
 	} :: WeatherPreset,
 
+	-- Overcast, and deliberately the FLATTEST preset here: no sun to cast rays,
+	-- no colour to speak of, everything lit by a white sky. That is the whole
+	-- character of a cloudy day, and it's what makes it read as a different
+	-- weather to Stormy rather than a milder version of it -- Stormy is dark
+	-- and high-contrast with the colour drained out; this is bright, soft and
+	-- low-contrast.
+	Cloudy = {
+		Lighting = {
+			ClockTime = 11,
+			Brightness = 1.8,
+			Ambient = Color3.fromRGB(105, 108, 115),
+			OutdoorAmbient = Color3.fromRGB(150, 155, 162),
+			FogColor = Color3.fromRGB(198, 203, 212),
+			FogStart = 150,
+			FogEnd = 2200,
+		},
+		Atmosphere = {
+			Density = 0.42,
+			Offset = 0.3,
+			Color = Color3.fromRGB(215, 218, 224),
+			Decay = Color3.fromRGB(120, 126, 138),
+			Glare = 0,
+			Haze = 3,
+		},
+		-- The distant end of the same storm (see Stormy's note on this asset):
+		-- quiet and infrequent, so a cloudy sky occasionally rumbles without
+		-- ever becoming the thunderstorm next door.
+		AccentSoundId = "rbxassetid://9120015808", -- Thunder And Rain
+		AccentVolume = 0.22,
+		AccentIntervalMin = 40,
+		AccentIntervalMax = 75,
+		Bloom = { Intensity = 0.55, Size = 22, Threshold = 2 },
+		ColorCorrection = {
+			Saturation = -0.12,
+			Contrast = 0.02,
+			Brightness = 0.01,
+			TintColor = Color3.fromRGB(240, 244, 250),
+		},
+		SunRays = { Intensity = 0, Spread = 0 },
+	} :: WeatherPreset,
+
 	Night = {
 		Lighting = {
 			ClockTime = 0,
