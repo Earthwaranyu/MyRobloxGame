@@ -20,6 +20,7 @@ local Constants = require("./Constants")
 local Hype = require("./Hype")
 local Stages = require("./Stages")
 local StageLayout = require("./StageLayout")
+local Abilities = require("./Abilities")
 local Weather = require("./Weather")
 
 local pass, fail = 0, 0
@@ -456,6 +457,55 @@ end
 -- and end the same way", so the numbers behind them have to be the same
 -- numbers -- this is the assertion that they are, since nothing else compares
 -- the hand-built half against the generated one.
+-- StageService puts a capture volume this tall over every checkpoint's platform,
+-- because touching the visible 0.3-stud pad was never a reliable test of having
+-- reached a checkpoint -- a Meteor Dash arcs clean over it, and the player
+-- silently loses their save point. So the volume has to be taller than anything
+-- that can carry a racer across a checkpoint platform. These are the numbers
+-- that decide that, and buffing any of them should fail here rather than quietly
+-- make a checkpoint unreachable again.
+print("\n-- checkpoint capture height --")
+do
+	local capture = StageLayout.Checkpoint.CaptureHeight
+	local hip = StageLayout.Checkpoint.HipHeight
+
+	local meteor
+	for _, ability in Abilities do
+		if ability.Id == "Meteor" then
+			meteor = ability
+		end
+	end
+	check("Meteor Dash is still a lifting dash", meteor ~= nil and (meteor.UpwardBoost or 0) > 0,
+		meteor and ("%d studs/s for %.2fs"):format(meteor.UpwardBoost, meteor.DurationSeconds))
+
+	local meteorPeak = hip + StageLayout.LaunchArcHeight(meteor.UpwardBoost, meteor.DurationSeconds)
+	check("capture volume clears a Meteor Dash", capture > meteorPeak,
+		("peak %.1f vs volume %.1f"):format(meteorPeak, capture))
+
+	-- StageGimmickService's BOUNCE_UP / BOUNCE_THRUST. Duplicated here because
+	-- they live in a server module the headless runner cannot require -- if they
+	-- change, this is the line to update, and the check below is what makes the
+	-- consequence of NOT updating it visible.
+	local BOUNCE_UP, BOUNCE_THRUST = 55, 0.12
+	local bouncePeak = hip + StageLayout.LaunchArcHeight(BOUNCE_UP, BOUNCE_THRUST)
+	check("capture volume clears a bounce pad", capture > bouncePeak,
+		("peak %.1f vs volume %.1f"):format(bouncePeak, capture))
+	check("bounce is the taller of the two, as documented", bouncePeak > meteorPeak,
+		("bounce %.1f > meteor %.1f"):format(bouncePeak, meteorPeak))
+
+	-- The margin is the whole point: a dash fired while already rising off a
+	-- bounce is not in either figure above.
+	check("volume keeps headroom over the worst single launch", capture - bouncePeak >= 5,
+		("%.1f studs spare"):format(capture - bouncePeak))
+
+	check("a zero launch has no arc", StageLayout.LaunchArcHeight(0, 0.5) == 0)
+	-- Held velocity and the ballistic arc off it, both accounted for: a helper
+	-- that dropped either term would still look plausible at a glance.
+	check("arc counts the held climb and the ballistic rise",
+		math.abs(StageLayout.LaunchArcHeight(50, 0.2) - (10 + 2500 / (2 * 196.2))) < 1e-9,
+		("%.2f"):format(StageLayout.LaunchArcHeight(50, 0.2)))
+end
+
 print("\n-- endpoint convention --")
 do
 	local endpoint = StageLayout.Endpoint

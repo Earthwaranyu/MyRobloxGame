@@ -113,11 +113,12 @@ local function buildUI()
 	-- violet fill, thick white border -- as every other surface in the game.
 	container = Instance.new("Frame")
 	container.Name = "CountdownContainer"
-	container.Size = UDim2.fromOffset(300, 104)
-	-- y = 60: below WaveClockController's tab (6..38), with enough room that the
-	-- cancel X -- which straddles this card's top edge, hanging 18px above it --
-	-- clears the tab rather than overlapping it.
-	container.Position = UDim2.new(0.5, -150, 0, 60)
+	container.Size = UDim2.fromOffset(Theme.TopLane.CardWidth, 104)
+	-- Below WaveClockController's tab, far enough that the cancel X -- which
+	-- straddles this card's top edge, hanging Theme.TopLane.CardOverhang above
+	-- it -- clears the tab rather than sitting in its rows. Both halves of that
+	-- sum come from Theme.TopLane so the clearance survives either one changing.
+	container.Position = UDim2.new(0.5, -Theme.TopLane.CardWidth / 2, 0, Theme.TopLane.CardTop)
 	container.BackgroundColor3 = Theme.Candy.PanelFace
 	container.BorderSizePixel = 0
 	container.Visible = false

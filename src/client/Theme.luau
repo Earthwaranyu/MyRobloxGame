@@ -65,6 +65,51 @@ Theme.Corner = {
 	Card = UDim.new(0, 18),
 }
 
+-- The top-centre HUD lane, shared because FOUR controllers draw into it and
+-- each had hand-copied its neighbours' numbers into its own comments:
+-- WaveClockController's wave tab, QueueStatusController's countdown card (whose
+-- cancel X straddles the card's top edge, hanging CardOverhang above it),
+-- RaceHudController's race timer, and QuitMatchController's Leave Match button
+-- sitting beside them.
+--
+-- Copied numbers is precisely how the lane broke. The wave tab was 32px tall
+-- when the card's y was chosen against it; the tab later grew to 44 and the
+-- card never moved, so the card's cancel X ended up inside the tab's rows and
+-- missed it only because their x-ranges happened to abut exactly. The Leave
+-- Match button had it worse: it was placed to clear the RACE timer (240 wide),
+-- but during the pre-race countdown the neighbour is the CARD (300 wide), so it
+-- was drawn 10px over the card's right border -- which is what you see on
+-- screen during "RACE STARTING IN".
+--
+-- So the lane is one set of numbers now, and the two derived positions below
+-- are derived once rather than in each controller.
+Theme.TopLane = {
+	TabWidth = 264,
+	TabHeight = 44,
+	-- Clear of the Roblox topbar: these ScreenGuis keep the default inset.
+	TabTop = 6,
+	CardWidth = 300,
+	-- The card's cancel X is centred ON its top-right corner, so it hangs this
+	-- far past the card's edge both upward and to the right -- half the button,
+	-- and the reason one constant covers both directions.
+	CardOverhang = 18,
+	-- Air between anything in this lane and anything next to it, stacked or
+	-- side by side, so the lane keeps one rhythm.
+	Gap = 14,
+}
+
+-- Below the tab with the card's overhanging cancel X counted in, not just the
+-- card's own edge -- the overhang is the part that actually collides.
+Theme.TopLane.CardTop = Theme.TopLane.TabTop + Theme.TopLane.TabHeight + Theme.TopLane.Gap + Theme.TopLane.CardOverhang
+-- X offset from screen centre for anything parked BESIDE the lane. Measured off
+-- the card because it is the widest thing that can be there (clearing it clears
+-- the narrower race timer too), and off the cancel X rather than the card's own
+-- edge, since the X is what actually sticks out furthest. The X and the Leave
+-- Match button are never on screen at the same time as things stand -- but
+-- "these two happen not to coincide today" is the assumption that put the
+-- button on top of the card in the first place.
+Theme.TopLane.SideOffset = Theme.TopLane.CardWidth / 2 + Theme.TopLane.CardOverhang + Theme.TopLane.Gap
+
 Theme.Anim = {
 	Fast = 0.12,
 	Medium = 0.22,

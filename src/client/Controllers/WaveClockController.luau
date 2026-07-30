@@ -28,12 +28,13 @@ local WaveClockController = {}
 
 local player = Players.LocalPlayer
 
-local TAB_WIDTH = 264
-local TAB_HEIGHT = 44
--- Above everything else in the top-centre lane. The queue card sits at y=60 and
--- RaceHudController's timer at y=56 (never both at once), so 6..50 is clear of
--- each -- and of the Roblox topbar, since the ScreenGui keeps the default inset.
-local TAB_TOP = 6
+-- Top of the shared top-centre lane. The tab's own height is what the countdown
+-- card below it is positioned against, so it lives in Theme.TopLane rather than
+-- here -- a tab that grows without the card moving is exactly the overlap that
+-- comment used to describe.
+local TAB_WIDTH = Theme.TopLane.TabWidth
+local TAB_HEIGHT = Theme.TopLane.TabHeight
+local TAB_TOP = Theme.TopLane.TabTop
 
 -- Below this the tab turns red and pulses once a second. Ten seconds is about
 -- how long it takes to notice a banner, cross the plaza and press PLAY, so it's

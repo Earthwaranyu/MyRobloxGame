@@ -7,6 +7,7 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
+local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local MatchStateController = require(script.Parent.MatchStateController)
 
@@ -60,14 +61,25 @@ local function buildUI()
 	screenGui.ResetOnSpawn = false
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
-	-- Sits just right of RaceHudController's timer panel (240 wide, centered).
-	button = Widgets.Button("Leave Match (Backspace)", UDim2.fromOffset(230, 48), UDim2.new(0.5, 140, 0, 56), {
-		Variant = "Danger",
-		TextSize = 15,
-		Icon = function(holder, color)
-			MenuIcons.Populate(holder, "Exit", color)
-		end,
-	})
+	-- Beside the top-centre lane, clear of whichever card is in it. This used to
+	-- be measured off RaceHudController's timer alone (240 wide), which is the
+	-- neighbour once you are RACING -- but the button is on screen from the
+	-- moment the pre-race countdown starts, and that neighbour is
+	-- QueueStatusController's 300-wide card, so it was drawn over the card's
+	-- right border for the whole countdown. Theme.TopLane.SideOffset is measured
+	-- off the wider of the two.
+	button = Widgets.Button(
+		"Leave Match (Backspace)",
+		UDim2.fromOffset(230, 48),
+		UDim2.new(0.5, Theme.TopLane.SideOffset, 0, Theme.TopLane.CardTop),
+		{
+			Variant = "Danger",
+			TextSize = 15,
+			Icon = function(holder, color)
+				MenuIcons.Populate(holder, "Exit", color)
+			end,
+		}
+	)
 	button.Visible = false
 	button.Parent = screenGui
 

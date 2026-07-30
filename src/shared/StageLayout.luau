@@ -75,6 +75,23 @@ function StageLayout.MaxJumpGap(rise: number): number
 	return Constants.SprintSpeed * airtime
 end
 
+-- How high a launch reaches above where it fired, for the launches that are NOT
+-- a plain jump: an ability burst or a bounce pad holds a fixed upward velocity
+-- for a moment (a BodyVelocity strong enough to ignore gravity while it lives),
+-- and only then hands over to ballistics. So the rise is the held climb plus the
+-- ordinary arc from that same velocity.
+--
+-- This exists because a trigger has to be tall enough that these cannot fly
+-- over it -- see StageLayout.Checkpoint below, and StageService's capture
+-- volume. Sizing that by eye is how a checkpoint ends up unreachable to anyone
+-- using the ability they were rewarded with.
+function StageLayout.LaunchArcHeight(velocity: number, thrustSeconds: number): number
+	if velocity <= 0 then
+		return 0
+	end
+	return velocity * thrustSeconds + velocity * velocity / (2 * GRAVITY)
+end
+
 -- Every planned jump is held to this fraction of what the arc can actually
 -- do. The margin is not politeness: a player arrives at a takeoff edge with
 -- whatever speed they have (BotService's bots inset themselves 0.6 studs from
@@ -309,6 +326,36 @@ StageLayout.Endpoint = {
 	BannerHeight = FINISH_BANNER_HEIGHT,
 	BannerThickness = FINISH_BANNER_THICKNESS,
 	BannerWidthFactor = FINISH_BANNER_WIDTH_FACTOR,
+}
+
+-- Roughly where a standing character's HumanoidRootPart sits above the deck --
+-- hip height plus half the root part. Launch arcs are measured from there, not
+-- from the deck, because that is the point the physics actually throws.
+local HIP_HEIGHT = 3
+
+-- The checkpoint convention, shared with StageService, which builds a capture
+-- volume this tall over every checkpoint's platform.
+--
+-- Why a volume at all: the visible pad is a 0.3-stud slab, and a racer arriving
+-- with any lift crosses the platform well above it -- so touching the pad was
+-- never a reliable test of "reached this checkpoint", and missing it silently
+-- cost the player their save point (they would then recover to whatever they had
+-- last touched, which for a skipped run of checkpoints is the start pad).
+--
+-- CaptureHeight is sized off the highest a player can legitimately be while
+-- crossing a checkpoint platform, which is a BOUNCE pad rather than an ability:
+--
+--   bounce  55 studs/s held 0.12s -> 14.3 studs of rise (StageGimmickService's
+--                                    BOUNCE_UP / BOUNCE_THRUST)
+--   Meteor  35 studs/s held 0.24s -> 11.5 (Abilities.Meteor's UpwardBoost)
+--
+-- plus HIP_HEIGHT, so 17.3 is the number to beat. The margin on top is for the
+-- combinations this does not enumerate -- a dash fired while already rising off
+-- a bounce, most obviously. tests/spec.luau holds this to the arcs above, so
+-- buffing either one fails a test instead of quietly breaking a checkpoint.
+StageLayout.Checkpoint = {
+	CaptureHeight = 24,
+	HipHeight = HIP_HEIGHT,
 }
 
 -- How far under the lowest platform the void trigger hangs. It only has to be
