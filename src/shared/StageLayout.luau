@@ -272,6 +272,9 @@ end
 -- raycast is the backstop for the rest.
 local FINISH_BANNER_HEIGHT = 16
 local FINISH_BANNER_THICKNESS = 0.6
+-- Just short of the pad's full width, so the banner reads as sitting on the
+-- pad rather than as a wall of the same size floating at its edge.
+local FINISH_BANNER_WIDTH_FACTOR = 0.95
 
 -- Across the NEAR edge of the finish pad, not its middle: landing anywhere on
 -- the pad means having crossed its near edge, whereas a banner in the centre
@@ -285,9 +288,28 @@ local function buildFinish(platforms: { PartPlan }): PartPlan
 		Z = finish.Z,
 		SizeX = FINISH_BANNER_THICKNESS,
 		SizeY = FINISH_BANNER_HEIGHT,
-		SizeZ = finish.SizeZ * 0.95,
+		SizeZ = finish.SizeZ * FINISH_BANNER_WIDTH_FACTOR,
 	}
 end
+
+-- The endpoint convention, in one place, because the hand-built stages are
+-- held to the same numbers (StageEndpointService) and two copies of "16 studs
+-- tall" would drift the moment either was tuned.
+--
+-- The pad sizes are in here for the same reason the banner is: Stage1-4 were
+-- drawn with 7-9 stud start pads, which is a third of what a full field needs
+-- to stand on, so bringing their start and finish up to this convention means
+-- reshaping those pads to exactly what buildPlatforms gives Stage5-8.
+StageLayout.Endpoint = {
+	StartPadAlong = START_PAD_X,
+	StartPadAcross = START_PAD_Z,
+	FinishPadAlong = FINISH_PAD_X,
+	FinishPadAcross = FINISH_PAD_Z,
+	PadThickness = PAD_THICKNESS,
+	BannerHeight = FINISH_BANNER_HEIGHT,
+	BannerThickness = FINISH_BANNER_THICKNESS,
+	BannerWidthFactor = FINISH_BANNER_WIDTH_FACTOR,
+}
 
 -- How far under the lowest platform the void trigger hangs. It only has to be
 -- unmistakably "off the course": MatchService's altitude watchdog fires 1 stud
@@ -338,23 +360,41 @@ end
 -- and half its depth behind.
 local SPAWN_PAD_INSET = 0.9
 
--- NOTE the swapped axes, which are not a typo. The builder rotates this part
--- to FACE down the course (the start grid is laid out in the part's own space,
--- and only a part that faces the right way spreads the field across the pad
--- instead of along it), and Size is local. So local X -- the axis
--- buildStartGrid spreads columns along -- is the pad's ACROSS-course side,
--- and local Z -- the axis it builds rows backwards on -- is the pad's
+-- Size of the spawn marker for a start pad, in the marker's OWN space --
+-- returned as (across the course, along it).
+--
+-- The two axes are swapped relative to the pad, which is not a typo: the
+-- marker is rotated to FACE down the course (the start grid is laid out in the
+-- marker's own space, and only a marker that faces the right way spreads the
+-- field across the pad instead of along it), and Size is local. So local X --
+-- the axis buildStartGrid spreads columns along -- is the pad's across-course
+-- side, and local Z -- the axis it builds rows BACKWARDS on -- is the pad's
 -- along-course side.
+--
+-- `depthBehind` is how much pad there actually is behind the marker, which is
+-- half the pad for a centred marker and less for one sitting further back.
+-- Rows are laid out over half the local Z size, so capping that at twice the
+-- depth behind is what keeps the back row on the pad -- the case that matters
+-- for the hand-built stages, where the marker is wherever somebody dragged it
+-- (see StageEndpointService, which normalises those without moving them).
+function StageLayout.SpawnMarkerSize(padAcross: number, padAlong: number, depthBehind: number): (number, number)
+	local across = padAcross * SPAWN_PAD_INSET
+	local along = math.min(padAlong * SPAWN_PAD_INSET, math.max(0, depthBehind) * 2)
+	return across, along
+end
+
 local function buildSpawn(stageId: string, platforms: { PartPlan }): PartPlan
 	local start = platforms[1]
+	-- Centred on the pad, so the depth behind it is half the pad.
+	local across, along = StageLayout.SpawnMarkerSize(start.SizeZ, start.SizeX, start.SizeX / 2)
 	return {
 		Name = stageId .. "Spawn",
 		X = start.X,
 		Y = start.Y + start.SizeY / 2,
 		Z = start.Z,
-		SizeX = start.SizeZ * SPAWN_PAD_INSET, -- across the course
+		SizeX = across,
 		SizeY = 1,
-		SizeZ = start.SizeX * SPAWN_PAD_INSET, -- along it
+		SizeZ = along,
 	}
 end
 

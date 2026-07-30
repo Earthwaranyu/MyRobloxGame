@@ -5,6 +5,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local Stages = require(Shared.Stages)
 local StageLayout = require(Shared.StageLayout)
+local StageEndpointService = require(script.Parent.StageEndpointService)
 
 -- Builds the courses for every stage flagged `Generated` in Stages.luau
 -- (Stage5-8) out of StageLayout's plan, following the same Workspace
@@ -57,10 +58,6 @@ local PLATFORM_COLOR = Color3.fromRGB(150, 155, 165)
 local PLATFORM_MATERIAL = Enum.Material.SmoothPlastic
 local VOID_COLOR = Color3.fromRGB(120, 150, 190)
 local VOID_TRANSPARENCY = 0.7
--- Gold, and the only part of a generated course that is emissive by default:
--- the finish is the one thing a racer should be able to pick out from the
--- start pad.
-local FINISH_COLOR = Color3.fromRGB(255, 205, 70)
 local CHECKPOINT_COLOR = Color3.fromRGB(70, 235, 130) -- matches StageDecorationService
 
 local function makePart(plan: StageLayout.PartPlan, origin: Vector3, parent: Instance): BasePart
@@ -109,13 +106,11 @@ end
 
 local function buildFinish(plan: StageLayout.CoursePlan, origin: Vector3, folder: Folder, stageId: string)
 	local finish = makePart(plan.Finish, origin, folder)
-	finish.Color = FINISH_COLOR
-	finish.Material = Enum.Material.Neon
-	finish.Transparency = 0.25
-	-- Must never block the landing it is measuring.
-	finish.CanCollide = false
-	finish.CanTouch = true
-	finish.CanQuery = true
+	-- Gold neon, and the only part of a generated course that is emissive by
+	-- default: the finish is the one thing a racer should be able to pick out
+	-- from the start pad. Shared with the hand-built stages so the eight
+	-- courses cannot end up with two different-looking finishes.
+	StageEndpointService.ApplyFinishStyle(finish)
 	finish:SetAttribute("StageId", stageId)
 	CollectionService:AddTag(finish, "FinishLine")
 end

@@ -416,6 +416,87 @@ for _, stage in Stages do
 	end
 end
 
+-- StageEndpointService sizes the hand-built stages' spawn markers with this
+-- same rule, off pads it measures in Studio rather than the ones planned here,
+-- so it has to cope with a marker that has less pad behind it than a centred
+-- one would -- the case where a full-size marker lays the back row of the grid
+-- out into thin air.
+print("\n-- spawn marker sizing --")
+do
+	local PAD_ACROSS, PAD_ALONG = 28, 30
+
+	local across, along = StageLayout.SpawnMarkerSize(PAD_ACROSS, PAD_ALONG, PAD_ALONG / 2)
+	check("centred marker uses the inset pad size", across == PAD_ACROSS * 0.9 and along == PAD_ALONG * 0.9,
+		("%.1f across, %.1f along"):format(across, along))
+
+	local _, shallowAlong = StageLayout.SpawnMarkerSize(PAD_ACROSS, PAD_ALONG, 4)
+	check("marker near the back edge shrinks to fit", shallowAlong == 8, ("%.1f along"):format(shallowAlong))
+
+	local _, noneAlong = StageLayout.SpawnMarkerSize(PAD_ACROSS, PAD_ALONG, 0)
+	check("marker on the back edge leaves no depth", noneAlong == 0)
+
+	local _, negativeAlong = StageLayout.SpawnMarkerSize(PAD_ACROSS, PAD_ALONG, -6)
+	check("marker off the back of the pad clamps, not inverts", negativeAlong == 0)
+
+	-- Rows are laid out over HALF the local Z size, so the grid can only stay
+	-- on the pad if that half never exceeds the depth actually behind it.
+	local staysOnPad = true
+	for depth = 0, 15 do
+		local _, sized = StageLayout.SpawnMarkerSize(PAD_ACROSS, PAD_ALONG, depth)
+		if sized / 2 > depth + 1e-9 then
+			staysOnPad = false
+		end
+	end
+	check("grid depth never exceeds the pad behind the marker", staysOnPad)
+end
+
+-- StageEndpointService reshapes Stage1-4's start and finish pads to
+-- StageLayout.Endpoint, and StageBuilderService builds Stage5-8's from
+-- buildPlatforms. Those are two different code paths to "the eight stages start
+-- and end the same way", so the numbers behind them have to be the same
+-- numbers -- this is the assertion that they are, since nothing else compares
+-- the hand-built half against the generated one.
+print("\n-- endpoint convention --")
+do
+	local endpoint = StageLayout.Endpoint
+	local generated
+	for _, stage in Stages do
+		if stage.Generated then
+			generated = stage
+			break
+		end
+	end
+	local plan = StageLayout.Build(generated)
+	local startPad = plan.Platforms[1]
+	local finishPad = plan.Platforms[#plan.Platforms]
+
+	check("start pad matches the generated one",
+		endpoint.StartPadAlong == startPad.SizeX and endpoint.StartPadAcross == startPad.SizeZ,
+		("%.0f along, %.0f across"):format(endpoint.StartPadAlong, endpoint.StartPadAcross))
+	check("finish pad matches the generated one",
+		endpoint.FinishPadAlong == finishPad.SizeX and endpoint.FinishPadAcross == finishPad.SizeZ,
+		("%.0f along, %.0f across"):format(endpoint.FinishPadAlong, endpoint.FinishPadAcross))
+	check("pad thickness matches the generated one", endpoint.PadThickness == finishPad.SizeY)
+
+	-- The banner is rebuilt from these three off a pad measured in Studio, so a
+	-- hand-built finish only ends up looking like a generated one if they
+	-- reproduce plan.Finish exactly.
+	check("banner height matches the generated one", endpoint.BannerHeight == plan.Finish.SizeY)
+	check("banner thickness matches the generated one", endpoint.BannerThickness == plan.Finish.SizeX)
+	check("banner spans the same share of the pad",
+		math.abs(endpoint.BannerWidthFactor * finishPad.SizeZ - plan.Finish.SizeZ) < 1e-9,
+		("%.1f wide"):format(plan.Finish.SizeZ))
+
+	-- A start pad the field cannot fit on is the whole reason Stage1-4 needed
+	-- reshaping rather than restyling, so the convention itself has to clear the
+	-- bar a full wave sets.
+	local across, along = StageLayout.SpawnMarkerSize(endpoint.StartPadAcross, endpoint.StartPadAlong, endpoint.StartPadAlong / 2)
+	local MARGIN, SPACING, FIELD = 3, 5, 8
+	local columns = math.clamp(math.floor(math.max(0, across - MARGIN * 2) / SPACING) + 1, 1, FIELD)
+	check("convention start pad holds a full wave", math.ceil(FIELD / columns) <= 2 and columns >= 4,
+		("%d columns x %d rows on a %.0f x %.0f marker"):format(columns, math.ceil(FIELD / columns), across, along))
+end
+
 do
 	-- StageBuilderService stacks the generated courses in the sky on these
 	-- numbers, so the extent has to cover the parts that reach FURTHEST -- the
