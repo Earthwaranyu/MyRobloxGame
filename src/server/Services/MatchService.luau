@@ -502,7 +502,34 @@ end
 -- everyone else. Safe to call with frozen = false on a player who was never
 -- actually frozen (Quit/cancel paths do this defensively) -- it's just a
 -- harmless Anchored = false no-op.
-local function setFrozen(player: Player, frozen: boolean)
+-- Who is SUPPOSED to be frozen, as opposed to whose current root part happens
+-- to be anchored.
+--
+-- The freeze is a property of a character, but the thing being frozen is a
+-- PLAYER waiting out a countdown -- and a player can replace their character
+-- mid-countdown by resetting (Esc -> Reset Character, the only way to lose a
+-- character in a game with no damage). Nothing re-applied the freeze to the
+-- replacement, so the sequence was:
+--
+--   reset -> respawn in the lobby ~3s later, unfrozen -> the fall watchdog
+--   sees a "racing" player below their stage's floor and helpfully puts them
+--   back on the course -> they walk around it for the rest of the countdown
+--   while every other racer stands anchored on the pad.
+--
+-- Measured at 4.2 seconds of free movement, which is ~68 studs of walking --
+-- comfortably past the first checkpoint on several stages.
+--
+-- It is not currently worth anything: the anti-headstart snap-back at race
+-- start teleports everyone to the spawn AND resets lastCheckpoint, so both the
+-- position and the banked checkpoint are thrown away (verified in Studio --
+-- recovery after a fall still put the player 0 studs down the course). But
+-- nothing about the freeze depends on those two behaviours, and they exist for
+-- unrelated reasons; the moment either changes this becomes a real head start.
+-- So the freeze is tracked per player and re-applied to whatever character they
+-- are wearing.
+local frozenPlayers: { [number]: boolean } = {}
+
+local function applyFreeze(player: Player, frozen: boolean)
 	pcall(function()
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
@@ -510,6 +537,35 @@ local function setFrozen(player: Player, frozen: boolean)
 			setRootAnchored(root, player, frozen)
 		end
 	end)
+end
+
+local function setFrozen(player: Player, frozen: boolean)
+	if frozen then
+		frozenPlayers[player.UserId] = true
+	else
+		frozenPlayers[player.UserId] = nil
+	end
+	applyFreeze(player, frozen)
+end
+
+-- Re-freezes a replacement character. Separate from setFrozen so it cannot
+-- accidentally freeze someone whose countdown ended while they were dead: the
+-- flag is the only authority on whether the freeze still applies.
+local function refreezeOnRespawn(player: Player, character: Model)
+	if not frozenPlayers[player.UserId] then
+		return
+	end
+	-- The root does not exist yet at CharacterAdded, and SetNetworkOwner throws
+	-- on a part that is not in the world -- so wait for it rather than racing it.
+	local root = character:WaitForChild("HumanoidRootPart", 5)
+	if not root or not root:IsA("BasePart") then
+		return
+	end
+	-- Re-checked after the wait: an 8 second countdown can end inside it.
+	if not frozenPlayers[player.UserId] or player.Character ~= character then
+		return
+	end
+	applyFreeze(player, true)
 end
 
 -- Every queue that is ready and doesn't already have a countdown running.
@@ -2352,6 +2408,9 @@ local function removePlayer(player: Player)
 	forgetRematchHistory(userId)
 	rosterCleared[userId] = nil
 	playerSession[userId] = nil
+	-- Or a rejoining player reusing this UserId gets frozen the moment they
+	-- spawn, by a countdown they were never in.
+	frozenPlayers[userId] = nil
 
 	local queuedIn = queuedTarget[userId]
 	if queuedIn then
@@ -2591,6 +2650,19 @@ function MatchService.Init()
 	queueRejectedRemote = Net.CreateRemoteEvent(RemoteNames.QueueRejected)
 	duelRequestReceivedRemote = Net.CreateRemoteEvent(RemoteNames.DuelRequestReceived)
 	duelCancelledRemote = Net.CreateRemoteEvent(RemoteNames.DuelCancelled)
+	-- Re-apply a countdown freeze to a character the player replaced by
+	-- resetting. Connected for players already present as well as future
+	-- joiners: Init runs after the first player can exist in Studio playtests.
+	local function watchRespawns(player: Player)
+		player.CharacterAdded:Connect(function(character)
+			refreezeOnRespawn(player, character)
+		end)
+	end
+	for _, player in Players:GetPlayers() do
+		watchRespawns(player)
+	end
+	Players.PlayerAdded:Connect(watchRespawns)
+
 	Players.PlayerRemoving:Connect(removePlayer)
 	startSpeedWatchdog()
 	startFallWatchdog()
