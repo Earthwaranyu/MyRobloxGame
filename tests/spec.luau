@@ -20,6 +20,7 @@ local Constants = require("./Constants")
 local Hype = require("./Hype")
 local Stages = require("./Stages")
 local StageLayout = require("./StageLayout")
+local LayoutMath = require("./LayoutMath")
 local Abilities = require("./Abilities")
 local Weather = require("./Weather")
 
@@ -456,6 +457,141 @@ end
 -- the slab's own axes. The union is the part that can silently go wrong -- it
 -- must never hand back a span smaller than the one it was given, or a stage
 -- loses trigger coverage it had before this ran.
+-- The HUD's responsive geometry. These functions decide the size and position
+-- of every panel in twenty-odd controllers, and the bugs they exist to fix were
+-- all of the same shape: something resolved to a coordinate off the edge of a
+-- phone, and nobody noticed because the developer monitor is 1280 wide.
+--
+-- The reference viewports below are the ones that matter: a desktop at exactly
+-- REFERENCE_WIDTH (where every number must come out unchanged, since this whole
+-- approach is meant to be a widening rather than a redesign), and an
+-- iPhone-class landscape phone, which is where everything broke.
+print("\n-- responsive layout math --")
+do
+	local DESKTOP = { Width = 1280, Height = 720, Touch = false }
+	local PHONE = { Width = 667, Height = 375, Touch = true }
+	local TINY = { Width = 400, Height = 300, Touch = true }
+	local ULTRAWIDE = { Width = 3840, Height = 2160, Touch = false }
+
+	-- The single most important property here: the reference desktop must be a
+	-- no-op. If this fails, the retrofit changed what desktop players see.
+	check("reference viewport scales by exactly 1", LayoutMath.Scale(DESKTOP) == 1)
+	local identity = true
+	for _, offset in { 1, 8, 16, 44, 104, 264, 300, 480, 528 } do
+		if LayoutMath.Px(DESKTOP, offset) ~= offset then
+			identity = false
+		end
+	end
+	check("every authored offset is unchanged on the reference viewport", identity)
+	check("text is unchanged on the reference viewport", LayoutMath.Text(DESKTOP, 24) == 24)
+
+	check("a phone scales down", LayoutMath.Scale(PHONE) < 1, ("%.3f"):format(LayoutMath.Scale(PHONE)))
+	check("the scale floor holds", LayoutMath.Scale(TINY) == LayoutMath.MinScale)
+	check("the scale ceiling holds", LayoutMath.Scale(ULTRAWIDE) == LayoutMath.MaxScale)
+	-- Chrome growing with the screen is the mistake in the other direction, so
+	-- the ceiling has to be a real limit rather than a large number.
+	check("a 4K monitor does not get a 3x HUD", LayoutMath.Px(ULTRAWIDE, 100) <= 115)
+
+	check("offsets are whole pixels", LayoutMath.Px(PHONE, 37) % 1 == 0)
+	check("text never drops below the legible floor", LayoutMath.Text(TINY, 4) == LayoutMath.MinTextSize)
+
+	-- Tap() is the one that protects fingers: scaling a 44pt button down on the
+	-- very device that uses a thumb is precisely backwards.
+	check("a tap target never shrinks below the touch minimum",
+		LayoutMath.Tap(PHONE, 26) == LayoutMath.MinTouchTarget, ("%d"):format(LayoutMath.Tap(PHONE, 26)))
+	check("a large tap target still scales", LayoutMath.Tap(PHONE, 200) < 200)
+	check("desktop tap targets are not inflated", LayoutMath.Tap(DESKTOP, 26) == 26)
+	local everyTargetIsReachable = true
+	-- The real sizes that were flagged in the audit, worst first.
+	for _, size in { 26, 32, 36, 40, 44, 48 } do
+		if LayoutMath.Tap(PHONE, size) < LayoutMath.MinTouchTarget then
+			everyTargetIsReachable = false
+		end
+	end
+	check("every audited button size clears the touch minimum on a phone", everyTargetIsReachable)
+
+	check("tiers read off width", LayoutMath.Tier(PHONE) == "Phone" and LayoutMath.Tier(DESKTOP) == "Desktop")
+	check("the touch band is touch-only",
+		LayoutMath.TouchBand(PHONE) > 0 and LayoutMath.TouchBand(DESKTOP) == 0)
+
+	-- Workspace.CurrentCamera.ViewportSize really does report (1, 1) for a
+	-- 1001x747 window, and it does not necessarily correct itself. A width of 1
+	-- clamps straight to MinScale, so the entire desktop HUD renders at phone
+	-- size with nothing thrown and nothing in the log -- which is exactly what
+	-- happened, and was only caught by measuring a running client. Responsive
+	-- rejects a reading this small and falls back; these are the cases it has to
+	-- reject.
+	check("a 1x1 viewport is rejected", not LayoutMath.IsSaneViewport(1, 1))
+	check("a zero viewport is rejected", not LayoutMath.IsSaneViewport(0, 0))
+	check("a real phone is accepted", LayoutMath.IsSaneViewport(PHONE.Width, PHONE.Height))
+	check("a small desktop window is accepted", LayoutMath.IsSaneViewport(640, 480))
+	-- The floor must sit below any device and above any bad read.
+	check("the sanity floor is below every real device",
+		LayoutMath.MinSaneViewport < 320, ("%d"):format(LayoutMath.MinSaneViewport))
+end
+
+-- The clamps are what actually stopped panels being drawn off the screen, so
+-- they get their own section: every one of these corresponds to a real panel
+-- that was partly or wholly invisible on a phone.
+print("\n-- responsive clamping --")
+do
+	local PHONE = { Width = 667, Height = 375, Touch = true }
+	local DESKTOP = { Width = 1280, Height = 720, Touch = false }
+	local margin = LayoutMath.ScreenMargin
+
+	-- The six real overflows, by reference height, as measured in the audit.
+	local PANELS = {
+		{ Name = "Gacha", Height = 520, Top = 116 },
+		{ Name = "Tutorial", Height = 528, Top = 8 },
+		{ Name = "Inventory", Height = 480, Top = 8 },
+		{ Name = "Shop", Height = 460, Top = 116 },
+		{ Name = "Leaderboard", Height = 454, Top = 116 },
+		{ Name = "RaceOutcome", Height = 196, Top = 206 },
+	}
+	local allFit = true
+	local worst = ""
+	for _, panel in PANELS do
+		local height = LayoutMath.FitHeight(PHONE, panel.Height, margin)
+		local y = LayoutMath.ClampY(PHONE, panel.Top, height)
+		if y + height > PHONE.Height - margin + 1e-9 or y < margin - 1e-9 then
+			allFit = false
+			worst = panel.Name
+		end
+	end
+	check("every panel that overflowed now fits a phone", allFit, if allFit then "6 panels" else worst)
+
+	-- A panel is positioned from its top, so a clamp that let the top go
+	-- negative would trade a lost footer for a lost header -- which is exactly
+	-- what the tutorial did (title off the top, dismiss button off the bottom).
+	check("clamping never pushes a top edge off-screen",
+		LayoutMath.ClampY(PHONE, -400, 200) >= margin)
+	check("clamping never pushes a left edge off-screen",
+		LayoutMath.ClampX(PHONE, -400, 200) >= margin)
+	check("a box taller than the screen still starts on-screen",
+		LayoutMath.ClampY(PHONE, 100, 10000) >= margin)
+
+	check("desktop panels are untouched by FitHeight",
+		LayoutMath.FitHeight(DESKTOP, 520, 116) == 520, ("%d"):format(LayoutMath.FitHeight(DESKTOP, 520, 116)))
+
+	-- ClearCorners keeps low-sitting controls out of the thumbstick and jump
+	-- button. The corner width is the same on both sides.
+	local corner = LayoutMath.TouchCornerWidth
+	check("a control in the left corner is pushed clear",
+		LayoutMath.ClearCorners(PHONE, 10, 145) >= corner)
+	check("a control in the right corner is pushed clear",
+		LayoutMath.ClearCorners(PHONE, 600, 145) + 145 <= PHONE.Width - corner)
+	check("a centred control is left alone",
+		LayoutMath.ClearCorners(PHONE, 260, 145) == 260)
+	check("desktop is never nudged", LayoutMath.ClearCorners(DESKTOP, 0, 145) == 0)
+
+	-- A control wider than the clear strip can't escape both corners. It must
+	-- still come back centred rather than jammed against one side or, worse,
+	-- pushed to a negative coordinate by two fighting clamps.
+	local wide = LayoutMath.ClearCorners(PHONE, 0, 600)
+	check("an over-wide control centres instead of oscillating",
+		math.abs(wide - (PHONE.Width - 600) / 2) < 1, ("x=%d"):format(wide))
+end
+
 print("\n-- void slab coverage --")
 do
 	local CURRENT_MIN, CURRENT_MAX = -50, 50

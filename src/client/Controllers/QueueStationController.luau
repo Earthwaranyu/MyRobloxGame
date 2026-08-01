@@ -5,6 +5,7 @@ local Net = require(Shared.Net)
 local QueueModes = require(Shared.QueueModes)
 local RemoteNames = require(Shared.RemoteNames)
 
+local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 
@@ -17,6 +18,8 @@ local Widgets = require(script.Parent.Parent.Widgets)
 -- mobile, and a way to reject "abc". Two buttons and a number can only ever
 -- produce a legal value.
 local QueueStationController = {}
+
+local STATION_WIDTH, STATION_HEIGHT = 340, 260
 
 local panel: CanvasGroup
 local openPanel: () -> ()
@@ -36,8 +39,29 @@ end
 
 local function buildUI()
 	local open, close
-	panel, open, close = Widgets.Modal("CustomQueue", UDim2.fromOffset(340, 260), UDim2.new(0.5, -170, 0.5, -130))
+	panel, open, close = Widgets.Modal(
+		"CustomQueue",
+		UDim2.fromOffset(STATION_WIDTH, STATION_HEIGHT),
+		UDim2.new(0.5, -STATION_WIDTH / 2, 0.5, -STATION_HEIGHT / 2)
+	)
 	openPanel, closePanel = open, close
+
+	-- Centred at 340x260, this panel's lower half reaches into the corner the
+	-- movement thumbstick occupies on a phone -- and its -/+ steppers and JOIN
+	-- QUEUE button are in that half. Clamped to the viewport and nudged clear of
+	-- the bottom corners, so every control on it is actually pressable.
+	Responsive.Observe(function()
+		local viewport = Responsive.ViewportSize()
+		local width = math.min(Responsive.Px(STATION_WIDTH), viewport.X - Responsive.ScreenMargin * 2)
+		local height = Responsive.FitHeight(STATION_HEIGHT, Responsive.ScreenMargin)
+		Responsive.PlacePanel(
+			panel,
+			STATION_WIDTH,
+			STATION_HEIGHT,
+			Responsive.ClearCorners(math.round((viewport.X - width) / 2), width),
+			math.round((viewport.Y - Responsive.TouchBand() - height) / 2)
+		)
+	end)
 
 	local title = Widgets.Label("CUSTOM RACE SIZE", UDim2.new(1, -24, 0, 30), UDim2.fromOffset(12, 18), {
 		Font = Theme.Font.Display,
@@ -66,27 +90,42 @@ local function buildUI()
 	})
 	valueLabel.Parent = panel
 
-	local minusButton = Widgets.Button("-", UDim2.fromOffset(56, 56), UDim2.fromOffset(40, 92), {
-		Variant = "Secondary",
-		TextSize = 30,
-	})
+	local minusButton = Widgets.Button(
+		"-",
+		UDim2.fromOffset(Responsive.Tap(56), Responsive.Tap(56)),
+		UDim2.fromOffset(Responsive.Px(40), Responsive.Px(92)),
+		{
+			Variant = "Secondary",
+			TextSize = 30,
+		}
+	)
 	minusButton.Parent = panel
 	minusButton.MouseButton1Click:Connect(function()
 		step(-1)
 	end)
 
-	local plusButton = Widgets.Button("+", UDim2.fromOffset(56, 56), UDim2.fromOffset(244, 92), {
-		Variant = "Secondary",
-		TextSize = 30,
-	})
+	local plusButton = Widgets.Button(
+		"+",
+		UDim2.fromOffset(Responsive.Tap(56), Responsive.Tap(56)),
+		UDim2.fromOffset(Responsive.Px(244), Responsive.Px(92)),
+		{
+			Variant = "Secondary",
+			TextSize = 30,
+		}
+	)
 	plusButton.Parent = panel
 	plusButton.MouseButton1Click:Connect(function()
 		step(1)
 	end)
 
-	local joinButton = Widgets.Button("JOIN QUEUE", UDim2.fromOffset(220, 50), UDim2.fromOffset(60, 178), {
-		TextSize = 20,
-	})
+	local joinButton = Widgets.Button(
+		"JOIN QUEUE",
+		UDim2.fromOffset(Responsive.Px(220), Responsive.Tap(50)),
+		UDim2.fromOffset(Responsive.Px(60), Responsive.Px(178)),
+		{
+			TextSize = 20,
+		}
+	)
 	joinButton.Parent = panel
 	joinButton.MouseButton1Click:Connect(function()
 		closePanel()

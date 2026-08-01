@@ -298,6 +298,29 @@ local function buildUI()
 		respondJoinRemote:FireServer(false)
 		hideJoinRequestToast()
 	end)
+
+	-- Both toasts had their Accept/Decline pair sitting inside the band Roblox
+	-- draws its own touch controls in -- the join-request one straddled BOTH the
+	-- thumbstick and the jump button -- so on a phone the presses went to the
+	-- controls rather than the buttons. Widgets.LayoutToast anchors them above
+	-- that band and stacks them, which also replaces the hand-tuned `0.24 + 0`
+	-- and `0.24 + 150` offsets that were keeping the two apart by guesswork.
+	Responsive.Observe(function()
+		Widgets.LayoutToast({
+			Toast = joinRequestToast,
+			Label = joinRequestLabel,
+			Accept = joinAcceptButton,
+			Decline = joinDeclineButton,
+			StackIndex = 1,
+		})
+		Widgets.LayoutToast({
+			Toast = inviteToast,
+			Label = toastLabel,
+			Accept = acceptButton,
+			Decline = declineButton,
+			StackIndex = 2,
+		})
+	end)
 end
 
 function PartyController.Init()

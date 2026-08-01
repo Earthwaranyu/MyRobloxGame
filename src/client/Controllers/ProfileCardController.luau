@@ -626,48 +626,21 @@ local function buildUI()
 		hideDuelToast()
 	end)
 
-	-- The toast was parked at `0.24 scale + 300 offset`, which on the developer's
-	-- monitor lands it comfortably in the lower half. On a 375pt phone that
-	-- resolves to y = 390 -- entirely BELOW the viewport. Widgets.Open only fades
-	-- and pops scale, it never moves a panel, so the toast never came into view:
-	-- an incoming 1v1 challenge simply could not be accepted or declined on a
-	-- phone.
-	--
-	-- Positioned from the bottom now instead of by a scale-plus-300 guess, and
-	-- lifted clear of the touch-control band so Accept/Decline aren't sitting
-	-- under the thumbstick and jump button either.
-	local function layoutToast()
-		local width = math.min(Responsive.Px(TOAST_WIDTH), Responsive.ViewportSize().X - Responsive.ScreenMargin * 2)
-		local height = Responsive.Px(TOAST_HEIGHT)
-		local buttonHeight = Responsive.Tap(TOAST_BUTTON_HEIGHT)
-		local pad = Responsive.Px(TOAST_PAD)
-		-- Buttons sit inside the toast, so the toast has to be tall enough to
-		-- hold a full-size tap target once Tap() has had its say.
-		height = math.max(height, Responsive.Px(TOAST_BUTTON_TOP) + buttonHeight + pad)
-
-		local y = Responsive.ClampY(
-			Responsive.ViewportSize().Y - Responsive.TouchBand() - height - Responsive.ScreenMargin,
-			height
-		)
-		duelToast.Size = UDim2.fromOffset(width, height)
-		duelToast.Position = UDim2.fromOffset(math.round((Responsive.ViewportSize().X - width) / 2), y)
-
-		duelToastLabel.Size = UDim2.new(1, -pad * 2, 0, Responsive.Px(TOAST_LABEL_HEIGHT))
-		duelToastLabel.Position = UDim2.fromOffset(pad, Responsive.Px(12))
-		duelToastLabel.TextSize = Responsive.Text(TOAST_TEXT)
-
-		-- Two buttons side by side across the toast, gap between them.
-		local gap = Responsive.Px(20)
-		local buttonWidth = math.floor((width - pad * 2 - gap) / 2)
-		local top = height - buttonHeight - pad
-		Widgets.Relayout(acceptButton, UDim2.fromOffset(buttonWidth, buttonHeight), UDim2.fromOffset(pad, top))
-		Widgets.Relayout(
-			declineButton,
-			UDim2.fromOffset(buttonWidth, buttonHeight),
-			UDim2.fromOffset(pad + buttonWidth + gap, top)
-		)
-	end
-	Responsive.Observe(layoutToast)
+	-- Was parked at `0.24 scale + 300 offset`, which resolves to y = 390 on a
+	-- 375pt phone -- entirely below the viewport, and Widgets.Open only fades, it
+	-- never moves a panel. An incoming 1v1 challenge simply could not be accepted
+	-- or declined. Widgets.LayoutToast now owns the placement for all three of
+	-- these toasts; StackIndex 0 puts this one nearest the bottom, which is where
+	-- it sat relative to the party toasts before.
+	Responsive.Observe(function()
+		Widgets.LayoutToast({
+			Toast = duelToast,
+			Label = duelToastLabel,
+			Accept = acceptButton,
+			Decline = declineButton,
+			StackIndex = 0,
+		})
+	end)
 
 	-- Small auto-fading notice (duel sent/cancelled, join request sent) --
 	-- informational only, no buttons, doesn't compete for the same screen

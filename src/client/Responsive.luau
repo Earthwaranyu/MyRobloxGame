@@ -23,53 +23,105 @@
 -- build time. The geometry changes; nothing is resampled; every glyph is still
 -- rendered at its own native size. UIScale stays what it is here -- an animation
 -- tool that returns to 1.
+--
+-- WHERE THE ARITHMETIC LIVES: in Shared.LayoutMath, which takes the viewport as
+-- a plain table and touches no Roblox service. This module is the wrapper that
+-- fills that table in from the camera and UserInputService. The split exists so
+-- the geometry can be tested headlessly (tests/run.sh) -- it decides the size
+-- and position of every panel in twenty-odd controllers, and "it looked right on
+-- one monitor" is not coverage for that.
+local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local LayoutMath = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("LayoutMath"))
 
 local Responsive = {}
 
-export type Tier = "Phone" | "Tablet" | "Desktop"
+export type Tier = LayoutMath.Tier
 
--- The viewport width every hand-placed offset in the client was drawn against.
--- Scale() is 1.0 here by construction, so a desktop player sees pixel-identical
--- output to before this module existed -- this is a widening, not a redesign.
-local REFERENCE_WIDTH = 1280
+Responsive.MinTouchTarget = LayoutMath.MinTouchTarget
+Responsive.ScreenMargin = LayoutMath.ScreenMargin
 
--- Bounds on that multiplier, and they are asymmetric on purpose.
+-- A full-screen, fully transparent Frame whose AbsoluteSize IS the area the GUI
+-- system lays out into.
 --
--- Down to 0.72: below about that, chrome stops being readable at arm's length on
--- a phone faster than it stops fitting -- a HUD that fits and can't be read has
--- not been made responsive. Panels that still overflow at the floor need to
--- reflow (fewer columns, shorter labels), which is a per-panel decision and not
--- something a global multiplier can make.
+-- This exists because Workspace.CurrentCamera.ViewportSize cannot be trusted.
+-- Measured on a running client: it reported (1, 1) for a window that was really
+-- 1001x747, and stayed there. A width of 1 clamps straight to MinScale, so every
+-- responsive panel in the game rendered at phone size on a desktop -- silently,
+-- with nothing thrown and nothing to see in a log. Reading the size off a real
+-- GuiObject asks the same subsystem that will position the panels, so it cannot
+-- disagree with them.
 --
--- Up to only 1.15: a 4K monitor should give you MORE map and MORE race, not a
--- proportionally enormous HUD. Chrome that grows with the screen is the mistake
--- in the other direction.
-local MIN_SCALE = 0.72
-local MAX_SCALE = 1.15
+-- The probe deliberately does NOT set IgnoreGuiInset, so it measures the same
+-- area the game's own ScreenGuis lay out into -- everything here uses the
+-- default, inset-respecting behaviour. Measured on a running client, the two
+-- differ by the topbar: 1285x747 ignoring the inset versus 1285x689 with it. A
+-- probe that reported 747 would let FitHeight clear a panel that then overflows
+-- the 689 its ScreenGui actually has, which is the same class of "clamped
+-- against the wrong number" bug this module exists to fix.
+local probeFrame: Frame? = nil
 
--- Roblox's own minimum comfortable tap target, and the floor every interactive
--- element is held to on touch regardless of what Scale() would otherwise do to
--- it. Shrinking a 44px button to 32 because the phone is small is precisely
--- backwards: the small screen is the one where it is hit with a thumb.
-Responsive.MinTouchTarget = 44
+local function ensureProbe(): Frame?
+	if probeFrame and probeFrame.Parent then
+		return probeFrame
+	end
 
--- Below this width the layout is a phone's: single column, nothing parked
--- beside anything else, chrome at its floor size. Measured in viewport points
--- rather than device pixels, so a retina phone is still a phone.
-local PHONE_MAX_WIDTH = 800
-local TABLET_MAX_WIDTH = 1100
+	local player = Players.LocalPlayer
+	local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
+	if not playerGui then
+		return nil
+	end
+
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "ResponsiveViewportProbe"
+	screenGui.ResetOnSpawn = false
+	-- Behind everything. It draws nothing, but it stays enabled: a disabled
+	-- ScreenGui is not laid out, and an AbsoluteSize that never updates is worse
+	-- than no probe at all.
+	screenGui.DisplayOrder = -1000
+	screenGui.Parent = playerGui
+
+	local frame = Instance.new("Frame")
+	frame.Name = "Probe"
+	frame.Size = UDim2.fromScale(1, 1)
+	frame.BackgroundTransparency = 1
+	frame.BorderSizePixel = 0
+	frame.Active = false
+	frame.Parent = screenGui
+
+	probeFrame = frame
+	return frame
+end
 
 local function viewportSize(): Vector2
-	local camera = Workspace.CurrentCamera
-	-- No camera for a frame or two during load. The reference size keeps
-	-- anything built in that window at the numbers it was authored with, rather
-	-- than at some fraction of a zero viewport.
-	if not camera or camera.ViewportSize.X < 1 then
-		return Vector2.new(REFERENCE_WIDTH, REFERENCE_WIDTH * 9 / 16)
+	local probe = ensureProbe()
+	if probe then
+		local size = probe.AbsoluteSize
+		if LayoutMath.IsSaneViewport(size.X, size.Y) then
+			return size
+		end
 	end
-	return camera.ViewportSize
+
+	-- Fallback for the frames before PlayerGui exists.
+	local camera = Workspace.CurrentCamera
+	if camera and LayoutMath.IsSaneViewport(camera.ViewportSize.X, camera.ViewportSize.Y) then
+		return camera.ViewportSize
+	end
+
+	-- Last resort: the reference size, so anything built in that window keeps
+	-- the numbers it was authored with rather than being pinned to MinScale by a
+	-- bad read -- which is the exact failure this whole block exists to prevent.
+	return Vector2.new(LayoutMath.ReferenceWidth, LayoutMath.ReferenceWidth * 9 / 16)
+end
+
+-- The one place the Roblox services are read. Everything below is LayoutMath
+-- with this table handed to it.
+local function view(): LayoutMath.View
+	local size = viewportSize()
+	return { Width = size.X, Height = size.Y, Touch = UserInputService.TouchEnabled }
 end
 
 function Responsive.ViewportSize(): Vector2
@@ -78,148 +130,49 @@ end
 
 -- True on phones and tablets, and on a Windows touchscreen -- anything where a
 -- finger is a plausible pointer. Deliberately NOT "is mobile": a desktop with a
--- touchscreen has the same 44px problem, and a controller-only console has the
--- same problem for a different reason (no pointer at all).
+-- touchscreen has the same 44pt problem.
 function Responsive.IsTouch(): boolean
 	return UserInputService.TouchEnabled
 end
 
-function Responsive.Tier(): Tier
-	local width = viewportSize().X
-	if width <= PHONE_MAX_WIDTH then
-		return "Phone"
-	elseif width <= TABLET_MAX_WIDTH then
-		return "Tablet"
-	end
-	return "Desktop"
+function Responsive.Tier(): LayoutMath.Tier
+	return LayoutMath.Tier(view())
 end
 
--- The layout multiplier. Multiply hand-authored offsets and TextSizes by this
--- rather than wrapping anything in a UIScale -- see the header for why that
--- distinction is the whole point of this module.
 function Responsive.Scale(): number
-	return math.clamp(viewportSize().X / REFERENCE_WIDTH, MIN_SCALE, MAX_SCALE)
+	return LayoutMath.Scale(view())
 end
 
--- Scaled offset, rounded to a whole pixel.
---
--- Rounding matters more than it looks: a frame sized to a fractional pixel gets
--- its edge and its stroke antialiased across two rows, which reads as exactly
--- the softness this module exists to avoid. Sizes and positions are integers.
 function Responsive.Px(offset: number): number
-	return math.round(offset * Responsive.Scale())
+	return LayoutMath.Px(view(), offset)
 end
 
--- Scaled TextSize, floored at something still legible. Fonts render at integer
--- sizes anyway, so this is the same rounding argument as Px with a floor on it.
-local MIN_TEXT_SIZE = 11
 function Responsive.Text(size: number): number
-	return math.max(MIN_TEXT_SIZE, math.round(size * Responsive.Scale()))
+	return LayoutMath.Text(view(), size)
 end
 
--- A tap target's size: scaled like anything else, but never below the touch
--- minimum on a device that is actually touched.
 function Responsive.Tap(offset: number): number
-	local scaled = Responsive.Px(offset)
-	if Responsive.IsTouch() then
-		return math.max(Responsive.MinTouchTarget, scaled)
-	end
-	return scaled
+	return LayoutMath.Tap(view(), offset)
 end
-
--- Air between a panel and the edge of the screen. Small; its job is only to stop
--- a panel's border sitting exactly on the bezel.
-Responsive.ScreenMargin = 8
-
--- Height of the band along the bottom of the screen that Roblox's OWN touch
--- controls occupy -- the movement thumbstick bottom-left, the jump button
--- bottom-right. Zero on anything without a touchscreen.
---
--- Nothing tappable belongs in that band on a phone. It is not a matter of
--- overlap looking untidy: the controls are drawn by CoreGui ABOVE this game's
--- ScreenGuis, so a button under them is not merely obscured, it cannot be
--- pressed at all -- and worse, a button that does catch the touch first eats an
--- input the player meant as "move" or "jump".
---
--- 190 covers the classic thumbstick (a ~120pt circle inset from the corner) with
--- room for the dynamic thumbstick, which has no fixed circle and activates from
--- a larger region of the lower-left. Deliberately generous: being 30pt too
--- cautious costs a little layout room, being 30pt too tight costs a control.
-local TOUCH_CONTROL_BAND = 190
 
 function Responsive.TouchBand(): number
-	return if Responsive.IsTouch() then TOUCH_CONTROL_BAND else 0
+	return LayoutMath.TouchBand(view())
 end
 
--- A panel's height, scaled but never taller than the screen can show.
---
--- The reason this is not just Px(): a panel whose bottom runs off the viewport
--- does not scroll into view, it is simply not rendered -- and every panel in
--- this HUD is positioned from its TOP, so the part that vanishes is the bottom,
--- which is where the buttons are. Several of them (Shop, Gacha, Leaderboard)
--- were 200-260pt past the bottom edge of a phone.
---
--- `top` is where the panel starts, so what is left below it is what it can use.
-local MIN_PANEL_HEIGHT = 120
 function Responsive.FitHeight(refHeight: number, top: number): number
-	local available = viewportSize().Y - top - Responsive.ScreenMargin
-	return math.round(math.max(MIN_PANEL_HEIGHT, math.min(Responsive.Px(refHeight), available)))
+	return LayoutMath.FitHeight(view(), refHeight, top)
 end
 
--- Clamps a top edge so a box of this height stays fully on screen. Pairs with
--- FitHeight for panels that are positioned rather than centred.
 function Responsive.ClampY(y: number, height: number): number
-	local margin = Responsive.ScreenMargin
-	local lowest = math.max(margin, viewportSize().Y - height - margin)
-	return math.round(math.clamp(y, margin, lowest))
+	return LayoutMath.ClampY(view(), y, height)
 end
 
--- Clamps a left edge the same way.
 function Responsive.ClampX(x: number, width: number): number
-	local margin = Responsive.ScreenMargin
-	local rightmost = math.max(margin, viewportSize().X - width - margin)
-	return math.round(math.clamp(x, margin, rightmost))
+	return LayoutMath.ClampX(view(), x, width)
 end
 
--- Horizontal keep-out at the bottom corners on touch. The band above is the
--- vertical half of the same story: the thumbstick owns the bottom LEFT corner
--- and the jump button the bottom RIGHT, but the strip between them is clear --
--- which is why PLAY, VS BOTS and DASH can sit low on the screen at all.
---
--- ClearCorners below uses these to say how far in from each edge that clear
--- strip starts, so a button in the lower band can be nudged out of a corner
--- instead of being moved somewhere else entirely.
-local TOUCH_CORNER_WIDTH = 190
-
-local function safeLeft(): number
-	return if Responsive.IsTouch() then TOUCH_CORNER_WIDTH else 0
-end
-
-local function safeRight(): number
-	local width = viewportSize().X
-	return if Responsive.IsTouch() then width - TOUCH_CORNER_WIDTH else width
-end
-
--- Nudges a box of `width` at `x` out of whichever bottom corner it overlaps,
--- for a control that sits low enough to be in the touch-control band. Returns
--- `x` unchanged on desktop and on anything already clear.
 function Responsive.ClearCorners(x: number, width: number): number
-	if not Responsive.IsTouch() then
-		return x
-	end
-	local left, right = safeLeft(), safeRight()
-	if x < left then
-		x = left
-	end
-	if x + width > right then
-		x = right - width
-	end
-	-- A control wider than the clear strip can't be moved out of both corners;
-	-- centring it is the least-bad outcome and keeps it symmetric.
-	if x < left then
-		x = math.round((left + right - width) / 2)
-	end
-	return math.round(x)
+	return LayoutMath.ClearCorners(view(), x, width)
 end
 
 -- Sizes and places a panel so the whole of it is on screen, and reports the size
@@ -260,35 +213,44 @@ end
 function Responsive.Observe(callback: () -> ()): () -> ()
 	callback()
 
-	local connection: RBXScriptConnection? = nil
+	local connections: { RBXScriptConnection } = {}
 
-	local function bind()
-		if connection then
-			connection:Disconnect()
-			connection = nil
-		end
-		local camera = Workspace.CurrentCamera
-		if camera then
-			connection = camera:GetPropertyChangedSignal("ViewportSize"):Connect(callback)
-		end
+	-- The probe's AbsoluteSize is both the value layout reads and the thing that
+	-- changes when the window does, so it is the signal as well as the source --
+	-- no risk of laying out against one number while listening to another.
+	local probe = ensureProbe()
+	if probe then
+		table.insert(connections, probe:GetPropertyChangedSignal("AbsoluteSize"):Connect(callback))
 	end
 
-	-- The camera is replaced on respawn in some modes, and a connection to the
-	-- old one silently stops firing -- the panel then keeps whatever size it had
-	-- when the swap happened. Rebinding also re-runs the callback, since the new
-	-- camera can come up at a different size than the old one went down at.
-	local cameraConnection = Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
-		bind()
-		callback()
-	end)
-	bind()
+	-- The camera stays as a secondary trigger. It is not trusted for the VALUE
+	-- (see viewportSize -- it reports 1x1 on a real 1001x747 window), but when it
+	-- does change it is a reliable hint that the window did too, and it fires in
+	-- cases where a probe rebuild is what's needed.
+	local camera = Workspace.CurrentCamera
+	if camera then
+		table.insert(connections, camera:GetPropertyChangedSignal("ViewportSize"):Connect(callback))
+	end
+
+	-- The camera is replaced on respawn in some modes; so is PlayerGui's contents
+	-- on a ResetOnSpawn GUI. Re-running the callback covers both, and ensureProbe
+	-- rebuilds the probe if it was destroyed with them.
+	table.insert(
+		connections,
+		Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+			local rebuilt = ensureProbe()
+			if rebuilt then
+				table.insert(connections, rebuilt:GetPropertyChangedSignal("AbsoluteSize"):Connect(callback))
+			end
+			callback()
+		end)
+	)
 
 	return function()
-		if connection then
+		for _, connection in connections do
 			connection:Disconnect()
-			connection = nil
 		end
-		cameraConnection:Disconnect()
+		table.clear(connections)
 	end
 end
 

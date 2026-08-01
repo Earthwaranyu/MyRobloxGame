@@ -5,6 +5,7 @@ local TweenService = game:GetService("TweenService")
 local TextService = game:GetService("TextService")
 local UserInputService = game:GetService("UserInputService")
 
+local Responsive = require(script.Parent.Responsive)
 local Theme = require(script.Parent.Theme)
 local Sounds = require(script.Parent.Sounds)
 
@@ -1003,6 +1004,79 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	end
 
 	return button, setActive
+end
+
+-- Reference geometry for the accept/decline toasts below.
+local TOAST_WIDTH = 360
+local TOAST_HEIGHT = 130
+local TOAST_PAD = 10
+local TOAST_LABEL_HEIGHT = 44
+local TOAST_LABEL_TOP = 12
+local TOAST_LABEL_TEXT = 17
+local TOAST_BUTTON_HEIGHT = 40
+local TOAST_BUTTON_GAP = 20
+
+export type ToastParts = {
+	Toast: GuiObject,
+	Label: TextLabel,
+	Accept: TextButton,
+	Decline: TextButton,
+	-- 0 is nearest the bottom of the screen; higher stacks upward. Three of these
+	-- exist across two controllers (party invite, join request, duel challenge)
+	-- and any two can be on screen at once, so the stacking order has to be
+	-- decided in one place rather than by each toast guessing an offset.
+	StackIndex: number?,
+}
+
+-- Lays out a "someone is asking you something" toast: a line of text and an
+-- accept/decline pair.
+--
+-- Shared because there are three of these and all three had the same bug. Each
+-- was positioned by a hand-tuned `0.24 scale + N offset` guess that happened to
+-- land somewhere sensible on the developer's monitor; on a 375pt phone the duel
+-- one resolved to y = 390, entirely below the viewport, so a 1v1 challenge could
+-- not be answered at all. The other two cleared the bottom edge but sat with
+-- their buttons inside the touch-control band, where Roblox's own thumbstick and
+-- jump button are drawn on top and take the press.
+--
+-- So position is derived rather than guessed: anchored to the bottom of the
+-- usable area (above the control band), stacked upward by StackIndex, and
+-- clamped to the viewport. A toast asking a question the player cannot answer is
+-- worse than no toast.
+function Widgets.LayoutToast(parts: ToastParts)
+	local toast, label = parts.Toast, parts.Label
+	local pad = Responsive.Px(TOAST_PAD)
+	local buttonHeight = Responsive.Tap(TOAST_BUTTON_HEIGHT)
+	local viewport = Responsive.ViewportSize()
+
+	local width = math.min(Responsive.Px(TOAST_WIDTH), math.round(viewport.X - Responsive.ScreenMargin * 2))
+	-- Tall enough to hold a full-size tap target once Tap() has had its say --
+	-- otherwise a 44pt button on a phone overflows a proportionally-scaled toast.
+	local height = math.max(
+		Responsive.Px(TOAST_HEIGHT),
+		Responsive.Px(TOAST_LABEL_TOP) + Responsive.Px(TOAST_LABEL_HEIGHT) + buttonHeight + pad * 2
+	)
+
+	local stack = parts.StackIndex or 0
+	local bottom = viewport.Y - Responsive.TouchBand() - Responsive.ScreenMargin
+	local y = Responsive.ClampY(math.round(bottom - height - stack * (height + pad)), height)
+
+	toast.Size = UDim2.fromOffset(width, height)
+	toast.Position = UDim2.fromOffset(math.round((viewport.X - width) / 2), y)
+
+	label.Size = UDim2.new(1, -pad * 2, 0, Responsive.Px(TOAST_LABEL_HEIGHT))
+	label.Position = UDim2.fromOffset(pad, Responsive.Px(TOAST_LABEL_TOP))
+	label.TextSize = Responsive.Text(TOAST_LABEL_TEXT)
+
+	local gap = Responsive.Px(TOAST_BUTTON_GAP)
+	local buttonWidth = math.floor((width - pad * 2 - gap) / 2)
+	local top = height - buttonHeight - pad
+	Widgets.Relayout(parts.Accept, UDim2.fromOffset(buttonWidth, buttonHeight), UDim2.fromOffset(pad, top))
+	Widgets.Relayout(
+		parts.Decline,
+		UDim2.fromOffset(buttonWidth, buttonHeight),
+		UDim2.fromOffset(pad + buttonWidth + gap, top)
+	)
 end
 
 -- Re-sizes and re-positions a button after construction, in the SAME terms the
