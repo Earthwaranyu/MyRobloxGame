@@ -1316,9 +1316,6 @@ function MatchService.PlayerFellOff(player: Player, stageId: string)
 	if not recoverTo then
 		return
 	end
-	if not recoverTo then
-		return
-	end
 
 	pcall(function()
 		local character = player.Character

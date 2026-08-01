@@ -89,6 +89,12 @@ Theme.TopLane = {
 	-- Clear of the Roblox topbar: these ScreenGuis keep the default inset.
 	TabTop = 6,
 	CardWidth = 300,
+	-- The countdown card's own height. Lived as a bare 104 inside
+	-- QueueStatusController until something needed to stack BELOW the card
+	-- (QuitMatchController does, on phones, where there is no room beside it) --
+	-- at which point it was a number two controllers had to agree on, which is
+	-- the exact condition this table exists for.
+	CardHeight = 104,
 	-- The card's cancel X is centred ON its top-right corner, so it hangs this
 	-- far past the card's edge both upward and to the right -- half the button,
 	-- and the reason one constant covers both directions.

@@ -451,6 +451,57 @@ do
 	check("grid depth never exceeds the pad behind the marker", staysOnPad)
 end
 
+-- Growing those pads left them hanging off the void slab authored under them,
+-- so StageEndpointService now unions the slab's span with the pads' on each of
+-- the slab's own axes. The union is the part that can silently go wrong -- it
+-- must never hand back a span smaller than the one it was given, or a stage
+-- loses trigger coverage it had before this ran.
+print("\n-- void slab coverage --")
+do
+	local CURRENT_MIN, CURRENT_MAX = -50, 50
+
+	local centre, size = StageLayout.CoverSpan(CURRENT_MIN, CURRENT_MAX, -10, 10)
+	check("a span already covering the pads is left alone", centre == 0 and size == 100,
+		("centre %.1f, size %.1f"):format(centre, size))
+
+	-- The reported case: the pad overhangs one end by a couple of studs.
+	local offCentre, offSize = StageLayout.CoverSpan(CURRENT_MIN, CURRENT_MAX, -52.5, 10)
+	check("an overhang extends only the end that overhangs", offSize == 102.5 and offCentre == -1.25,
+		("centre %.2f, size %.2f"):format(offCentre, offSize))
+
+	local _, bothSize = StageLayout.CoverSpan(CURRENT_MIN, CURRENT_MAX, -60, 70)
+	check("overhangs at both ends both extend", bothSize == 130, ("%.1f"):format(bothSize))
+
+	-- The one that matters: a pad well inside the slab must not pull it in.
+	local neverShrinks = true
+	for half = 1, 60 do
+		local _, sized = StageLayout.CoverSpan(CURRENT_MIN, CURRENT_MAX, -half, half)
+		if sized < CURRENT_MAX - CURRENT_MIN - 1e-9 then
+			neverShrinks = false
+		end
+	end
+	check("covering never shrinks the slab", neverShrinks)
+
+	-- The result has to actually contain both inputs, not just be big enough.
+	local contains = true
+	for _, span in { { -70, -60 }, { 60, 80 }, { -5, 5 }, { -80, 80 } } do
+		local c, s = StageLayout.CoverSpan(CURRENT_MIN, CURRENT_MAX, span[1], span[2])
+		if c - s / 2 > math.min(CURRENT_MIN, span[1]) + 1e-9 or c + s / 2 < math.max(CURRENT_MAX, span[2]) - 1e-9 then
+			contains = false
+		end
+	end
+	check("the covered span contains both inputs", contains)
+
+	-- A pad entirely off one end (not overlapping at all) still has to be
+	-- swallowed rather than producing a span that skips the gap between them.
+	local disjointCentre, disjointSize = StageLayout.CoverSpan(CURRENT_MIN, CURRENT_MAX, 200, 220)
+	check("a disjoint pad is bridged, not jumped to", disjointSize == 270 and disjointCentre == 85,
+		("centre %.1f, size %.1f"):format(disjointCentre, disjointSize))
+
+	check("the pad margin clears a character's width", StageLayout.Void.PadMargin >= 2,
+		("%.1f"):format(StageLayout.Void.PadMargin))
+end
+
 -- StageEndpointService reshapes Stage1-4's start and finish pads to
 -- StageLayout.Endpoint, and StageBuilderService builds Stage5-8's from
 -- buildPlatforms. Those are two different code paths to "the eight stages start

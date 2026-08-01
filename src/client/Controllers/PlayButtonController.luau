@@ -9,6 +9,7 @@ local RemoteNames = require(Shared.RemoteNames)
 local Signal = require(Shared.Signal)
 
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
+local Responsive = require(script.Parent.Parent.Responsive)
 local Widgets = require(script.Parent.Parent.Widgets)
 local MatchStateController = require(script.Parent.MatchStateController)
 local PlayModePickerController = require(script.Parent.PlayModePickerController)
@@ -21,6 +22,11 @@ local PlayModePickerController = require(script.Parent.PlayModePickerController)
 -- different mode string, since all three are still fundamentally "start me
 -- a race."
 local PlayButtonController = {}
+
+-- Reference geometry for the bottom cluster. ROW_GAP is 10 because VS BOTS and
+-- PRACTICE were authored at -150 and +5 from centre -- 145 wide with 10 between.
+local PLAY_WIDTH, PLAY_HEIGHT, PLAY_BOTTOM = 220, 64, 120
+local ROW_WIDTH, ROW_HEIGHT, ROW_BOTTOM, ROW_GAP = 145, 44, 172, 10
 
 -- Exposed so GhostController knows whether the race that's about to start is
 -- a practice run (and should fetch/record a ghost) without needing its own
@@ -197,6 +203,33 @@ local function buildUI()
 	practiceButton.Parent = screenGui
 	practiceButton.MouseButton1Click:Connect(function()
 		onButtonClicked("Practice")
+	end)
+
+	-- This whole cluster sits low enough to be inside the touch-control band, and
+	-- the strip between the thumbstick and the jump button is what makes that
+	-- workable -- PLAY is centred and clears both. VS BOTS reaches ~6pt into the
+	-- thumbstick's corner though, which is enough to eat a movement touch, so the
+	-- row is nudged clear as a pair (keeping its own internal spacing) rather
+	-- than each button drifting independently.
+	Responsive.Observe(function()
+		local px = Responsive.Px
+		local playWidth, playHeight = px(PLAY_WIDTH), Responsive.Tap(PLAY_HEIGHT)
+		local rowWidth, rowHeight = px(ROW_WIDTH), Responsive.Tap(ROW_HEIGHT)
+		local gap = px(ROW_GAP)
+		local viewport = Responsive.ViewportSize()
+
+		local playX = Responsive.ClearCorners(math.round((viewport.X - playWidth) / 2), playWidth)
+		Widgets.Relayout(button, UDim2.fromOffset(playWidth, playHeight), UDim2.new(0, playX, 1, -px(PLAY_BOTTOM)))
+
+		local pairWidth = rowWidth * 2 + gap
+		local pairX = Responsive.ClearCorners(math.round((viewport.X - pairWidth) / 2), pairWidth)
+		local rowY = -px(ROW_BOTTOM)
+		Widgets.Relayout(botsButton, UDim2.fromOffset(rowWidth, rowHeight), UDim2.new(0, pairX, 1, rowY))
+		Widgets.Relayout(
+			practiceButton,
+			UDim2.fromOffset(rowWidth, rowHeight),
+			UDim2.new(0, pairX + rowWidth + gap, 1, rowY)
+		)
 	end)
 end
 

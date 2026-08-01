@@ -1005,6 +1005,42 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	return button, setActive
 end
 
+-- Re-sizes and re-positions a button after construction, in the SAME terms the
+-- caller built it with (a top-left size/position pair), rather than the terms it
+-- is actually stored in.
+--
+-- This exists because a button is not laid out where you put it. Widgets.Button
+-- re-anchors to (0.5, 0.5) so its hover/press UIScale grows symmetrically, and
+-- folds half its own size into Position to compensate -- and it bakes its bevel
+-- strip's inset from the height it was built at. So a caller that responds to a
+-- viewport change by assigning button.Size and button.Position directly gets a
+-- button offset by half its size with a bevel strip the wrong width, which is
+-- both wrong and a genuinely confusing thing to debug from a screenshot.
+--
+-- Every one of those details is this module's business, so relayout is too. See
+-- Responsive for the callers: the HUD's buttons re-derive their geometry from
+-- the viewport, and this is how they apply it.
+function Widgets.Relayout(button: TextButton, size: UDim2, position: UDim2)
+	button.Size = size
+	-- Same conversion Widgets.Button does at construction.
+	button.Position = UDim2.new(
+		position.X.Scale + size.X.Scale / 2,
+		position.X.Offset + size.X.Offset / 2,
+		position.Y.Scale + size.Y.Scale / 2,
+		position.Y.Offset + size.Y.Offset / 2
+	)
+
+	-- The strip is inset by the pill's corner radius so it sits inside the
+	-- rounded silhouette without being clipped (Widgets.Button explains why it
+	-- can't just be clipped) -- and that radius is half the button's height, so
+	-- a height change invalidates it.
+	local bevelStrip = button:FindFirstChild("BevelStrip")
+	if bevelStrip and bevelStrip:IsA("Frame") then
+		local bevelInset = size.Y.Offset / 2 + 3
+		bevelStrip.Size = UDim2.new(1, -bevelInset * 2, 0, bevelStrip.Size.Y.Offset)
+	end
+end
+
 -- For a caller that needs to swap a button's full color set at runtime
 -- beyond what setActive's Tab on/off toggle covers (e.g. AbilityController's
 -- ready/cooldown states, which used to poke button.BackgroundColor3

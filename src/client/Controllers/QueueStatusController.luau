@@ -8,6 +8,7 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
+local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local Sounds = require(script.Parent.Parent.Sounds)
@@ -25,6 +26,27 @@ local numberScale: UIScale
 local goLabel: TextLabel
 local goScale: UIScale
 local cancelButton: TextButton
+
+-- Reference geometry, at the viewport everything here was authored against.
+-- layout() below re-derives the real numbers from these -- see Responsive for
+-- why they are scaled rather than wrapped in a UIScale.
+local CAPTION_HEIGHT = 20
+local CAPTION_TOP = 10
+local CAPTION_TEXT = 16
+local NUMBER_HEIGHT = 62
+local NUMBER_TOP = 32
+local NUMBER_TEXT = 56
+local GO_WIDTH = 400
+local GO_HEIGHT = 120
+local GO_TEXT = 90
+local BOT_WIDTH = 240
+local BOT_HEIGHT = 44
+local BOT_TEXT = 17
+-- Air between the card's bottom edge and the bot button hanging under it.
+local BOT_GAP = 10
+local CANCEL_SIZE = 36
+local CANCEL_BAR_LENGTH = 16
+local CANCEL_BAR_THICKNESS = 2.5
 
 -- Server sends the remaining seconds once; ticking down locally avoids
 -- relying on the client and server clocks (os.clock()) being in sync. This
@@ -113,7 +135,7 @@ local function buildUI()
 	-- violet fill, thick white border -- as every other surface in the game.
 	container = Instance.new("Frame")
 	container.Name = "CountdownContainer"
-	container.Size = UDim2.fromOffset(Theme.TopLane.CardWidth, 104)
+	container.Size = UDim2.fromOffset(Theme.TopLane.CardWidth, Theme.TopLane.CardHeight)
 	-- Below WaveClockController's tab, far enough that the cancel X -- which
 	-- straddles this card's top edge, hanging Theme.TopLane.CardOverhang above
 	-- it -- clears the tab rather than sitting in its rows. Both halves of that
@@ -142,19 +164,20 @@ local function buildUI()
 	containerStroke.Thickness = 4
 	containerStroke.Parent = container
 
-	captionLabel = Widgets.Label("WAITING FOR PLAYERS", UDim2.new(1, 0, 0, 20), UDim2.fromOffset(0, 10), {
-		TextSize = 16,
-		Color = CAPTION_COLOR,
-		Align = Enum.TextXAlignment.Center,
-	})
+	captionLabel =
+		Widgets.Label("WAITING FOR PLAYERS", UDim2.new(1, 0, 0, CAPTION_HEIGHT), UDim2.fromOffset(0, CAPTION_TOP), {
+			TextSize = CAPTION_TEXT,
+			Color = CAPTION_COLOR,
+			Align = Enum.TextXAlignment.Center,
+		})
 	captionLabel.Parent = container
 
 	-- 56, down from 72: the number no longer needs to shout over the scenery
 	-- now that it has a panel behind it, and 72 didn't fit the card's height
 	-- alongside the caption without crowding both against the border.
-	numberLabel = Widgets.Label("", UDim2.new(1, 0, 0, 62), UDim2.fromOffset(0, 32), {
+	numberLabel = Widgets.Label("", UDim2.new(1, 0, 0, NUMBER_HEIGHT), UDim2.fromOffset(0, NUMBER_TOP), {
 		Font = Theme.Font.Display,
-		TextSize = 56,
+		TextSize = NUMBER_TEXT,
 		Color = NUMBER_COLOR,
 		Align = Enum.TextXAlignment.Center,
 	})
@@ -164,9 +187,9 @@ local function buildUI()
 	numberScale = Instance.new("UIScale")
 	numberScale.Parent = numberLabel
 
-	goLabel = Widgets.Label("GO!", UDim2.fromOffset(400, 120), UDim2.new(0.5, -200, 0.3, 0), {
+	goLabel = Widgets.Label("GO!", UDim2.fromOffset(GO_WIDTH, GO_HEIGHT), UDim2.new(0.5, -GO_WIDTH / 2, 0.3, 0), {
 		Font = Theme.Font.Display,
-		TextSize = 90,
+		TextSize = GO_TEXT,
 		Color = Theme.Color.Success,
 		Align = Enum.TextXAlignment.Center,
 	})
@@ -177,19 +200,24 @@ local function buildUI()
 	goScale = Instance.new("UIScale")
 	goScale.Parent = goLabel
 
-	-- Hangs just BELOW the card (container height 104 + a 10px gap), centred on
-	-- it -- deliberately outside the panel's fill rather than inside it, so the
-	-- card stays purely the clock and the button reads as the offer attached to
-	-- it. Hidden until the wait has clearly stalled (see BOT_HINT_AFTER_SECONDS);
+	-- Hangs just BELOW the card (its height plus BOT_GAP), centred on it --
+	-- deliberately outside the panel's fill rather than inside it, so the card
+	-- stays purely the clock and the button reads as the offer attached to it.
+	-- Hidden until the wait has clearly stalled (see BOT_HINT_AFTER_SECONDS);
 	-- PlayButtonController owns the actual swap so its own busy/mode state stays
 	-- correct.
-	botButton = Widgets.Button("PLAY WITH BOTS", UDim2.fromOffset(240, 44), UDim2.fromOffset(30, 114), {
-		Variant = "Secondary",
-		TextSize = 17,
-		Icon = function(holder, color)
-			MenuIcons.Populate(holder, "Bots", color)
-		end,
-	})
+	botButton = Widgets.Button(
+		"PLAY WITH BOTS",
+		UDim2.fromOffset(BOT_WIDTH, BOT_HEIGHT),
+		UDim2.fromOffset((Theme.TopLane.CardWidth - BOT_WIDTH) / 2, Theme.TopLane.CardHeight + BOT_GAP),
+		{
+			Variant = "Secondary",
+			TextSize = BOT_TEXT,
+			Icon = function(holder, color)
+				MenuIcons.Populate(holder, "Bots", color)
+			end,
+		}
+	)
 	botButton.Visible = false
 	botButton.Parent = container
 	botButton.MouseButton1Click:Connect(function()
@@ -221,7 +249,7 @@ local function buildUI()
 	cancelButton.AutoButtonColor = false
 	cancelButton.BackgroundColor3 = Theme.Candy.Red.Face
 	cancelButton.BorderSizePixel = 0
-	cancelButton.Size = UDim2.fromOffset(36, 36)
+	cancelButton.Size = UDim2.fromOffset(CANCEL_SIZE, CANCEL_SIZE)
 	-- Centre-anchored ON the corner, so it straddles the border rather than
 	-- sitting inside the card (where it would crowd the caption) or fully
 	-- outside it (where it would read as unrelated to the card).
@@ -239,12 +267,14 @@ local function buildUI()
 	cancelBorder.Thickness = 2.5
 	cancelBorder.Parent = cancelButton
 
+	local cancelBars: { Frame } = {}
 	for _, rotation in { 45, -45 } do
 		local bar = Instance.new("Frame")
 		bar.AnchorPoint = Vector2.new(0.5, 0.5)
 		bar.Position = UDim2.fromScale(0.5, 0.5)
-		bar.Size = UDim2.fromOffset(16, 2.5)
+		bar.Size = UDim2.fromOffset(CANCEL_BAR_LENGTH, CANCEL_BAR_THICKNESS)
 		bar.Rotation = rotation
+		table.insert(cancelBars, bar)
 		bar.BackgroundColor3 = Color3.new(1, 1, 1)
 		bar.BorderSizePixel = 0
 		local barCorner = Instance.new("UICorner")
@@ -256,6 +286,60 @@ local function buildUI()
 	cancelButton.MouseButton1Click:Connect(function()
 		Net.GetRemoteEvent(RemoteNames.QuitMatch):FireServer()
 	end)
+
+	-- Re-derives every offset above from the current viewport.
+	--
+	-- The card is the widest fixed thing in the HUD (300 at reference), which on
+	-- a phone in landscape is close to half the screen -- so it, and everything
+	-- measured against it, scales down together. The two exceptions are
+	-- deliberate and both about the finger rather than the pixel:
+	--
+	--   * the cancel X holds the 44pt touch minimum. It is a 36pt circle
+	--     straddling a corner, i.e. already the smallest target in the HUD, and
+	--     it is the only visible way out of a queue -- shrinking it further on
+	--     the devices that use a thumb is the wrong direction.
+	--   * the bot button likewise, since it is a real offer and not decoration.
+	--
+	-- The X's own bars are sized as a FRACTION of whatever the circle ends up
+	-- being, not scaled independently: on touch the circle is padded up to 44
+	-- while Px() would have taken the bars down to ~12, which draws a tiny x
+	-- adrift in a large red disc. Proportional keeps it the same mark at every
+	-- size.
+	local function layout()
+		local lane = Responsive.Lane(Theme)
+
+		container.Size = UDim2.fromOffset(lane.CardWidth, lane.CardHeight)
+		container.Position = UDim2.new(0.5, -lane.CardWidth / 2, 0, lane.CardTop)
+
+		captionLabel.Size = UDim2.new(1, 0, 0, Responsive.Px(CAPTION_HEIGHT))
+		captionLabel.Position = UDim2.fromOffset(0, Responsive.Px(CAPTION_TOP))
+		captionLabel.TextSize = Responsive.Text(CAPTION_TEXT)
+
+		numberLabel.Size = UDim2.new(1, 0, 0, Responsive.Px(NUMBER_HEIGHT))
+		numberLabel.Position = UDim2.fromOffset(0, Responsive.Px(NUMBER_TOP))
+		numberLabel.TextSize = Responsive.Text(NUMBER_TEXT)
+
+		local goWidth = Responsive.Px(GO_WIDTH)
+		goLabel.Size = UDim2.fromOffset(goWidth, Responsive.Px(GO_HEIGHT))
+		goLabel.Position = UDim2.new(0.5, -goWidth / 2, 0.3, 0)
+		goLabel.TextSize = Responsive.Text(GO_TEXT)
+
+		local botWidth = Responsive.Px(BOT_WIDTH)
+		Widgets.Relayout(
+			botButton,
+			UDim2.fromOffset(botWidth, Responsive.Tap(BOT_HEIGHT)),
+			UDim2.fromOffset((lane.CardWidth - botWidth) / 2, lane.CardHeight + Responsive.Px(BOT_GAP))
+		)
+
+		local cancelTarget = Responsive.Tap(CANCEL_SIZE)
+		cancelButton.Size = UDim2.fromOffset(cancelTarget, cancelTarget)
+		local barScale = cancelTarget / CANCEL_SIZE
+		for _, bar in cancelBars do
+			bar.Size =
+				UDim2.fromOffset(math.round(CANCEL_BAR_LENGTH * barScale), math.max(2, CANCEL_BAR_THICKNESS * barScale))
+		end
+	end
+	Responsive.Observe(layout)
 
 	RunService.RenderStepped:Connect(function()
 		if not endTime then

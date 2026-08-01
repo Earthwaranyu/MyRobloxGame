@@ -400,6 +400,44 @@ local function buildVoid(platforms: { PartPlan }): PartPlan
 	}
 end
 
+-- Grows a span so it covers another one, returned as (centre, size).
+--
+-- Only ever grows: the caller is reconciling an authored void slab against pads
+-- that were themselves only grown, and a void that shrank anywhere would take
+-- away trigger coverage the stage already had.
+--
+-- Used per-axis by StageEndpointService, which measures both spans by projecting
+-- onto the void's own axes -- so this stays a plain 1-D interval union and has no
+-- opinion about which axis it is being asked about.
+function StageLayout.CoverSpan(
+	currentMin: number,
+	currentMax: number,
+	requiredMin: number,
+	requiredMax: number
+): (number, number)
+	local low = math.min(currentMin, requiredMin)
+	local high = math.max(currentMax, requiredMax)
+	return (low + high) / 2, high - low
+end
+
+-- How far past a pad's edge the void slab under it has to reach.
+--
+-- Deliberately small. Stage1-4's void slabs are authored in the .rbxl around the
+-- pads as DRAWN, and StageEndpointService then grows those pads (7-9 studs square
+-- up to 30x28) without touching the slab -- so the enlarged start pads now hang
+-- 1-2.5 studs off the back of their own trigger, and a racer who backs off the
+-- rear edge during the countdown falls through the gap rather than into it.
+--
+-- The margin only has to cover the step off that edge -- a character is about 2
+-- studs wide, so 4 clears it with room. It is NOT VOID_MARGIN_BEHIND (30): these
+-- slabs are already enormous and the lobby sits within reach of one (see
+-- MatchService.PlayerFellOff), so growing them by tens of studs to match the
+-- generated convention would risk swallowing lobby ground that is legitimately
+-- standable. Covering the pads is the whole job here.
+StageLayout.Void = {
+	PadMargin = 4,
+}
+
 -- The `<StageId>Spawn` marker MatchService looks up by name. Its SIZE is the
 -- start grid (buildStartGrid measures this part, not the platform, and builds
 -- rows backwards from it in its own space), so it is deliberately most of the

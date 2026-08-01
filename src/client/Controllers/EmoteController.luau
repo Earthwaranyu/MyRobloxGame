@@ -8,6 +8,7 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
+local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 
@@ -28,6 +29,20 @@ local KEY_TO_INDEX: { [Enum.KeyCode]: number } = {
 }
 
 local EmoteController = {}
+
+-- Reference geometry -- see Responsive, which scales these rather than wrapping
+-- the panel in a UIScale.
+local TILE_SIZE = 84
+local TILE_GAP = 10
+local KEY_LABEL_WIDTH, KEY_LABEL_HEIGHT, KEY_LABEL_INSET, KEY_TEXT = 20, 16, 6, 13
+local LOCK_HEIGHT, LOCK_TEXT = 18, 13
+local TOGGLE_WIDTH, TOGGLE_HEIGHT = 140, 48
+local TOGGLE_X, TOGGLE_Y = 240, 60
+local PANEL_WIDTH, PANEL_HEIGHT, PANEL_TOP = 400, 210, 116
+local RIBBON_WIDTH, RIBBON_HEIGHT = 180, 40
+local PANEL_PAD = 8
+local HINT_HEIGHT, HINT_TOP, HINT_TEXT = 16, 6, 12
+local GRID_TOP = 32
 
 local player = Players.LocalPlayer
 
@@ -74,7 +89,9 @@ end
 local function buildTile(emote, index: number): Frame
 	local tile = Instance.new("Frame")
 	tile.Name = "Tile_" .. emote.Id
-	tile.Size = UDim2.fromOffset(84, 84)
+	-- Sized by the grid's CellSize, which layout() keeps current -- this is just
+	-- the initial value so a tile is never briefly the wrong size.
+	tile.Size = UDim2.fromOffset(Responsive.Tap(TILE_SIZE), Responsive.Tap(TILE_SIZE))
 	tile.BackgroundColor3 = Theme.Color.PanelLight
 	tile.BorderSizePixel = 0
 	tile.LayoutOrder = index
@@ -98,14 +115,23 @@ local function buildTile(emote, index: number): Frame
 	icon.Font = Theme.Font.Body
 	icon.Parent = tile
 
-	local keyLabel = Widgets.Label(tostring(index), UDim2.fromOffset(20, 16), UDim2.fromOffset(6, 4), {
-		TextSize = 13,
-		Color = Theme.Color.TextMuted,
-	})
+	-- The little "3" in the corner is the keyboard shortcut, so it is meaningless
+	-- on a device with no number row -- and worse than meaningless on a tile
+	-- small enough that the digit competes with the emote glyph for space.
+	local keyLabel = Widgets.Label(
+		tostring(index),
+		UDim2.fromOffset(Responsive.Px(KEY_LABEL_WIDTH), Responsive.Px(KEY_LABEL_HEIGHT)),
+		UDim2.fromOffset(Responsive.Px(KEY_LABEL_INSET), Responsive.Px(4)),
+		{
+			TextSize = Responsive.Text(KEY_TEXT),
+			Color = Theme.Color.TextMuted,
+		}
+	)
+	keyLabel.Visible = not Responsive.IsTouch()
 	keyLabel.Parent = tile
 
-	local lockLabel = Widgets.Label("R$", UDim2.new(1, -12, 0, 18), UDim2.new(0, 0, 1, -22), {
-		TextSize = 13,
+	local lockLabel = Widgets.Label("R$", UDim2.new(1, -12, 0, Responsive.Px(LOCK_HEIGHT)), UDim2.new(0, 0, 1, -22), {
+		TextSize = Responsive.Text(LOCK_TEXT),
 		Align = Enum.TextXAlignment.Center,
 		Color = Theme.Color.Warning,
 	})
@@ -126,27 +152,41 @@ local function buildUI()
 	screenGui.ResetOnSpawn = false
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
-	local toggleButton = Widgets.Button("Emotes", UDim2.fromOffset(140, 48), UDim2.fromOffset(240, 60), {
-		Icon = function(holder, color)
-			MenuIcons.Populate(holder, "Emotes", color)
-		end,
-	})
+	local toggleButton =
+		Widgets.Button("Emotes", UDim2.fromOffset(TOGGLE_WIDTH, TOGGLE_HEIGHT), UDim2.fromOffset(TOGGLE_X, TOGGLE_Y), {
+			Icon = function(holder, color)
+				MenuIcons.Populate(holder, "Emotes", color)
+			end,
+		})
 	toggleButton.Parent = screenGui
 
 	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a
 	-- bare Widgets.Panel only closable via this one toggle button.
-	panel, openPanel, closePanel = Widgets.Modal("Emote", UDim2.fromOffset(400, 210), UDim2.new(0.5, -200, 0, 116), {
-		DisplayOrder = 30,
-	})
+	panel, openPanel, closePanel = Widgets.Modal(
+		"Emote",
+		UDim2.fromOffset(PANEL_WIDTH, PANEL_HEIGHT),
+		UDim2.new(0.5, -PANEL_WIDTH / 2, 0, PANEL_TOP),
+		{ DisplayOrder = 30 }
+	)
 
-	local ribbon = Widgets.Ribbon("EMOTES", UDim2.fromOffset(180, 40), UDim2.new(0.5, 0, 0, -20))
+	local ribbon = Widgets.Ribbon(
+		"EMOTES",
+		UDim2.fromOffset(RIBBON_WIDTH, RIBBON_HEIGHT),
+		UDim2.new(0.5, 0, 0, -RIBBON_HEIGHT / 2)
+	)
 	ribbon.Parent = panel
 
-	local hint = Widgets.Label("Press 1-8 anytime", UDim2.new(1, -16, 0, 16), UDim2.fromOffset(8, 6), {
-		TextSize = 12,
-		Color = Theme.Color.TextMuted,
-		Align = Enum.TextXAlignment.Center,
-	})
+	-- "Press 1-8 anytime" is a keyboard instruction. On touch there is no number
+	-- row, so it described a control the player does not have -- and on touch the
+	-- tiles are not merely a "browse surface" (see the module header) but the only
+	-- way to fire an emote at all, which is worth saying instead.
+	local hintText = if Responsive.IsTouch() then "Tap an emote to play it" else "Press 1-8 anytime"
+	local hint =
+		Widgets.Label(hintText, UDim2.new(1, -PANEL_PAD * 2, 0, HINT_HEIGHT), UDim2.fromOffset(PANEL_PAD, HINT_TOP), {
+			TextSize = HINT_TEXT,
+			Color = Theme.Color.TextMuted,
+			Align = Enum.TextXAlignment.Center,
+		})
 	hint.Parent = panel
 
 	-- Scrolls rather than being a fixed grid area. A UIGridLayout wraps onto new
@@ -155,8 +195,8 @@ local function buildUI()
 	-- leaderboard, just on the vertical axis. AutomaticCanvasSize means the
 	-- canvas tracks whatever the layout actually produces.
 	local grid = Instance.new("ScrollingFrame")
-	grid.Size = UDim2.new(1, -16, 1, -36)
-	grid.Position = UDim2.fromOffset(8, 32)
+	grid.Size = UDim2.new(1, -PANEL_PAD * 2, 1, -(GRID_TOP + 4))
+	grid.Position = UDim2.fromOffset(PANEL_PAD, GRID_TOP)
 	grid.BackgroundTransparency = 1
 	grid.BorderSizePixel = 0
 	grid.CanvasSize = UDim2.new()
@@ -166,14 +206,54 @@ local function buildUI()
 	grid.Parent = panel
 
 	local layout = Instance.new("UIGridLayout")
-	layout.CellSize = UDim2.fromOffset(84, 84)
-	layout.CellPadding = UDim2.fromOffset(10, 10)
+	layout.CellSize = UDim2.fromOffset(TILE_SIZE, TILE_SIZE)
+	layout.CellPadding = UDim2.fromOffset(TILE_GAP, TILE_GAP)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = grid
 
 	for i, emote in Emotes do
 		buildTile(emote, i).Parent = grid
 	end
+
+	-- The panel is 400 wide at reference, which is most of a phone held in
+	-- landscape, so it scales with everything else. The tiles are the exception
+	-- that goes the other way: at 84 they are already comfortably above the touch
+	-- minimum, and Tap() only stops the small-screen scale factor from taking
+	-- them below it -- a grid of emotes is exactly the kind of thing that gets
+	-- fat-fingered.
+	--
+	-- The grid reflows on its own once CellSize changes (UIGridLayout wraps, and
+	-- AutomaticCanvasSize tracks the result), so narrow screens end up with fewer
+	-- columns and more rows to scroll rather than a clipped row.
+	local function relayout()
+		local panelWidth = Responsive.Px(PANEL_WIDTH)
+		panel.Size = UDim2.fromOffset(panelWidth, Responsive.Px(PANEL_HEIGHT))
+		panel.Position = UDim2.new(0.5, -panelWidth / 2, 0, Responsive.Px(PANEL_TOP))
+
+		local ribbonHeight = Responsive.Px(RIBBON_HEIGHT)
+		ribbon.Size = UDim2.fromOffset(Responsive.Px(RIBBON_WIDTH), ribbonHeight)
+		ribbon.Position = UDim2.new(0.5, 0, 0, -ribbonHeight / 2)
+
+		local pad = Responsive.Px(PANEL_PAD)
+		local gridTop = Responsive.Px(GRID_TOP)
+		hint.Size = UDim2.new(1, -pad * 2, 0, Responsive.Px(HINT_HEIGHT))
+		hint.Position = UDim2.fromOffset(pad, Responsive.Px(HINT_TOP))
+		hint.TextSize = Responsive.Text(HINT_TEXT)
+
+		grid.Size = UDim2.new(1, -pad * 2, 1, -(gridTop + Responsive.Px(4)))
+		grid.Position = UDim2.fromOffset(pad, gridTop)
+
+		local cell = Responsive.Tap(TILE_SIZE)
+		layout.CellSize = UDim2.fromOffset(cell, cell)
+		layout.CellPadding = UDim2.fromOffset(Responsive.Px(TILE_GAP), Responsive.Px(TILE_GAP))
+
+		Widgets.Relayout(
+			toggleButton,
+			UDim2.fromOffset(Responsive.Px(TOGGLE_WIDTH), Responsive.Tap(TOGGLE_HEIGHT)),
+			UDim2.fromOffset(Responsive.Px(TOGGLE_X), Responsive.Px(TOGGLE_Y))
+		)
+	end
+	Responsive.Observe(relayout)
 
 	toggleButton.MouseButton1Click:Connect(function()
 		if panel.Visible then

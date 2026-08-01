@@ -6,6 +6,7 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
+local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local Sounds = require(script.Parent.Parent.Sounds)
@@ -68,7 +69,7 @@ local function buildInviteRow(targetPlayer: Player, layoutOrder: number): Frame
 	)
 	nameLabel.Parent = row
 
-	local inviteButton = Widgets.Button("Invite", UDim2.fromOffset(84, 32), UDim2.new(1, -92, 0.5, -16), {
+	local inviteButton = Widgets.Button("Invite", UDim2.fromOffset(Responsive.Px(84), Responsive.Tap(32)), UDim2.new(1, -92, 0.5, -16), {
 		Variant = "Secondary",
 		TextSize = 13,
 	})
@@ -188,7 +189,7 @@ local function buildUI()
 	rosterLabel.TextWrapped = true
 	rosterLabel.Parent = panel
 
-	leaveButton = Widgets.Button("Leave Party", UDim2.new(1, -16, 0, 36), UDim2.fromOffset(8, 78), {
+	leaveButton = Widgets.Button("Leave Party", UDim2.new(1, -Responsive.Px(16), 0, Responsive.Tap(36)), UDim2.fromOffset(8, 78), {
 		Variant = "Danger",
 		TextSize = 14,
 	})
@@ -246,7 +247,7 @@ local function buildUI()
 	toastLabel.TextWrapped = true
 	toastLabel.Parent = inviteToast
 
-	local acceptButton = Widgets.Button("Accept", UDim2.fromOffset(150, 40), UDim2.fromOffset(20, 78), {
+	local acceptButton = Widgets.Button("Accept", UDim2.fromOffset(Responsive.Px(150), Responsive.Tap(40)), UDim2.fromOffset(20, 78), {
 		Variant = "Success",
 		TextSize = 15,
 	})
@@ -256,7 +257,7 @@ local function buildUI()
 		hideToast()
 	end)
 
-	local declineButton = Widgets.Button("Decline", UDim2.fromOffset(150, 40), UDim2.fromOffset(190, 78), {
+	local declineButton = Widgets.Button("Decline", UDim2.fromOffset(Responsive.Px(150), Responsive.Tap(40)), UDim2.fromOffset(190, 78), {
 		Variant = "Danger",
 		TextSize = 15,
 	})
@@ -278,7 +279,7 @@ local function buildUI()
 	joinRequestLabel.TextWrapped = true
 	joinRequestLabel.Parent = joinRequestToast
 
-	local joinAcceptButton = Widgets.Button("Accept", UDim2.fromOffset(150, 40), UDim2.fromOffset(20, 78), {
+	local joinAcceptButton = Widgets.Button("Accept", UDim2.fromOffset(Responsive.Px(150), Responsive.Tap(40)), UDim2.fromOffset(20, 78), {
 		Variant = "Success",
 		TextSize = 15,
 	})
@@ -288,7 +289,7 @@ local function buildUI()
 		hideJoinRequestToast()
 	end)
 
-	local joinDeclineButton = Widgets.Button("Decline", UDim2.fromOffset(150, 40), UDim2.fromOffset(190, 78), {
+	local joinDeclineButton = Widgets.Button("Decline", UDim2.fromOffset(Responsive.Px(150), Responsive.Tap(40)), UDim2.fromOffset(190, 78), {
 		Variant = "Danger",
 		TextSize = 15,
 	})

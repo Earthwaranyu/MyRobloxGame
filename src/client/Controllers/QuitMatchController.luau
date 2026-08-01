@@ -7,6 +7,7 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
+local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local MatchStateController = require(script.Parent.MatchStateController)
@@ -21,6 +22,11 @@ local MatchStateController = require(script.Parent.MatchStateController)
 -- here" need, just without QuitMatch's Elo/streak implications (there are
 -- none once you've already finished).
 local QUIT_KEY = Enum.KeyCode.Backspace
+
+-- Reference size, at the viewport the HUD was authored against. Responsive
+-- scales both -- see layout() in buildUI.
+local BASE_WIDTH = 230
+local BASE_HEIGHT = 48
 
 local QuitMatchController = {}
 
@@ -42,9 +48,23 @@ local function isActive(): boolean
 	return stateActive or countdownActive
 end
 
+-- The key hint is desktop-only, and not just to save width.
+--
+-- On a touch device there IS no Backspace, so "(Backspace)" told a phone player
+-- to press a key their device does not have -- and on that device this button is
+-- not a reminder of the real way out, it IS the only way out. The label reads as
+-- an instruction either way; it just has to be a true one.
+local function labelFor(state: string): string
+	local action = if state == "Spectating" then "Stop Watching" else "Leave Match"
+	if Responsive.IsTouch() then
+		return action
+	end
+	return action .. " (Backspace)"
+end
+
 local function refresh(state: string)
 	button.Visible = isActive()
-	button.Text = if state == "Spectating" then "Stop Watching (Backspace)" else "Leave Match (Backspace)"
+	button.Text = labelFor(state)
 end
 
 local function quit()
@@ -69,8 +89,8 @@ local function buildUI()
 	-- right border for the whole countdown. Theme.TopLane.SideOffset is measured
 	-- off the wider of the two.
 	button = Widgets.Button(
-		"Leave Match (Backspace)",
-		UDim2.fromOffset(230, 48),
+		labelFor(MatchStateController.CurrentState),
+		UDim2.fromOffset(BASE_WIDTH, BASE_HEIGHT),
 		UDim2.new(0.5, Theme.TopLane.SideOffset, 0, Theme.TopLane.CardTop),
 		{
 			Variant = "Danger",
@@ -82,6 +102,36 @@ local function buildUI()
 	)
 	button.Visible = false
 	button.Parent = screenGui
+
+	-- "Beside the lane" is a desktop layout, and on a phone it is off the screen.
+	--
+	-- The lane's card is 300 wide, so SideOffset puts this button's LEFT edge 182
+	-- points right of centre and its right edge a further 230 out. That needs a
+	-- viewport about 825 wide to land on screen at all; a phone in landscape is
+	-- commonly 667. The button was simply not visible on the devices where it is
+	-- the only way to leave a match.
+	--
+	-- So below the phone breakpoint it stops being a lane neighbour and moves
+	-- under the lane, centred -- there is no room beside a card that is itself
+	-- most of the screen width, and stacking is what the space allows.
+	local function layout()
+		local lane = Responsive.Lane(Theme)
+		local width = Responsive.Px(BASE_WIDTH)
+		-- Tap() rather than Px(): on touch this button is the entire exit path,
+		-- so it holds the 44pt minimum even when everything around it shrinks.
+		local height = Responsive.Tap(BASE_HEIGHT)
+
+		if Responsive.Tier() == "Phone" then
+			Widgets.Relayout(
+				button,
+				UDim2.fromOffset(width, height),
+				UDim2.new(0.5, -width / 2, 0, lane.CardTop + lane.CardHeight + lane.Gap)
+			)
+		else
+			Widgets.Relayout(button, UDim2.fromOffset(width, height), UDim2.new(0.5, lane.SideOffset, 0, lane.CardTop))
+		end
+	end
+	Responsive.Observe(layout)
 
 	button.MouseButton1Click:Connect(quit)
 end

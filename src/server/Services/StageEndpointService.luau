@@ -254,6 +254,79 @@ local function normalizeFinish(banner: BasePart, finishPad: BasePart, direction:
 	StageEndpointService.ApplyFinishStyle(banner)
 end
 
+local function findVoidZone(stageFolder: Instance): BasePart?
+	for _, part in stageFolder:GetDescendants() do
+		if part:IsA("BasePart") and CollectionService:HasTag(part, "VoidZone") then
+			return part
+		end
+	end
+	return nil
+end
+
+-- Extends the stage's void slab out under the pads that were just grown.
+--
+-- growPad pushes the start pad backwards and the finish pad forwards, but the
+-- slab beneath them is authored geometry that knows nothing about it -- so after
+-- the pads are reshaped they overhang their own trigger by a couple of studs at
+-- each end. Falling off there lands you outside the slab's footprint entirely.
+--
+-- The altitude watchdog in MatchService already catches that fall (it is measured
+-- off the lowest standable platform, not off the slab, precisely so the slab's
+-- footprint stops mattering), so this is not the difference between recovering
+-- and being stranded -- it is the difference between recovering on touch and
+-- recovering up to a seventh of a second later, at the exact spot a full field
+-- spends the countdown standing. Cheap to just close.
+--
+-- Measured along the SLAB's own axes rather than the world's, and its rotation is
+-- preserved: these are hand-drawn parts and nothing here should quietly re-aim
+-- one. Projecting each pad onto those axes (halfExtentAlong) gives the pad's true
+-- extent along them whatever angle either part sits at.
+local function normalizeVoid(stageFolder: Instance, stageId: string, pads: { BasePart })
+	local void = findVoidZone(stageFolder)
+	if not void then
+		warn(("StageEndpointService: %s has no VoidZone -- pads may overhang their trigger"):format(stageId))
+		return
+	end
+
+	local right, look = void.CFrame.RightVector, void.CFrame.LookVector
+	-- A slab lying flat has both of these horizontal, which is what lets the
+	-- third axis be left alone as "height". A tilted one would need the Y term
+	-- carried through every projection below, and no stage has one -- so bail
+	-- rather than silently mis-size it.
+	if math.abs(right.Y) > 1e-3 or math.abs(look.Y) > 1e-3 then
+		warn(("StageEndpointService: %s VoidZone is tilted -- leaving it alone"):format(stageId))
+		return
+	end
+
+	local margin = StageLayout.Void.PadMargin
+
+	-- Current span along one of the slab's own axes, unioned with the span the
+	-- pads need there. `currentSize` is passed in because the slab's extent along
+	-- its OWN axis is just that component of Size -- no projection needed.
+	local function coverAxis(axis: Vector3, currentSize: number): (number, number)
+		local centre = void.Position:Dot(axis)
+		local requiredMin, requiredMax = math.huge, -math.huge
+		for _, pad in pads do
+			local half = halfExtentAlong(pad, axis) + margin
+			local at = pad.Position:Dot(axis)
+			requiredMin = math.min(requiredMin, at - half)
+			requiredMax = math.max(requiredMax, at + half)
+		end
+		return StageLayout.CoverSpan(centre - currentSize / 2, centre + currentSize / 2, requiredMin, requiredMax)
+	end
+
+	local size = void.Size
+	local centreRight, sizeRight = coverAxis(right, size.X)
+	local centreLook, sizeLook = coverAxis(look, size.Z)
+
+	-- right and look are perpendicular horizontal units, so scaling each by its
+	-- own centre coordinate rebuilds the horizontal position exactly. The slab's
+	-- height and depth are authored and stay untouched.
+	local position = right * centreRight + look * centreLook + Vector3.new(0, void.Position.Y, 0)
+	void.Size = Vector3.new(sizeRight, size.Y, sizeLook)
+	void.CFrame = CFrame.new(position) * void.CFrame.Rotation
+end
+
 local function normalizeStage(stage: Stages.StageInfo, stagesFolder: Instance)
 	local stageFolder = stagesFolder:FindFirstChild(stage.Id)
 	if not stageFolder then
@@ -279,6 +352,10 @@ local function normalizeStage(stage: Stages.StageInfo, stagesFolder: Instance)
 	-- Pads first: everything below is positioned off their new edges and decks.
 	growPad(startPad :: BasePart, direction, endpoint.StartPadAlong, endpoint.StartPadAcross, 1)
 	growPad(finishPad :: BasePart, direction, endpoint.FinishPadAlong, endpoint.FinishPadAcross, -1)
+
+	-- After the pads, never before: it reconciles the slab against their FINAL
+	-- footprints.
+	normalizeVoid(stageFolder, stage.Id, { startPad :: BasePart, finishPad :: BasePart })
 
 	normalizeSpawn(stageFolder, stage.Id, startPad :: BasePart, direction)
 	normalizeStartLine(stageFolder, startPad :: BasePart, direction)

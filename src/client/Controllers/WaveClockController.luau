@@ -8,6 +8,7 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
+local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local MatchStateController = require(script.Parent.MatchStateController)
@@ -28,13 +29,19 @@ local WaveClockController = {}
 
 local player = Players.LocalPlayer
 
--- Top of the shared top-centre lane. The tab's own height is what the countdown
--- card below it is positioned against, so it lives in Theme.TopLane rather than
--- here -- a tab that grows without the card moving is exactly the overlap that
--- comment used to describe.
-local TAB_WIDTH = Theme.TopLane.TabWidth
-local TAB_HEIGHT = Theme.TopLane.TabHeight
-local TAB_TOP = Theme.TopLane.TabTop
+-- The tab's own reference geometry lives in Theme.TopLane, not here, because the
+-- countdown card below it is positioned against its height -- a tab that grows
+-- without the card moving is exactly the overlap that comment used to describe.
+-- Responsive.Lane() is those numbers at the current viewport; both controllers
+-- read them the same way, so they still agree on every screen.
+
+-- Icon geometry, at reference size. The text is padded by the icon's width plus
+-- its inset so the glyph and the words stay optically centred as a pair, which
+-- means all three numbers have to scale together or the label drifts off centre.
+local ICON_SIZE = 26
+local ICON_INSET = 14
+local TEXT_INSET = 34
+local LABEL_TEXT = 20
 
 -- Below this the tab turns red and pulses once a second. Ten seconds is about
 -- how long it takes to notice a banner, cross the plaza and press PLAY, so it's
@@ -110,7 +117,11 @@ local function buildUI()
 	-- darker bevel strip along the bottom edge, outlined GothamBlack text. It's
 	-- the same banner used for the world signs and every modal title, so the
 	-- tab reads as part of the set instead of a flat HUD chip bolted on top.
-	container = Widgets.Ribbon("NEXT WAVE  --", UDim2.fromOffset(TAB_WIDTH, TAB_HEIGHT), UDim2.new(0.5, 0, 0, TAB_TOP))
+	container = Widgets.Ribbon(
+		"NEXT WAVE  --",
+		UDim2.fromOffset(Theme.TopLane.TabWidth, Theme.TopLane.TabHeight),
+		UDim2.new(0.5, 0, 0, Theme.TopLane.TabTop)
+	)
 	container.Name = "WaveTab"
 	container.Parent = screenGui
 
@@ -130,16 +141,37 @@ local function buildUI()
 	-- sitting off-centre next to it.
 	local iconHolder = Instance.new("Frame")
 	iconHolder.Name = "Icon"
-	iconHolder.Size = UDim2.fromOffset(26, 26)
+	iconHolder.Size = UDim2.fromOffset(ICON_SIZE, ICON_SIZE)
 	iconHolder.AnchorPoint = Vector2.new(0, 0.5)
-	iconHolder.Position = UDim2.new(0, 14, 0.5, 0)
+	iconHolder.Position = UDim2.new(0, ICON_INSET, 0.5, 0)
 	iconHolder.BackgroundTransparency = 1
 	iconHolder.Parent = container
 	MenuIcons.Populate(iconHolder, "Playtime", Color3.fromRGB(255, 255, 255))
 
 	local padding = Instance.new("UIPadding")
-	padding.PaddingLeft = UDim.new(0, 34)
+	padding.PaddingLeft = UDim.new(0, TEXT_INSET)
 	padding.Parent = label
+
+	-- The tab is the top item in the lane and everything else in it is placed
+	-- below its height, so this has to move with the rest of the lane rather than
+	-- staying at its authored 264x44 -- on a phone that width alone is most of
+	-- the screen, and the card beneath it would still be positioned as though the
+	-- tab were desktop-sized.
+	--
+	-- Ribbon's own internals are already proportional (label and bevel are both
+	-- sized in scale), so only the outer box, the icon and the type need doing.
+	local function layout()
+		local lane = Responsive.Lane(Theme)
+		container.Size = UDim2.fromOffset(lane.TabWidth, lane.TabHeight)
+		container.Position = UDim2.new(0.5, 0, 0, lane.TabTop)
+
+		local icon = Responsive.Px(ICON_SIZE)
+		iconHolder.Size = UDim2.fromOffset(icon, icon)
+		iconHolder.Position = UDim2.new(0, Responsive.Px(ICON_INSET), 0.5, 0)
+		padding.PaddingLeft = UDim.new(0, Responsive.Px(TEXT_INSET))
+		label.TextSize = Responsive.Text(LABEL_TEXT)
+	end
+	Responsive.Observe(layout)
 end
 
 function WaveClockController.Init()

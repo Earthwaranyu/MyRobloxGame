@@ -11,6 +11,7 @@ local RaceVisibilityController = require(script.Parent.RaceVisibilityController)
 
 local AvatarThumbnail = require(script.Parent.Parent.AvatarThumbnail)
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
+local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local Sounds = require(script.Parent.Parent.Sounds)
@@ -82,6 +83,15 @@ local selfNoteLabel: TextLabel
 
 local duelToast: CanvasGroup
 local duelToastLabel: TextLabel
+
+-- Duel toast reference geometry. TOAST_DROP is only the initial build value --
+-- layoutToast positions the toast from the BOTTOM of the viewport, which is what
+-- stopped it landing off-screen on a phone.
+local TOAST_WIDTH, TOAST_HEIGHT = 360, 130
+local TOAST_DROP = 300
+local TOAST_PAD = 10
+local TOAST_LABEL_HEIGHT, TOAST_TEXT = 44, 17
+local TOAST_BUTTON_WIDTH, TOAST_BUTTON_HEIGHT, TOAST_BUTTON_TOP = 150, 40, 78
 -- Not a real Roblox UserId -- just a monotonically increasing token (same
 -- idea as noticeToken below) so the delayed auto-hide can tell "is the toast
 -- still showing the challenge it was scheduled for" without the server
@@ -579,35 +589,85 @@ local function buildUI()
 	toastGui.DisplayOrder = 12
 	toastGui.Parent = player:WaitForChild("PlayerGui")
 
-	duelToast = Widgets.Panel(UDim2.fromOffset(360, 130), UDim2.new(0.5, -180, 0.24, 300))
+	duelToast = Widgets.Panel(
+		UDim2.fromOffset(TOAST_WIDTH, TOAST_HEIGHT),
+		UDim2.new(0.5, -TOAST_WIDTH / 2, 0.24, TOAST_DROP)
+	)
 	duelToast.Parent = toastGui
 
-	duelToastLabel = Widgets.Label("", UDim2.new(1, -20, 0, 44), UDim2.fromOffset(10, 12), {
-		TextSize = 17,
+	duelToastLabel = Widgets.Label("", UDim2.new(1, -TOAST_PAD * 2, 0, TOAST_LABEL_HEIGHT), UDim2.fromOffset(TOAST_PAD, 12), {
+		TextSize = TOAST_TEXT,
 		Align = Enum.TextXAlignment.Center,
 	})
 	duelToastLabel.TextWrapped = true
 	duelToastLabel.Parent = duelToast
 
-	local acceptButton = Widgets.Button("Accept", UDim2.fromOffset(150, 40), UDim2.fromOffset(20, 78), {
-		Variant = "Success",
-		TextSize = 15,
-	})
+	local acceptButton = Widgets.Button(
+		"Accept",
+		UDim2.fromOffset(TOAST_BUTTON_WIDTH, TOAST_BUTTON_HEIGHT),
+		UDim2.fromOffset(20, TOAST_BUTTON_TOP),
+		{ Variant = "Success", TextSize = 15 }
+	)
 	acceptButton.Parent = duelToast
 	acceptButton.MouseButton1Click:Connect(function()
 		respondDuelRemote:FireServer(true)
 		hideDuelToast()
 	end)
 
-	local declineButton = Widgets.Button("Decline", UDim2.fromOffset(150, 40), UDim2.fromOffset(190, 78), {
-		Variant = "Danger",
-		TextSize = 15,
-	})
+	local declineButton = Widgets.Button(
+		"Decline",
+		UDim2.fromOffset(TOAST_BUTTON_WIDTH, TOAST_BUTTON_HEIGHT),
+		UDim2.fromOffset(190, TOAST_BUTTON_TOP),
+		{ Variant = "Danger", TextSize = 15 }
+	)
 	declineButton.Parent = duelToast
 	declineButton.MouseButton1Click:Connect(function()
 		respondDuelRemote:FireServer(false)
 		hideDuelToast()
 	end)
+
+	-- The toast was parked at `0.24 scale + 300 offset`, which on the developer's
+	-- monitor lands it comfortably in the lower half. On a 375pt phone that
+	-- resolves to y = 390 -- entirely BELOW the viewport. Widgets.Open only fades
+	-- and pops scale, it never moves a panel, so the toast never came into view:
+	-- an incoming 1v1 challenge simply could not be accepted or declined on a
+	-- phone.
+	--
+	-- Positioned from the bottom now instead of by a scale-plus-300 guess, and
+	-- lifted clear of the touch-control band so Accept/Decline aren't sitting
+	-- under the thumbstick and jump button either.
+	local function layoutToast()
+		local width = math.min(Responsive.Px(TOAST_WIDTH), Responsive.ViewportSize().X - Responsive.ScreenMargin * 2)
+		local height = Responsive.Px(TOAST_HEIGHT)
+		local buttonHeight = Responsive.Tap(TOAST_BUTTON_HEIGHT)
+		local pad = Responsive.Px(TOAST_PAD)
+		-- Buttons sit inside the toast, so the toast has to be tall enough to
+		-- hold a full-size tap target once Tap() has had its say.
+		height = math.max(height, Responsive.Px(TOAST_BUTTON_TOP) + buttonHeight + pad)
+
+		local y = Responsive.ClampY(
+			Responsive.ViewportSize().Y - Responsive.TouchBand() - height - Responsive.ScreenMargin,
+			height
+		)
+		duelToast.Size = UDim2.fromOffset(width, height)
+		duelToast.Position = UDim2.fromOffset(math.round((Responsive.ViewportSize().X - width) / 2), y)
+
+		duelToastLabel.Size = UDim2.new(1, -pad * 2, 0, Responsive.Px(TOAST_LABEL_HEIGHT))
+		duelToastLabel.Position = UDim2.fromOffset(pad, Responsive.Px(12))
+		duelToastLabel.TextSize = Responsive.Text(TOAST_TEXT)
+
+		-- Two buttons side by side across the toast, gap between them.
+		local gap = Responsive.Px(20)
+		local buttonWidth = math.floor((width - pad * 2 - gap) / 2)
+		local top = height - buttonHeight - pad
+		Widgets.Relayout(acceptButton, UDim2.fromOffset(buttonWidth, buttonHeight), UDim2.fromOffset(pad, top))
+		Widgets.Relayout(
+			declineButton,
+			UDim2.fromOffset(buttonWidth, buttonHeight),
+			UDim2.fromOffset(pad + buttonWidth + gap, top)
+		)
+	end
+	Responsive.Observe(layoutToast)
 
 	-- Small auto-fading notice (duel sent/cancelled, join request sent) --
 	-- informational only, no buttons, doesn't compete for the same screen

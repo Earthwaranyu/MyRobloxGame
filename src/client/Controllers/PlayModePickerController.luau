@@ -7,6 +7,7 @@ local QueueModes = require(Shared.QueueModes)
 local RemoteNames = require(Shared.RemoteNames)
 
 local RacerCrowd = require(script.Parent.Parent.RacerCrowd)
+local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local Sounds = require(script.Parent.Parent.Sounds)
@@ -55,8 +56,40 @@ local CARDS = {
 	{ Target = 5, Count = 5, Title = "5 PLAYERS", Blurb = "Big race", Palette = Theme.Candy.Green },
 }
 
-local PANEL_WIDTH = PAD * 2 + #CARDS * CARD_WIDTH + (#CARDS - 1) * CARD_GAP
-local PANEL_HEIGHT = HEADER + CARD_HEIGHT + SHADOW_DROP + PAD * 2
+local HEADING_WIDTH, HEADING_HEIGHT = 320, 46
+
+-- Live metrics, recomputed from the viewport by relayout() below and read by
+-- buildCard. Everything inside a card is measured off CardWidth/CardHeight, so
+-- these two are all that has to change for the whole card to scale.
+--
+-- WHY THIS PANEL IS THE HARD ONE: five 148-wide cards plus gaps and padding is
+-- 844 points across at reference, which is wider than a phone's entire viewport
+-- in landscape. Scaling alone gets it to 608 at the floor, which technically
+-- fits -- but as five columns of 107px, and a card whose art, watermark and two
+-- lines of type were composed at 148. So on a phone the row also WRAPS: three
+-- across, two down. That is the reflow case the Responsive header calls out as
+-- something a multiplier can't do on its own, and this is the panel that needs
+-- it most.
+local M = {
+	CardWidth = CARD_WIDTH,
+	CardHeight = CARD_HEIGHT,
+	CardGap = CARD_GAP,
+	Pad = PAD,
+	Header = HEADER,
+	ShadowDrop = SHADOW_DROP,
+	HoverLift = HOVER_LIFT,
+	Columns = #CARDS,
+	PanelWidth = PAD * 2 + #CARDS * CARD_WIDTH + (#CARDS - 1) * CARD_GAP,
+	PanelHeight = HEADER + CARD_HEIGHT + SHADOW_DROP + PAD * 2,
+}
+
+-- Where card `index` sits, in panel coordinates, for the current column count.
+local function cardOrigin(index: number): (number, number)
+	local column = (index - 1) % M.Columns
+	local row = math.floor((index - 1) / M.Columns)
+	return M.Pad + column * (M.CardWidth + M.CardGap),
+		M.Header + row * (M.CardHeight + M.ShadowDrop + M.CardGap)
+end
 
 local panel: CanvasGroup
 local openModal: () -> ()
@@ -112,15 +145,19 @@ local function rounded(parent: Instance, name: string, zIndex: number, radius: U
 end
 
 local function buildCard(spec, index: number)
-	local x = PAD + (index - 1) * (CARD_WIDTH + CARD_GAP)
+	local x, y = cardOrigin(index)
+	-- Shorthands: every literal below is a reference-size offset, and the card is
+	-- rebuilt (not tweened) when the viewport changes, so applying the scale here
+	-- at build time is enough -- see relayout().
+	local px, tx = Responsive.Px, Responsive.Text
 
 	-- The holder carries position and hover motion; the card inside never moves
 	-- on its own. Keeping them separate is what lets the shadow sit OUTSIDE the
 	-- card's clipping mask -- otherwise there can be no drop shadow at all.
 	local holder = Instance.new("Frame")
 	holder.Name = spec.Title
-	holder.Size = UDim2.fromOffset(CARD_WIDTH, CARD_HEIGHT)
-	holder.Position = UDim2.fromOffset(x, HEADER)
+	holder.Size = UDim2.fromOffset(M.CardWidth, M.CardHeight)
+	holder.Position = UDim2.fromOffset(x, y)
 	holder.BackgroundTransparency = 1
 	holder.Parent = panel
 
@@ -131,8 +168,8 @@ local function buildCard(spec, index: number)
 	-- straight down and inset slightly so it reads as contact shadow rather than
 	-- a second card peeking out from behind.
 	local shadow = rounded(holder, "Shadow", 0)
-	shadow.Size = UDim2.new(1, -6, 1, 0)
-	shadow.Position = UDim2.fromOffset(3, SHADOW_DROP)
+	shadow.Size = UDim2.new(1, -px(6), 1, 0)
+	shadow.Position = UDim2.fromOffset(px(3), M.ShadowDrop)
 	shadow.BackgroundColor3 = spec.Palette.Shadow
 	shadow.BackgroundTransparency = 0.35
 
@@ -163,8 +200,8 @@ local function buildCard(spec, index: number)
 	-- lifts the figures off the face instead of leaving them sitting flat.
 	local spotlight = rounded(card, "Spotlight", 2, UDim.new(1, 0))
 	spotlight.AnchorPoint = Vector2.new(0.5, 0.5)
-	spotlight.Position = UDim2.fromOffset(CARD_WIDTH / 2, 84)
-	spotlight.Size = UDim2.fromOffset(CARD_WIDTH + 20, 110)
+	spotlight.Position = UDim2.fromOffset(M.CardWidth / 2, px(84))
+	spotlight.Size = UDim2.fromOffset(M.CardWidth + px(20), px(110))
 	spotlight.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 	local spotGradient = Instance.new("UIGradient")
 	spotGradient.Rotation = 90
@@ -181,11 +218,11 @@ local function buildCard(spec, index: number)
 	local watermark = Instance.new("TextLabel")
 	watermark.Name = "Watermark"
 	watermark.BackgroundTransparency = 1
-	watermark.Size = UDim2.fromOffset(96, 96)
-	watermark.Position = UDim2.fromOffset(CARD_WIDTH - 72, -14)
+	watermark.Size = UDim2.fromOffset(px(96), px(96))
+	watermark.Position = UDim2.fromOffset(M.CardWidth - px(72), -px(14))
 	watermark.Font = Theme.Font.Display
 	watermark.Text = if spec.Target == QueueModes.AnySize then "?" else tostring(spec.Target)
-	watermark.TextSize = 86
+	watermark.TextSize = tx(86)
 	watermark.TextColor3 = Color3.fromRGB(255, 255, 255)
 	watermark.TextTransparency = 0.86
 	watermark.ZIndex = 3
@@ -194,15 +231,15 @@ local function buildCard(spec, index: number)
 	-- Contact shadow under the pack, so the runners stand on something.
 	local ground = rounded(card, "Ground", 4, UDim.new(1, 0))
 	ground.AnchorPoint = Vector2.new(0.5, 0.5)
-	ground.Position = UDim2.fromOffset(CARD_WIDTH / 2, 118)
-	ground.Size = UDim2.fromOffset(CARD_WIDTH - 34, 16)
+	ground.Position = UDim2.fromOffset(M.CardWidth / 2, px(118))
+	ground.Size = UDim2.fromOffset(M.CardWidth - px(34), px(16))
 	ground.BackgroundColor3 = spec.Palette.Shadow
 	ground.BackgroundTransparency = 0.45
 
 	local art = Instance.new("Frame")
 	art.Name = "Art"
-	art.Size = UDim2.fromOffset(CARD_WIDTH - 12, CARD_WIDTH - 12)
-	art.Position = UDim2.fromOffset(6, 14)
+	art.Size = UDim2.fromOffset(M.CardWidth - px(12), M.CardWidth - px(12))
+	art.Position = UDim2.fromOffset(px(6), px(14))
 	art.BackgroundTransparency = 1
 	art.ZIndex = 5
 	art.Parent = card
@@ -222,7 +259,7 @@ local function buildCard(spec, index: number)
 	band.Name = "Band"
 	band.AnchorPoint = Vector2.new(0, 1)
 	band.Position = UDim2.fromScale(0, 1)
-	band.Size = UDim2.new(1, 0, 0, 78)
+	band.Size = UDim2.new(1, 0, 0, px(78))
 	band.BackgroundColor3 = spec.Palette.Shadow
 	band.BorderSizePixel = 0
 	band.ZIndex = 6
@@ -236,9 +273,9 @@ local function buildCard(spec, index: number)
 	})
 	bandGradient.Parent = band
 
-	local title = Widgets.Label(spec.Title, UDim2.new(1, -10, 0, 24), UDim2.fromOffset(5, CARD_HEIGHT - 54), {
+	local title = Widgets.Label(spec.Title, UDim2.new(1, -px(10), 0, px(24)), UDim2.fromOffset(px(5), M.CardHeight - px(54)), {
 		Font = Theme.Font.Display,
-		TextSize = 19,
+		TextSize = tx(19),
 		Align = Enum.TextXAlignment.Center,
 		Color = Color3.fromRGB(255, 255, 255),
 	})
@@ -247,9 +284,9 @@ local function buildCard(spec, index: number)
 	title.TextStrokeTransparency = 0.4
 	title.Parent = card
 
-	local blurb = Widgets.Label(spec.Blurb, UDim2.new(1, -10, 0, 18), UDim2.fromOffset(5, CARD_HEIGHT - 30), {
+	local blurb = Widgets.Label(spec.Blurb, UDim2.new(1, -px(10), 0, px(18)), UDim2.fromOffset(px(5), M.CardHeight - px(30)), {
 		Font = Theme.Font.Body,
-		TextSize = 14,
+		TextSize = tx(14),
 		Align = Enum.TextXAlignment.Center,
 		Color = IDLE_COLOR,
 	})
@@ -262,8 +299,8 @@ local function buildCard(spec, index: number)
 	-- look. Without it the card's top edge and its white border merge into one
 	-- flat line and the whole thing deflates.
 	local rim = rounded(card, "Rim", 8, UDim.new(0, 10))
-	rim.Size = UDim2.new(1, -16, 0, 5)
-	rim.Position = UDim2.fromOffset(8, 5)
+	rim.Size = UDim2.new(1, -px(16), 0, px(5))
+	rim.Position = UDim2.fromOffset(px(8), px(5))
 	rim.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 	rim.BackgroundTransparency = 0.62
 
@@ -272,8 +309,8 @@ local function buildCard(spec, index: number)
 	local gloss = Instance.new("Frame")
 	gloss.Name = "Gloss"
 	gloss.AnchorPoint = Vector2.new(0.5, 0.5)
-	gloss.Position = UDim2.fromOffset(22, 34)
-	gloss.Size = UDim2.fromOffset(58, 240)
+	gloss.Position = UDim2.fromOffset(px(22), px(34))
+	gloss.Size = UDim2.fromOffset(px(58), px(240))
 	gloss.Rotation = 28
 	gloss.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 	gloss.BorderSizePixel = 0
@@ -294,7 +331,7 @@ local function buildCard(spec, index: number)
 		local flag = rounded(card, "Flag", 10, UDim.new(0, 8))
 		flag.AnchorPoint = Vector2.new(0.5, 0)
 		flag.Position = UDim2.fromScale(0.5, 0)
-		flag.Size = UDim2.fromOffset(98, 24)
+		flag.Size = UDim2.fromOffset(px(98), px(24))
 		flag.BackgroundColor3 = Theme.Candy.Red.Face
 
 		local flagStroke = Instance.new("UIStroke")
@@ -304,7 +341,7 @@ local function buildCard(spec, index: number)
 
 		local flagLabel = Widgets.Label("FASTEST", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), {
 			Font = Theme.Font.Display,
-			TextSize = 12,
+			TextSize = tx(12),
 			Align = Enum.TextXAlignment.Center,
 			Color = Color3.fromRGB(255, 255, 255),
 		})
@@ -327,18 +364,18 @@ local function buildCard(spec, index: number)
 	-- what sells it as height rather than as the card simply getting bigger.
 	hit.MouseEnter:Connect(function()
 		TweenService:Create(holderScale, Theme.Anim.Ease, { Scale = 1.06 }):Play()
-		TweenService:Create(holder, Theme.Anim.Ease, { Position = UDim2.fromOffset(x, HEADER - HOVER_LIFT) }):Play()
+		TweenService:Create(holder, Theme.Anim.Ease, { Position = UDim2.fromOffset(x, y - M.HoverLift) }):Play()
 		TweenService:Create(shadow, Theme.Anim.Ease, {
-			Position = UDim2.fromOffset(3, SHADOW_DROP + HOVER_LIFT),
+			Position = UDim2.fromOffset(px(3), M.ShadowDrop + M.HoverLift),
 			BackgroundTransparency = 0.2,
 		}):Play()
 		TweenService:Create(stroke, Theme.Anim.Ease, { Thickness = 5 }):Play()
 	end)
 	hit.MouseLeave:Connect(function()
 		TweenService:Create(holderScale, Theme.Anim.Ease, { Scale = 1 }):Play()
-		TweenService:Create(holder, Theme.Anim.Ease, { Position = UDim2.fromOffset(x, HEADER) }):Play()
+		TweenService:Create(holder, Theme.Anim.Ease, { Position = UDim2.fromOffset(x, y) }):Play()
 		TweenService:Create(shadow, Theme.Anim.Ease, {
-			Position = UDim2.fromOffset(3, SHADOW_DROP),
+			Position = UDim2.fromOffset(px(3), M.ShadowDrop),
 			BackgroundTransparency = 0.35,
 		}):Play()
 		TweenService:Create(stroke, Theme.Anim.Ease, { Thickness = 3 }):Play()
@@ -359,19 +396,72 @@ local function buildUI()
 	local screenGui
 	panel, openModal, closeModal, _, screenGui = Widgets.Modal(
 		"PlayModePicker",
-		UDim2.fromOffset(PANEL_WIDTH, PANEL_HEIGHT),
-		UDim2.new(0.5, -PANEL_WIDTH / 2, 0.5, -PANEL_HEIGHT / 2),
+		UDim2.fromOffset(M.PanelWidth, M.PanelHeight),
+		UDim2.new(0.5, -M.PanelWidth / 2, 0.5, -M.PanelHeight / 2),
 		{ DisplayOrder = 26 }
 	)
 	screenGui.Name = "PlayModePickerGui"
 
-	local heading = Widgets.Ribbon("CHOOSE YOUR RACE", UDim2.fromOffset(320, 46), UDim2.new(0.5, 0, 0, -18))
+	local heading = Widgets.Ribbon(
+		"CHOOSE YOUR RACE",
+		UDim2.fromOffset(HEADING_WIDTH, HEADING_HEIGHT),
+		UDim2.new(0.5, 0, 0, -HEADING_HEIGHT / 2)
+	)
 	heading.ZIndex = 30
 	heading.Parent = panel
 
-	for index, spec in CARDS do
-		buildCard(spec, index)
+	-- Cards are REBUILT rather than re-measured on a viewport change.
+	--
+	-- A card is ~20 nested frames whose every offset is derived from CardWidth,
+	-- so a relayout pass would be a second, parallel copy of buildCard that has
+	-- to be kept in step with it -- the exact duplication that put the lane's
+	-- numbers out of sync in the first place. Rebuilding keeps one description of
+	-- what a card is. It costs a few frames on an event that fires when a player
+	-- rotates their phone or drags a window, and never during a race.
+	local function relayout()
+		local px = Responsive.Px
+		M.CardWidth = px(CARD_WIDTH)
+		M.CardHeight = px(CARD_HEIGHT)
+		M.CardGap = px(CARD_GAP)
+		M.Pad = px(PAD)
+		M.Header = px(HEADER)
+		M.ShadowDrop = px(SHADOW_DROP)
+		M.HoverLift = px(HOVER_LIFT)
+		-- Three across on a phone, all five on anything wider. Five columns at
+		-- the scale floor would be 107px cards -- narrower than their own
+		-- watermark was composed for.
+		M.Columns = if Responsive.Tier() == "Phone" then 3 else #CARDS
+
+		local rows = math.ceil(#CARDS / M.Columns)
+		M.PanelWidth = M.Pad * 2 + M.Columns * M.CardWidth + (M.Columns - 1) * M.CardGap
+		M.PanelHeight = M.Header
+			+ rows * M.CardHeight
+			+ (rows - 1) * (M.ShadowDrop + M.CardGap)
+			+ M.ShadowDrop
+			+ M.Pad * 2
+
+		panel.Size = UDim2.fromOffset(M.PanelWidth, M.PanelHeight)
+		panel.Position = UDim2.new(0.5, -M.PanelWidth / 2, 0.5, -M.PanelHeight / 2)
+
+		local headingHeight = px(HEADING_HEIGHT)
+		heading.Size = UDim2.fromOffset(px(HEADING_WIDTH), headingHeight)
+		heading.Position = UDim2.new(0.5, 0, 0, -headingHeight / 2)
+
+		for _, holder in holders do
+			holder:Destroy()
+		end
+		table.clear(holders)
+		table.clear(blurbLabels)
+		table.clear(blurbText)
+
+		for index, spec in CARDS do
+			buildCard(spec, index)
+		end
+		-- The rebuilt blurbs come back with their flavour text; the live queue
+		-- counts have to be written onto them again.
+		refreshCounts()
 	end
+	Responsive.Observe(relayout)
 end
 
 -- Cards pop in left to right rather than all at once. Everything appearing on

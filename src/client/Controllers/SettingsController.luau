@@ -8,6 +8,8 @@ local RemoteNames = require(Shared.RemoteNames)
 local Signal = require(Shared.Signal)
 
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
+local MobileMenu = require(script.Parent.Parent.MobileMenu)
+local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local TutorialController = require(script.Parent.TutorialController)
@@ -17,6 +19,11 @@ local TutorialController = require(script.Parent.TutorialController)
 -- to Changed for updates -- both are available immediately at require-time,
 -- same pattern as MatchStateController/SprintController.
 local SettingsController = {}
+
+-- Reference geometry for the panel. Its content rows are positioned in scaled
+-- offsets against these, so panel and rows shrink as one -- see layoutPanel.
+local PANEL_WIDTH = 360
+local PANEL_HEIGHT = 328
 
 SettingsController.WindEffectEnabled = true
 SettingsController.Changed = Signal.new()
@@ -80,8 +87,10 @@ local function buildVolumeRow(
 	groupName: string,
 	onUserDrag: (() -> ())?
 ): VolumeRow
-	local rowLabel = Widgets.Label(labelText, UDim2.new(1, -88, 0, 20), UDim2.fromOffset(8, yOffset), {
-		TextSize = 16,
+	local px, tx = Responsive.Px, Responsive.Text
+
+	local rowLabel = Widgets.Label(labelText, UDim2.new(1, -px(88), 0, px(20)), UDim2.fromOffset(px(8), yOffset), {
+		TextSize = tx(16),
 		Color = Theme.Color.TextSecondary,
 	})
 	rowLabel.Parent = panel
@@ -90,11 +99,12 @@ local function buildVolumeRow(
 	-- was rendering as "MUT..." at 50. Barely reachable before (you had to drag
 	-- a slider all the way down); the mute button below makes it a one-tap,
 	-- everyday state, so it has to actually fit.
-	local valueLabel = Widgets.Label(formatVolume(1), UDim2.fromOffset(70, 20), UDim2.new(1, -78, 0, yOffset), {
-		TextSize = 16,
-		Align = Enum.TextXAlignment.Right,
-		Color = Theme.Color.TextSecondary,
-	})
+	local valueLabel =
+		Widgets.Label(formatVolume(1), UDim2.fromOffset(px(70), px(20)), UDim2.new(1, -px(78), 0, yOffset), {
+			TextSize = tx(16),
+			Align = Enum.TextXAlignment.Right,
+			Color = Theme.Color.TextSecondary,
+		})
 	valueLabel.Parent = panel
 
 	local current = 1
@@ -107,8 +117,8 @@ local function buildVolumeRow(
 	end
 
 	local slider, setSliderValue = Widgets.Slider(
-		UDim2.new(1, -16, 0, 28),
-		UDim2.fromOffset(8, yOffset + 24),
+		UDim2.new(1, -px(16), 0, px(28)),
+		UDim2.fromOffset(px(8), yOffset + px(24)),
 		1,
 		function(value)
 			applyVolume(value)
@@ -136,17 +146,21 @@ end
 -- (see GachaController.refreshSkipPurchaseRow) instead of only being
 -- discoverable there.
 local function buildSkipGachaRow(panel: CanvasGroup, yOffset: number)
-	local rowLabel =
-		Widgets.Label("Skip gacha pull animation", UDim2.new(1, -150, 0, 36), UDim2.fromOffset(8, yOffset), {
-			TextSize = 16,
+	local rowLabel = Widgets.Label(
+		"Skip gacha pull animation",
+		UDim2.new(1, -Responsive.Px(150), 0, Responsive.Px(36)),
+		UDim2.fromOffset(Responsive.Px(8), yOffset),
+		{
+			TextSize = Responsive.Text(16),
 			Color = Theme.Color.TextSecondary,
-		})
+		}
+	)
 	rowLabel.Parent = panel
 
 	local actionSlot = Instance.new("Frame")
 	actionSlot.Name = "SkipGachaActionSlot"
-	actionSlot.Size = UDim2.fromOffset(110, 36)
-	actionSlot.Position = UDim2.new(1, -120, 0, yOffset)
+	actionSlot.Size = UDim2.fromOffset(Responsive.Px(110), Responsive.Tap(36))
+	actionSlot.Position = UDim2.new(1, -Responsive.Px(120), 0, yOffset)
 	actionSlot.BackgroundTransparency = 1
 	actionSlot.Parent = panel
 
@@ -207,6 +221,9 @@ local function buildUI()
 		end,
 	})
 	toggleButton.Parent = screenGui
+	-- Bottom-left is where Roblox draws the movement thumbstick, so on a phone
+	-- this button was unpressable. See MobileMenu -- no-op on desktop.
+	MobileMenu.Adopt(toggleButton, 1)
 
 	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a
 	-- bare Widgets.Panel only closable via this one toggle button.
@@ -220,27 +237,62 @@ local function buildUI()
 	-- Settings toggle -- muting is something you want mid-race, not four
 	-- clicks deep. The Y offset moves with every height change so the panel's
 	-- BOTTOM edge stays put just above the toggle button.
-	panel, openPanel, closePanel = Widgets.Modal("Settings", UDim2.fromOffset(360, 328), UDim2.new(0, 10, 1, -404), {
-		DisplayOrder = 30,
-	})
+	panel, openPanel, closePanel =
+		Widgets.Modal("Settings", UDim2.fromOffset(PANEL_WIDTH, PANEL_HEIGHT), UDim2.new(0, 10, 1, -404), {
+			DisplayOrder = 30,
+		})
 
-	local ribbon = Widgets.Ribbon("SETTINGS", UDim2.fromOffset(200, 40), UDim2.new(0.5, 0, 0, -20))
+	-- That "bottom edge stays put just above the toggle button" placement is a
+	-- desktop assumption: it resolves to y = -29 on a 375pt phone, clipping the
+	-- panel's top -- and once the toggle moves into the drawer there is no
+	-- button down there to sit above anyway. Clamped to the viewport instead,
+	-- and centred rather than pinned to the bottom-left once it no longer has a
+	-- toggle to hang off.
+	local function layoutPanel()
+		local width = math.min(Responsive.Px(PANEL_WIDTH), Responsive.ViewportSize().X - Responsive.ScreenMargin * 2)
+		local height = Responsive.FitHeight(PANEL_HEIGHT, Responsive.ScreenMargin)
+		local x = if MobileMenu.IsAdopted(toggleButton)
+			then math.round((Responsive.ViewportSize().X - width) / 2)
+			else Responsive.Px(10)
+		panel.Size = UDim2.fromOffset(width, height)
+		panel.Position = UDim2.fromOffset(
+			Responsive.ClampX(x, width),
+			Responsive.ClampY(math.round((Responsive.ViewportSize().Y - height) / 2), height)
+		)
+	end
+	Responsive.Observe(layoutPanel)
+
+	local ribbon = Widgets.Ribbon(
+		"SETTINGS",
+		UDim2.fromOffset(Responsive.Px(200), Responsive.Px(40)),
+		UDim2.new(0.5, 0, 0, -Responsive.Px(20))
+	)
 	ribbon.Parent = panel
 
-	local rowLabel = Widgets.Label("Wind effect while sprinting", UDim2.new(1, -150, 0, 44), UDim2.fromOffset(8, 44), {
-		TextSize = 16,
-		Color = Theme.Color.TextSecondary,
-	})
+	local rowLabel = Widgets.Label(
+		"Wind effect while sprinting",
+		UDim2.new(1, -Responsive.Px(150), 0, Responsive.Px(44)),
+		UDim2.fromOffset(Responsive.Px(8), Responsive.Px(44)),
+		{
+			TextSize = Responsive.Text(16),
+			Color = Theme.Color.TextSecondary,
+		}
+	)
 	rowLabel.Parent = panel
 
 	-- Explicit TextSize + widened button (see buildVolumeRow's comment below
 	-- for the full story) -- matches the volume/skip-gacha toggles' sizing so
 	-- all the small pill buttons in this panel look consistent.
-	local windButton, windSetActive = Widgets.Button("ON", UDim2.fromOffset(110, 36), UDim2.new(1, -120, 0, 44), {
-		Variant = "Tab",
-		Active = true,
-		TextSize = 28,
-	})
+	local windButton, windSetActive = Widgets.Button(
+		"ON",
+		UDim2.fromOffset(Responsive.Px(110), Responsive.Tap(36)),
+		UDim2.new(1, -Responsive.Px(120), 0, Responsive.Px(44)),
+		{
+			Variant = "Tab",
+			Active = true,
+			TextSize = 28,
+		}
+	)
 	windButton.Parent = panel
 	windSetActive(true)
 
@@ -286,6 +338,7 @@ local function buildUI()
 		end,
 	})
 	muteButton.Parent = screenGui
+	MobileMenu.Adopt(muteButton, 2)
 	muteSetActive(false)
 
 	-- Dragging either slider by hand is an explicit statement about what you
@@ -299,8 +352,11 @@ local function buildUI()
 		end
 	end
 
-	musicRow = buildVolumeRow(panel, "Music volume", 96, "Music", onVolumeDragged)
-	sfxRow = buildVolumeRow(panel, "SFX volume", 156, "SFX", onVolumeDragged)
+	-- Row offsets are scaled at the call site so every row moves with the panel,
+	-- which shrinks with the viewport -- an unscaled row on a scaled panel simply
+	-- falls off the bottom of it.
+	musicRow = buildVolumeRow(panel, "Music volume", Responsive.Px(96), "Music", onVolumeDragged)
+	sfxRow = buildVolumeRow(panel, "SFX volume", Responsive.Px(156), "SFX", onVolumeDragged)
 
 	muteButton.MouseButton1Click:Connect(function()
 		muted = not muted
@@ -318,12 +374,17 @@ local function buildUI()
 		refreshMuteButton()
 	end)
 
-	buildSkipGachaRow(panel, 216)
+	buildSkipGachaRow(panel, Responsive.Px(216))
 
-	local howToPlayButton = Widgets.Button("How to Play", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 260), {
-		Variant = "Secondary",
-		TextSize = 16,
-	})
+	local howToPlayButton = Widgets.Button(
+		"How to Play",
+		UDim2.new(1, -Responsive.Px(16), 0, Responsive.Tap(40)),
+		UDim2.fromOffset(Responsive.Px(8), Responsive.Px(260)),
+		{
+			Variant = "Secondary",
+			TextSize = 16,
+		}
+	)
 	howToPlayButton.Parent = panel
 	howToPlayButton.MouseButton1Click:Connect(function()
 		TutorialController.Show()

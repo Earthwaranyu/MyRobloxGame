@@ -10,6 +10,7 @@ local RemoteNames = require(Shared.RemoteNames)
 
 local AbilityIcons = require(script.Parent.Parent.AbilityIcons)
 local CategoryIcons = require(script.Parent.Parent.CategoryIcons)
+local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local Sounds = require(script.Parent.Parent.Sounds)
@@ -25,6 +26,11 @@ local Sounds = require(script.Parent.Parent.Sounds)
 -- alongside every other simple toggle; this file only ever reads profile.
 -- SkipGachaAnimationEnabled, it doesn't own that preference.
 local GachaController = {}
+
+-- Reference geometry. Both heights are maximums -- Responsive.PlacePanel clamps
+-- them to what the viewport can show.
+local GACHA_WIDTH, GACHA_HEIGHT = 400, 520
+local REVEAL_WIDTH, REVEAL_HEIGHT = 640, 380
 
 local player = Players.LocalPlayer
 
@@ -458,10 +464,25 @@ local function buildMainPanel()
 
 	panel, openMainPanel, closeMainPanel = Widgets.Modal(
 		"Gacha",
-		UDim2.fromOffset(400, 520),
+		UDim2.fromOffset(GACHA_WIDTH, GACHA_HEIGHT),
 		UDim2.new(1, -410, 0, 116),
 		{ DisplayOrder = 30 }
 	)
+
+	-- The worst overflow in the HUD: 261pt of this panel was below the bottom
+	-- edge of a phone, which is every pull button on it. The content pane is a
+	-- relative-sized ScrollingFrame, so clamping the panel shortens the scroll
+	-- window rather than losing rows.
+	Responsive.Observe(function()
+		local width = math.min(Responsive.Px(GACHA_WIDTH), Responsive.ViewportSize().X - Responsive.ScreenMargin * 2)
+		Responsive.PlacePanel(
+			panel,
+			GACHA_WIDTH,
+			GACHA_HEIGHT,
+			Responsive.ViewportSize().X - width - Responsive.Px(10),
+			Responsive.Px(116)
+		)
+	end)
 
 	-- Ribbon replaces the old plain title label -- see Widgets.Ribbon. Sits
 	-- half-overlapping the panel's own top edge, like a hanging sign.
@@ -497,7 +518,7 @@ local function buildMainPanel()
 	-- confirmed crisp). 26 (not 28) specifically because 28 overflows
 	-- "Lucky Active — Better Odds" past this button's width -- see the
 	-- TextService margin check done during testing.
-	luckyButton = Widgets.Button("🍀 Get Lucky — Better Odds", UDim2.new(1, 0, 0, 32), UDim2.fromOffset(0, 0), {
+	luckyButton = Widgets.Button("🍀 Get Lucky — Better Odds", UDim2.new(1, 0, 0, Responsive.Tap(32)), UDim2.fromOffset(0, 0), {
 		Variant = "Danger",
 		TextSize = 26,
 	})
@@ -508,7 +529,7 @@ local function buildMainPanel()
 		end
 	end)
 	-- See luckyButton's comment above -- same explicit crisp-text size.
-	local pullOneButton = Widgets.Button("Pull x1 — 1500 pts", UDim2.fromOffset(272, 36), UDim2.fromOffset(0, 38), {
+	local pullOneButton = Widgets.Button("Pull x1 — 1500 pts", UDim2.fromOffset(Responsive.Px(272), Responsive.Tap(36)), UDim2.fromOffset(0, Responsive.Px(38)), {
 		Variant = "Primary",
 		TextSize = 26,
 	})
@@ -523,7 +544,7 @@ local function buildMainPanel()
 	-- R$ was already crisp at 14px (dark text on this Secondary variant's
 	-- white fill doesn't show the same softness white text does), but sized
 	-- to match pullOneButton's text instead of looking mismatched next to it.
-	local robuxOneButton = Widgets.Button("R$", UDim2.fromOffset(96, 36), UDim2.fromOffset(280, 38), {
+	local robuxOneButton = Widgets.Button("R$", UDim2.fromOffset(Responsive.Px(96), Responsive.Tap(36)), UDim2.fromOffset(Responsive.Px(280), Responsive.Px(38)), {
 		Variant = "Secondary",
 		TextSize = 26,
 	})
@@ -532,7 +553,7 @@ local function buildMainPanel()
 		promptRobuxRemote:FireServer(1)
 	end)
 
-	local pullTenButton = Widgets.Button("Pull x10 — 13500 pts", UDim2.fromOffset(272, 36), UDim2.fromOffset(0, 78), {
+	local pullTenButton = Widgets.Button("Pull x10 — 13500 pts", UDim2.fromOffset(Responsive.Px(272), Responsive.Tap(36)), UDim2.fromOffset(0, Responsive.Px(78)), {
 		Variant = "Primary",
 		TextSize = 26,
 	})
@@ -544,7 +565,7 @@ local function buildMainPanel()
 		end
 	end)
 
-	local robuxTenButton = Widgets.Button("R$", UDim2.fromOffset(96, 36), UDim2.fromOffset(280, 78), {
+	local robuxTenButton = Widgets.Button("R$", UDim2.fromOffset(Responsive.Px(96), Responsive.Tap(36)), UDim2.fromOffset(Responsive.Px(280), Responsive.Px(78)), {
 		Variant = "Secondary",
 		TextSize = 26,
 	})
@@ -652,10 +673,26 @@ end
 local function buildRevealOverlay()
 	revealPanel, openRevealPanel, closeRevealPanel, setRevealClickOutsideEnabled = Widgets.Modal(
 		"GachaReveal",
-		UDim2.fromOffset(640, 380),
-		UDim2.new(0.5, -320, 0.5, -190),
+		UDim2.fromOffset(REVEAL_WIDTH, REVEAL_HEIGHT),
+		UDim2.new(0.5, -REVEAL_WIDTH / 2, 0.5, -REVEAL_HEIGHT / 2),
 		{ DisplayOrder = 32 }
 	)
+
+	-- 640 wide is nearly a phone's entire viewport and 380 is taller than one,
+	-- so the reveal -- the payoff for spending points -- was clipped at both
+	-- ends on the device most likely to be watching it.
+	Responsive.Observe(function()
+		local viewport = Responsive.ViewportSize()
+		local width = math.min(Responsive.Px(REVEAL_WIDTH), viewport.X - Responsive.ScreenMargin * 2)
+		local height = Responsive.FitHeight(REVEAL_HEIGHT, Responsive.ScreenMargin)
+		Responsive.PlacePanel(
+			revealPanel,
+			REVEAL_WIDTH,
+			REVEAL_HEIGHT,
+			math.round((viewport.X - width) / 2),
+			math.round((viewport.Y - height) / 2)
+		)
+	end)
 
 	-- continueButton below explicitly calls GachaController.Refresh() on its
 	-- own click, but that was the ONLY path that did -- the modal's built-in
@@ -750,7 +787,7 @@ local function buildRevealOverlay()
 	-- Span 334-374 (computed the same way -- position.Y.Scale*H + offset +
 	-- height/2 = the button's actual CENTER), leaving an 8px gap below
 	-- summaryLabel's 256-326 span instead of overlapping it.
-	continueButton = Widgets.Button("Continue", UDim2.fromOffset(180, 40), UDim2.new(0.5, -90, 1, -46), {
+	continueButton = Widgets.Button("Continue", UDim2.fromOffset(Responsive.Px(180), Responsive.Tap(40)), UDim2.new(0.5, -Responsive.Px(180) / 2, 1, -(Responsive.Tap(40) + Responsive.Px(6))), {
 		Variant = "Primary",
 		TextSize = 15,
 	})

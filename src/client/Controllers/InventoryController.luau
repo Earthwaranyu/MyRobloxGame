@@ -9,6 +9,7 @@ local RemoteNames = require(Shared.RemoteNames)
 
 local AbilityIcons = require(script.Parent.Parent.AbilityIcons)
 local CategoryIcons = require(script.Parent.Parent.CategoryIcons)
+local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 
@@ -17,6 +18,11 @@ local Widgets = require(script.Parent.Parent.Widgets)
 -- HUD button so equipping doesn't require detouring through the gacha-pull
 -- panel to get there.
 local InventoryController = {}
+
+-- Reference geometry. INV_HEIGHT is a maximum -- Responsive.PlacePanel clamps it
+-- to what the viewport can show.
+local INV_WIDTH = 380
+local INV_HEIGHT = 480
 
 local player = Players.LocalPlayer
 local RARITY_COLOR = RarityColors
@@ -155,9 +161,24 @@ local function buildUI()
 
 	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a
 	-- bare Widgets.Panel only closable via this one toggle button.
-	panel, openPanel, closePanel = Widgets.Modal("Inventory", UDim2.fromOffset(380, 480), UDim2.new(0.5, -190, 0.5, -240), {
+	panel, openPanel, closePanel = Widgets.Modal("Inventory", UDim2.fromOffset(INV_WIDTH, INV_HEIGHT), UDim2.new(0.5, -INV_WIDTH / 2, 0.5, -INV_HEIGHT / 2), {
 		DisplayOrder = 30,
 	})
+
+	-- Centred, so a 480-tall panel on a 375pt viewport loses ~52pt off BOTH ends
+	-- -- the ribbon off the top and the last ability row off the bottom.
+	Responsive.Observe(function()
+		local viewport = Responsive.ViewportSize()
+		local width = math.min(Responsive.Px(INV_WIDTH), viewport.X - Responsive.ScreenMargin * 2)
+		local height = Responsive.FitHeight(INV_HEIGHT, Responsive.ScreenMargin)
+		Responsive.PlacePanel(
+			panel,
+			INV_WIDTH,
+			INV_HEIGHT,
+			math.round((viewport.X - width) / 2),
+			math.round((viewport.Y - height) / 2)
+		)
+	end)
 
 	local ribbon = Widgets.Ribbon("INVENTORY", UDim2.fromOffset(220, 40), UDim2.new(0.5, 0, 0, -20))
 	ribbon.Parent = panel

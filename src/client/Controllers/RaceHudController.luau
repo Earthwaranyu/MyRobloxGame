@@ -7,6 +7,7 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 local Stages = require(Shared.Stages)
 
+local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local MatchStateController = require(script.Parent.MatchStateController)
@@ -19,6 +20,22 @@ local panel: CanvasGroup
 local stageLabel: TextLabel
 local positionLabel: TextLabel
 local timeLabel: TextLabel
+
+-- Reference geometry. This panel is the third member of Theme's top-centre lane
+-- (the race timer), and the only one that never actually read the lane's numbers
+-- -- its 240x104 at y=56 is hand-placed and does not line up with the lane's own
+-- CardTop of 82. Left alone that is a cosmetic 26px, but once the lane scales
+-- with the viewport and this does not, the gap becomes a real overlap on small
+-- screens. So it scales too, against its own authored numbers rather than being
+-- silently re-homed onto the lane -- moving it is a visual decision, and this
+-- change is about making the HUD survive a phone, not about re-siting the timer.
+local PANEL_WIDTH = 240
+local PANEL_HEIGHT = 104
+local PANEL_TOP = 56
+local PANEL_PAD = 8
+local STAGE_HEIGHT, STAGE_TOP, STAGE_TEXT = 16, 4, 12
+local POSITION_HEIGHT, POSITION_TOP, POSITION_TEXT = 34, 20, 22
+local TIME_HEIGHT, TIME_TOP, TIME_TEXT = 26, 58, 18
 
 -- Set by MapSelected shortly before the race starts (see QueueStatusController
 -- for the reveal animation that shows the player the same information).
@@ -51,29 +68,55 @@ local function buildUI()
 	screenGui.ResetOnSpawn = false
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
-	panel = Widgets.Panel(UDim2.fromOffset(240, 104), UDim2.new(0.5, -120, 0, 56))
+	panel = Widgets.Panel(UDim2.fromOffset(PANEL_WIDTH, PANEL_HEIGHT), UDim2.new(0.5, -PANEL_WIDTH / 2, 0, PANEL_TOP))
 	panel.Parent = screenGui
 
-	stageLabel = Widgets.Label("", UDim2.new(1, -16, 0, 16), UDim2.fromOffset(8, 4), {
-		TextSize = 12,
-		Color = Theme.Color.TextMuted,
-		Align = Enum.TextXAlignment.Center,
-	})
+	stageLabel =
+		Widgets.Label("", UDim2.new(1, -PANEL_PAD * 2, 0, STAGE_HEIGHT), UDim2.fromOffset(PANEL_PAD, STAGE_TOP), {
+			TextSize = STAGE_TEXT,
+			Color = Theme.Color.TextMuted,
+			Align = Enum.TextXAlignment.Center,
+		})
 	stageLabel.Parent = panel
 
-	positionLabel = Widgets.Label("Position: -", UDim2.new(1, -16, 0, 34), UDim2.fromOffset(8, 20), {
-		Font = Theme.Font.Display,
-		TextSize = 22,
-		Align = Enum.TextXAlignment.Center,
-	})
+	positionLabel = Widgets.Label(
+		"Position: -",
+		UDim2.new(1, -PANEL_PAD * 2, 0, POSITION_HEIGHT),
+		UDim2.fromOffset(PANEL_PAD, POSITION_TOP),
+		{
+			Font = Theme.Font.Display,
+			TextSize = POSITION_TEXT,
+			Align = Enum.TextXAlignment.Center,
+		}
+	)
 	positionLabel.Parent = panel
 
-	timeLabel = Widgets.Label("0:00.00", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 58), {
-		TextSize = 18,
-		Color = Theme.Color.TextSecondary,
-		Align = Enum.TextXAlignment.Center,
-	})
+	timeLabel =
+		Widgets.Label("0:00.00", UDim2.new(1, -PANEL_PAD * 2, 0, TIME_HEIGHT), UDim2.fromOffset(PANEL_PAD, TIME_TOP), {
+			TextSize = TIME_TEXT,
+			Color = Theme.Color.TextSecondary,
+			Align = Enum.TextXAlignment.Center,
+		})
 	timeLabel.Parent = panel
+
+	local function layout()
+		local width = Responsive.Px(PANEL_WIDTH)
+		local pad = Responsive.Px(PANEL_PAD)
+		panel.Size = UDim2.fromOffset(width, Responsive.Px(PANEL_HEIGHT))
+		panel.Position = UDim2.new(0.5, -width / 2, 0, Responsive.Px(PANEL_TOP))
+
+		local rows = {
+			{ Label = stageLabel, Height = STAGE_HEIGHT, Top = STAGE_TOP, Text = STAGE_TEXT },
+			{ Label = positionLabel, Height = POSITION_HEIGHT, Top = POSITION_TOP, Text = POSITION_TEXT },
+			{ Label = timeLabel, Height = TIME_HEIGHT, Top = TIME_TOP, Text = TIME_TEXT },
+		}
+		for _, row in rows do
+			row.Label.Size = UDim2.new(1, -pad * 2, 0, Responsive.Px(row.Height))
+			row.Label.Position = UDim2.fromOffset(pad, Responsive.Px(row.Top))
+			row.Label.TextSize = Responsive.Text(row.Text)
+		end
+	end
+	Responsive.Observe(layout)
 
 	RunService.RenderStepped:Connect(function()
 		if not raceStartTime then

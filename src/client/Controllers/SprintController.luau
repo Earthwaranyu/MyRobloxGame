@@ -8,10 +8,16 @@ local RemoteNames = require(Shared.RemoteNames)
 local Signal = require(Shared.Signal)
 
 local Theme = require(script.Parent.Parent.Theme)
+local Responsive = require(script.Parent.Parent.Responsive)
 local Widgets = require(script.Parent.Parent.Widgets)
 local MatchStateController = require(script.Parent.MatchStateController)
 
 local SprintController = {}
+
+-- PAIR_WIDTH is SPRINT + gap + DASH (150 + 10 + 200), the group whose midpoint
+-- sits on the screen centre -- see the placement comment in buildUI.
+local SPRINT_WIDTH, SPRINT_HEIGHT, SPRINT_BOTTOM = 150, 44, 224
+local PAIR_WIDTH = 360
 
 -- Exposed so purely cosmetic client features (wind effect, etc.) can react
 -- to sprinting without re-implementing shift-key detection themselves.
@@ -80,10 +86,26 @@ local function buildUI()
 	-- -180 puts the PAIR's midpoint on the screen centre. The old -235/-75 gave
 	-- the same spacing but centred neither -- the group ran -235..125, sitting
 	-- visibly left of the PLAY button it stacks above.
-	button = Widgets.Button("SPRINT", UDim2.fromOffset(150, 44), UDim2.new(0.5, -180, 1, -224), {
-		Variant = "Secondary",
-	})
+	button = Widgets.Button(
+		"SPRINT",
+		UDim2.fromOffset(SPRINT_WIDTH, SPRINT_HEIGHT),
+		UDim2.new(0.5, -180, 1, -SPRINT_BOTTOM),
+		{
+			Variant = "Secondary",
+		}
+	)
 	button.Parent = screenGui
+
+	-- The SPRINT/DASH pair is centred as a group (see the comment above), which
+	-- puts SPRINT's left edge ~36pt into the thumbstick's corner on a phone. The
+	-- pair keeps its spacing and shifts right together, so the two stay a pair.
+	Responsive.Observe(function()
+		local px = Responsive.Px
+		local width, height = px(SPRINT_WIDTH), Responsive.Tap(SPRINT_HEIGHT)
+		local pairWidth = px(PAIR_WIDTH)
+		local pairX = Responsive.ClearCorners(math.round((Responsive.ViewportSize().X - pairWidth) / 2), pairWidth)
+		Widgets.Relayout(button, UDim2.fromOffset(width, height), UDim2.new(0, pairX, 1, -px(SPRINT_BOTTOM)))
+	end)
 
 	button.MouseButton1Down:Connect(function()
 		buttonHeld = true

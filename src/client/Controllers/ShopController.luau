@@ -10,10 +10,16 @@ local RankTiers = require(Shared.RankTiers)
 
 local CategoryIcons = require(script.Parent.Parent.CategoryIcons)
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
+local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 
 local ShopController = {}
+
+-- Reference geometry. SHOP_HEIGHT is a maximum -- Responsive.PlacePanel clamps
+-- it to what the viewport can show.
+local SHOP_WIDTH = 380
+local SHOP_HEIGHT = 460
 
 local player = Players.LocalPlayer
 
@@ -221,9 +227,23 @@ local function buildUI()
 	-- is a named player-facing complaint (no click-outside, no X). See
 	-- Widgets.Modal's doc comment for the DisplayOrder/ZIndex reasoning too.
 	local shopScreenGui: ScreenGui
-	panel, openPanel, closePanel, _, shopScreenGui = Widgets.Modal("Shop", UDim2.fromOffset(380, 460), UDim2.new(1, -390, 0, 116), {
+	panel, openPanel, closePanel, _, shopScreenGui = Widgets.Modal("Shop", UDim2.fromOffset(SHOP_WIDTH, SHOP_HEIGHT), UDim2.new(1, -390, 0, 116), {
 		DisplayOrder = 30,
 	})
+
+	-- 460 tall at y=116 runs 201pt past the bottom of a phone. Both content
+	-- panes are sized relative to the panel over a ScrollingFrame, so clamping
+	-- the panel shortens the scroll window instead of cutting items off.
+	Responsive.Observe(function()
+		local width = math.min(Responsive.Px(SHOP_WIDTH), Responsive.ViewportSize().X - Responsive.ScreenMargin * 2)
+		Responsive.PlacePanel(
+			panel,
+			SHOP_WIDTH,
+			SHOP_HEIGHT,
+			Responsive.ViewportSize().X - width - Responsive.Px(10),
+			Responsive.Px(116)
+		)
+	end)
 
 	local ribbon = Widgets.Ribbon("TRAIL SHOP", UDim2.fromOffset(220, 40), UDim2.new(0.5, 0, 0, -20))
 	ribbon.Parent = panel
@@ -278,10 +298,12 @@ local function buildUI()
 		pointsContent.Visible = id == "Points"
 	end)
 
-	vipButton = Widgets.Button("👑 Get VIP — 2x Points Everywhere", UDim2.new(1, 0, 0, 32), UDim2.fromOffset(0, 0), {
-		Variant = "Danger",
-		TextSize = 14,
-	})
+	vipButton = Widgets.Button(
+		"👑 Get VIP — 2x Points Everywhere",
+		UDim2.new(1, 0, 0, Responsive.Tap(32)),
+		UDim2.fromOffset(0, 0),
+		{ Variant = "Danger", TextSize = Responsive.Text(14) }
+	)
 	vipButton.Parent = pointsContent
 	vipButton.MouseButton1Click:Connect(function()
 		if not vipOwned then

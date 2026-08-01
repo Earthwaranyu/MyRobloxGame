@@ -10,6 +10,7 @@ local RarityColors = require(Shared.RarityColors)
 local RemoteNames = require(Shared.RemoteNames)
 
 local AbilityIcons = require(script.Parent.Parent.AbilityIcons)
+local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local MatchStateController = require(script.Parent.MatchStateController)
@@ -25,6 +26,15 @@ local MatchStateController = require(script.Parent.MatchStateController)
 local ABILITY_KEY = Enum.KeyCode.Q
 
 local AbilityController = {}
+
+-- The SPRINT + DASH pair, whose midpoint sits on the screen centre. These
+-- numbers are duplicated from SprintController by necessity -- two separate
+-- controllers own the two halves -- so the comment there and this block have to
+-- agree; PAIR_WIDTH is SPRINT_WIDTH + PAIR_GAP + DASH_WIDTH.
+local DASH_WIDTH, DASH_HEIGHT, DASH_BOTTOM = 200, 44, 224
+local SPRINT_WIDTH, PAIR_GAP = 150, 10
+local PAIR_WIDTH = SPRINT_WIDTH + PAIR_GAP + DASH_WIDTH
+local DASH_LABEL = "DASH"
 
 local player = Players.LocalPlayer
 
@@ -62,7 +72,10 @@ local function updateButton()
 		Widgets.SetButtonColors(button, COOLDOWN_COLOR, COOLDOWN_SHADOW_COLOR, Theme.Color.TextMuted)
 		iconColor = Theme.Color.TextMuted
 	else
-		button.Text = ("%s (Q)"):format(displayName)
+		-- "(Q)" names a key a touch device does not have -- and there the button
+		-- is not a reminder of the shortcut, it is the only way to fire the
+		-- ability at all.
+		button.Text = if Responsive.IsTouch() then displayName else ("%s (Q)"):format(displayName)
 		Widgets.SetButtonColors(button, READY_COLOR, READY_SHADOW_COLOR, READY_TEXT_COLOR)
 		iconColor = READY_TEXT_COLOR
 	end
@@ -145,15 +158,29 @@ local function buildUI()
 	-- x = -20 pairs with SprintController's SPRINT at -180, which centres the
 	-- two-button group on screen -- see the comment there for the arithmetic.
 	-- These two positions have to move together.
-	button = Widgets.Button("DASH (Q)", UDim2.fromOffset(200, 44), UDim2.new(0.5, -20, 1, -224), {
-		Variant = "Secondary",
-		TextSize = 16,
-		Icon = function(holder, color)
-			AbilityIcons.Populate(holder, currentAbility.Id, holder.Size.X.Offset, color)
-		end,
-	})
+	button =
+		Widgets.Button(DASH_LABEL, UDim2.fromOffset(DASH_WIDTH, DASH_HEIGHT), UDim2.new(0.5, -20, 1, -DASH_BOTTOM), {
+			Variant = "Secondary",
+			TextSize = 16,
+			Icon = function(holder, color)
+				AbilityIcons.Populate(holder, currentAbility.Id, holder.Size.X.Offset, color)
+			end,
+		})
 	button.Parent = screenGui
 	button.MouseButton1Click:Connect(tryUseAbility)
+
+	-- Placed off the SAME pair arithmetic SprintController uses, so the two stay
+	-- a centred group at every viewport size -- and so both clear the
+	-- thumbstick's corner together rather than one of them shifting alone.
+	Responsive.Observe(function()
+		local px = Responsive.Px
+		local width, height = px(DASH_WIDTH), Responsive.Tap(DASH_HEIGHT)
+		local pairWidth = px(PAIR_WIDTH)
+		local pairX = Responsive.ClearCorners(math.round((Responsive.ViewportSize().X - pairWidth) / 2), pairWidth)
+		-- DASH is the right half of the pair: SPRINT's width plus the gap.
+		local x = pairX + px(SPRINT_WIDTH) + px(PAIR_GAP)
+		Widgets.Relayout(button, UDim2.fromOffset(width, height), UDim2.new(0, x, 1, -px(DASH_BOTTOM)))
+	end)
 
 	-- The icon holder opts.Icon just built and parented onto `button`, named
 	-- "Icon" by Widgets.Button -- kept so updateButton() can redraw it

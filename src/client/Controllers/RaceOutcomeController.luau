@@ -6,6 +6,7 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 local RankTiers = require(Shared.RankTiers)
 
+local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 local Sounds = require(script.Parent.Parent.Sounds)
@@ -15,6 +16,8 @@ local Sounds = require(script.Parent.Parent.Sounds)
 -- event fired when this player personally crosses the line. See
 -- MatchService.PlayerReachedFinish for the exact rules.
 local RaceOutcomeController = {}
+
+local OUTCOME_WIDTH, OUTCOME_HEIGHT = 380, 196
 
 local player = Players.LocalPlayer
 
@@ -37,8 +40,25 @@ local function buildUI()
 	-- y = 0.55, well clear of QueueStatusController's countdown/"GO!" flash
 	-- (both centered around y = 0.22-0.3), in case a race finishes fast enough
 	-- for both to be on screen at once.
-	panel = Widgets.Panel(UDim2.fromOffset(380, 196), UDim2.new(0.5, -190, 0.55, 0))
+	panel = Widgets.Panel(UDim2.fromOffset(OUTCOME_WIDTH, OUTCOME_HEIGHT), UDim2.new(0.5, -OUTCOME_WIDTH / 2, 0.55, 0))
 	panel.Parent = screenGui
+
+	-- y = 0.55 was chosen to clear the countdown/"GO!" flash near y = 0.22-0.3.
+	-- On a 375pt phone that resolves to y = 206, and 206 + 196 = 402 -- so the
+	-- bottom 27pt of your own race result sat off the screen. Kept at 0.55 where
+	-- there is room and clamped up where there isn't, so it still avoids the
+	-- flash on the screens that can fit both.
+	Responsive.Observe(function()
+		local viewport = Responsive.ViewportSize()
+		local width = math.min(Responsive.Px(OUTCOME_WIDTH), viewport.X - Responsive.ScreenMargin * 2)
+		Responsive.PlacePanel(
+			panel,
+			OUTCOME_WIDTH,
+			OUTCOME_HEIGHT,
+			math.round((viewport.X - width) / 2),
+			math.round(viewport.Y * 0.55)
+		)
+	end)
 
 	titleLabel = Widgets.Label("", UDim2.new(1, -20, 0, 50), UDim2.fromOffset(10, 16), {
 		Font = Theme.Font.Display,

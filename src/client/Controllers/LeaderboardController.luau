@@ -7,6 +7,7 @@ local RemoteNames = require(Shared.RemoteNames)
 local Stages = require(Shared.Stages)
 
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
+local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 
@@ -16,6 +17,9 @@ local LeaderboardController = {}
 -- laid out on numbers that don't refer to the panel's actual width is how Stage
 -- 4 ended up rendering off the edge of its own row.
 local PANEL_WIDTH = 360
+-- A maximum, not a fixed height: Responsive.PlacePanel clamps it to whatever the
+-- viewport can actually show.
+local PANEL_HEIGHT = 454
 local TAB_ROW_INSET = 8
 local TAB_PADDING = 6
 local TAB_HEIGHT = 30
@@ -154,9 +158,17 @@ local function buildUI()
 
 	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a
 	-- bare Widgets.Panel only closable via this one toggle button.
-	panel, openPanel, closePanel = Widgets.Modal("Leaderboard", UDim2.fromOffset(PANEL_WIDTH, 454), UDim2.fromOffset(10, 116), {
+	panel, openPanel, closePanel = Widgets.Modal("Leaderboard", UDim2.fromOffset(PANEL_WIDTH, PANEL_HEIGHT), UDim2.fromOffset(10, 116), {
 		DisplayOrder = 30,
 	})
+
+	-- 454 tall at y=116 puts the bottom 195pt of this panel past the edge of a
+	-- phone -- including the rows a player opens it to read. The entries list is
+	-- a ScrollingFrame sized relative to the panel, so a clamped panel just means
+	-- a shorter scroll window rather than lost content.
+	Responsive.Observe(function()
+		Responsive.PlacePanel(panel, PANEL_WIDTH, PANEL_HEIGHT, Responsive.Px(10), Responsive.Px(116))
+	end)
 
 	local ribbon = Widgets.Ribbon("LEADERBOARD", UDim2.fromOffset(230, 40), UDim2.new(0.5, 0, 0, -20))
 	ribbon.Parent = panel
@@ -233,10 +245,14 @@ local function buildUI()
 	scopeLayout.Parent = scopeRow
 
 	for i, scope in { "Global", "Friends" } do
-		local scopeButton, setActive = Widgets.Button(scope, UDim2.fromOffset(90, 26), UDim2.fromOffset(0, 0), {
-			Variant = "Tab",
-			TextSize = 13,
-		})
+		-- 26pt was the smallest tap target in the HUD; Tap() holds it at the touch
+		-- minimum on a phone and leaves it at 26 on desktop.
+		local scopeButton, setActive = Widgets.Button(
+			scope,
+			UDim2.fromOffset(Responsive.Px(90), Responsive.Tap(26)),
+			UDim2.fromOffset(0, 0),
+			{ Variant = "Tab", TextSize = Responsive.Text(13) }
+		)
 		scopeButton.LayoutOrder = i
 		scopeButton.Parent = scopeRow
 		scopeSetters[scope] = setActive

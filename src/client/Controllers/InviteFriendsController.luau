@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local SocialService = game:GetService("SocialService")
 
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
+local MobileMenu = require(script.Parent.Parent.MobileMenu)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 
@@ -41,6 +42,14 @@ local function buildUI()
 		end,
 	})
 	button.Parent = screenGui
+	-- Bottom-right is the jump button's corner, so on a phone this was sitting
+	-- underneath it. Folding into the drawer also orphans the "+300 pts
+	-- together!" pill that hung above it -- the caption only reads as a caption
+	-- while it is attached to the button, and in the drawer the button has a
+	-- row of its own, so the pill is dropped there rather than left floating in
+	-- the jump button's corner explaining nothing.
+	MobileMenu.Adopt(button, 3)
+	captionPill.Visible = not MobileMenu.IsAdopted(button)
 
 	button.MouseButton1Click:Connect(function()
 		local ok, canInvite = pcall(function()
