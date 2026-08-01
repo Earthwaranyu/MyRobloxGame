@@ -249,15 +249,12 @@ local function buildUI()
 	-- and centred rather than pinned to the bottom-left once it no longer has a
 	-- toggle to hang off.
 	local function layoutPanel()
-		local width = math.min(Responsive.Px(PANEL_WIDTH), Responsive.ViewportSize().X - Responsive.ScreenMargin * 2)
-		local height = Responsive.FitHeight(PANEL_HEIGHT, Responsive.ScreenMargin)
-		local x = if MobileMenu.IsAdopted(toggleButton)
-			then math.round((Responsive.ViewportSize().X - width) / 2)
-			else Responsive.Px(10)
-		panel.Size = UDim2.fromOffset(width, height)
+		local viewport = Responsive.ViewportSize()
+		local width, height = Responsive.PlacePanel(panel, PANEL_WIDTH, PANEL_HEIGHT, 0, 0)
+		local x = if MobileMenu.IsAdopted(toggleButton) then math.round((viewport.X - width) / 2) else Responsive.Px(10)
 		panel.Position = UDim2.fromOffset(
 			Responsive.ClampX(x, width),
-			Responsive.ClampY(math.round((Responsive.ViewportSize().Y - height) / 2), height)
+			Responsive.ClampY(math.round((viewport.Y - height) / 2), height)
 		)
 	end
 	Responsive.Observe(layoutPanel)

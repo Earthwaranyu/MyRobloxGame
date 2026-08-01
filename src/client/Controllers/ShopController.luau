@@ -39,7 +39,11 @@ end
 
 local function buildItemRow(trailId: string, trail, profile): Frame
 	local row = Instance.new("Frame")
-	row.Size = UDim2.new(1, 0, 0, 54)
+	-- Row height, not the buttons, is what decides whether they are tappable:
+	-- the Buy/Equip buttons inside are sized as 0.66 of the row, so Tap() cannot
+	-- reach them directly. 44 / 0.66 = 67, so a touch row has to be at least
+	-- that tall for its own buttons to clear the minimum.
+	row.Size = UDim2.new(1, 0, 0, math.max(Responsive.Px(54), if Responsive.IsTouch() then 67 else 0))
 	row.BackgroundColor3 = Theme.Color.PanelLight
 	row.BorderSizePixel = 0
 
@@ -74,7 +78,10 @@ local function buildItemRow(trailId: string, trail, profile): Frame
 		{
 			TextSize = 13,
 			Bold = false,
-			Color = if equipped then Theme.Color.Success elseif owned then Theme.Color.TextSecondary else Theme.Color.Warning,
+			Color = if equipped
+				then Theme.Color.Success
+				elseif owned then Theme.Color.TextSecondary
+				else Theme.Color.Warning,
 		}
 	)
 	subLabel.Parent = row
@@ -95,10 +102,11 @@ local function buildItemRow(trailId: string, trail, profile): Frame
 	local actionWidth = if showRobuxButton then 0.22 else 0.32
 	local actionX = if showRobuxButton then 0.5 else 0.65
 
-	local actionButton = Widgets.Button(actionText, UDim2.fromScale(actionWidth, 0.66), UDim2.fromScale(actionX, 0.17), {
-		Variant = actionVariant,
-		TextSize = 14,
-	})
+	local actionButton =
+		Widgets.Button(actionText, UDim2.fromScale(actionWidth, 0.66), UDim2.fromScale(actionX, 0.17), {
+			Variant = actionVariant,
+			TextSize = 14,
+		})
 	actionButton.Name = "ActionButton"
 	actionButton.Parent = row
 
@@ -215,21 +223,28 @@ local function buildUI()
 	-- y = 60 clears Roblox's default top bar (chat/leaderboard/settings icons).
 	-- See LeaderboardController for why this is taller than it looks like it
 	-- needs to be.
-	local toggleButton = Widgets.Button("Shop", UDim2.fromOffset(130, 48), UDim2.new(1, -140, 0, 60), {
-		Icon = function(holder, color)
-			MenuIcons.Populate(holder, "Shop", color)
-		end,
-	})
+	local toggleButton = Widgets.Button(
+		"Shop",
+		UDim2.fromOffset(Responsive.Px(130), Responsive.Tap(48)),
+		UDim2.new(1, -Responsive.Px(140), 0, Responsive.RailY(1)),
+		{
+			Icon = function(holder, color)
+				MenuIcons.Populate(holder, "Shop", color)
+			end,
+		}
+	)
 	toggleButton.Parent = toggleGui
+	Widgets.BindRail(toggleButton, 130, 48, 1, "Right", 10)
 
 	-- Own ScreenGui + backdrop + close-X, not a bare Widgets.Panel toggled by
 	-- this one button -- a panel closable ONLY via the button that opened it
 	-- is a named player-facing complaint (no click-outside, no X). See
 	-- Widgets.Modal's doc comment for the DisplayOrder/ZIndex reasoning too.
 	local shopScreenGui: ScreenGui
-	panel, openPanel, closePanel, _, shopScreenGui = Widgets.Modal("Shop", UDim2.fromOffset(SHOP_WIDTH, SHOP_HEIGHT), UDim2.new(1, -390, 0, 116), {
-		DisplayOrder = 30,
-	})
+	panel, openPanel, closePanel, _, shopScreenGui =
+		Widgets.Modal("Shop", UDim2.fromOffset(SHOP_WIDTH, SHOP_HEIGHT), UDim2.new(1, -390, 0, 116), {
+			DisplayOrder = 30,
+		})
 
 	-- 460 tall at y=116 runs 201pt past the bottom of a phone. Both content
 	-- panes are sized relative to the panel over a ScrollingFrame, so clamping
@@ -265,12 +280,18 @@ local function buildUI()
 	-- comment for why this is scoped to switching between THIS panel's own
 	-- sections rather than merging Shop/Gacha/Settings into one mega-panel.
 	local tabStrip, _selectTab, onTabSelected = Widgets.TabStrip({
-		{ Id = "Trails", BuildIcon = function(holder, color)
-			CategoryIcons.Populate(holder, "Trails", holder.AbsoluteSize.X, color)
-		end },
-		{ Id = "Points", BuildIcon = function(holder, color)
-			CategoryIcons.Populate(holder, "Points", holder.AbsoluteSize.X, color)
-		end },
+		{
+			Id = "Trails",
+			BuildIcon = function(holder, color)
+				CategoryIcons.Populate(holder, "Trails", holder.AbsoluteSize.X, color)
+			end,
+		},
+		{
+			Id = "Points",
+			BuildIcon = function(holder, color)
+				CategoryIcons.Populate(holder, "Points", holder.AbsoluteSize.X, color)
+			end,
+		},
 	}, UDim2.new(1, -462, 0, 168))
 	tabStrip.Parent = shopScreenGui
 	tabStrip.Visible = panel.Visible
@@ -280,15 +301,16 @@ local function buildUI()
 
 	local trailsContent = Instance.new("Frame")
 	trailsContent.Name = "TrailsContent"
-	trailsContent.Size = UDim2.new(1, -16, 1, -54)
-	trailsContent.Position = UDim2.fromOffset(8, 46)
+	local contentTop = Widgets.ModalContentTop(8)
+	trailsContent.Size = UDim2.new(1, -16, 1, -(contentTop + 8))
+	trailsContent.Position = UDim2.fromOffset(8, contentTop)
 	trailsContent.BackgroundTransparency = 1
 	trailsContent.Parent = panel
 
 	local pointsContent = Instance.new("Frame")
 	pointsContent.Name = "PointsContent"
-	pointsContent.Size = UDim2.new(1, -16, 1, -54)
-	pointsContent.Position = UDim2.fromOffset(8, 46)
+	pointsContent.Size = UDim2.new(1, -16, 1, -(contentTop + 8))
+	pointsContent.Position = UDim2.fromOffset(8, contentTop)
 	pointsContent.BackgroundTransparency = 1
 	pointsContent.Visible = false
 	pointsContent.Parent = panel
@@ -321,8 +343,8 @@ local function buildUI()
 	for i, bundle in PointBundles do
 		local bundleButton = Widgets.Button(
 			bundle.Label .. " · R$",
-			UDim2.fromOffset(BUNDLE_WIDTH, 34),
-			UDim2.fromOffset((i - 1) * (BUNDLE_WIDTH + 8), 58),
+			UDim2.fromOffset(Responsive.Px(BUNDLE_WIDTH), Responsive.Tap(34)),
+			UDim2.fromOffset(Responsive.Px((i - 1) * (BUNDLE_WIDTH + 8)), Responsive.Px(58)),
 			{ Variant = "Secondary", TextSize = 13 }
 		)
 		bundleButton.Parent = pointsContent

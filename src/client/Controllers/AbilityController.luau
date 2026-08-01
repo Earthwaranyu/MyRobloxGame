@@ -32,6 +32,27 @@ local AbilityController = {}
 -- controllers own the two halves -- so the comment there and this block have to
 -- agree; PAIR_WIDTH is SPRINT_WIDTH + PAIR_GAP + DASH_WIDTH.
 local DASH_WIDTH, DASH_HEIGHT, DASH_BOTTOM = 200, 44, 224
+
+-- The phone action row: SPRINT, PLAY and DASH side by side on one line.
+-- PlayButtonController and AbilityController declare the same pair of values, so
+-- all three derive identical x positions from Responsive.CenterRow and cannot
+-- drift apart.
+local ACTION_GAP = 10
+local function actionRowWidths(): { number }
+	return {
+		Responsive.Px(150), -- SPRINT
+		Responsive.Px(220), -- PLAY
+		Responsive.Px(200), -- DASH
+	}
+end
+
+-- Total width of that row, so BottomRowY can tell whether it fits between the
+-- touch controls and may therefore sit at the real bottom of the screen.
+local function actionRowTotal(): number
+	local widths = actionRowWidths()
+	return widths[1] + widths[2] + widths[3] + Responsive.Px(ACTION_GAP) * 2
+end
+
 local SPRINT_WIDTH, PAIR_GAP = 150, 10
 local PAIR_WIDTH = SPRINT_WIDTH + PAIR_GAP + DASH_WIDTH
 local DASH_LABEL = "DASH"
@@ -175,11 +196,26 @@ local function buildUI()
 	Responsive.Observe(function()
 		local px = Responsive.Px
 		local width, height = px(DASH_WIDTH), Responsive.Tap(DASH_HEIGHT)
-		local pairWidth = px(PAIR_WIDTH)
-		local pairX = Responsive.ClearCorners(math.round((Responsive.ViewportSize().X - pairWidth) / 2), pairWidth)
-		-- DASH is the right half of the pair: SPRINT's width plus the gap.
-		local x = pairX + px(SPRINT_WIDTH) + px(PAIR_GAP)
-		Widgets.Relayout(button, UDim2.fromOffset(width, height), UDim2.new(0, x, 1, -px(DASH_BOTTOM)))
+		local x, row
+		if Responsive.Tier() == "Phone" then
+			-- Third element of the shared phone action row (SPRINT, PLAY, DASH).
+			x = Responsive.CenterRow(actionRowWidths(), px(ACTION_GAP))[3]
+			row = 0
+		else
+			local pairWidth = px(PAIR_WIDTH)
+			local pairX = Responsive.ClearCorners(math.round((Responsive.ViewportSize().X - pairWidth) / 2), pairWidth)
+			-- DASH is the right half of the pair: SPRINT's width plus the gap.
+			x = pairX + px(SPRINT_WIDTH) + px(PAIR_GAP)
+			row = 2
+		end
+		Widgets.Relayout(
+			button,
+			UDim2.fromOffset(width, height),
+			UDim2.fromOffset(
+				x,
+				Responsive.BottomRowY(row, height, Responsive.Tier() == "Phone" and actionRowTotal() or width)
+			)
+		)
 	end)
 
 	-- The icon holder opts.Icon just built and parented onto `button`, named

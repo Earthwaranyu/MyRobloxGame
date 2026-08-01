@@ -123,8 +123,11 @@ end
 do
 	local d2 = race(2)
 	local d8 = race(8)
-	check("big races aren't worth more than small ones", math.abs(d2[1] - d8[1]) <= 3,
-		("duel %+d vs 8-player %+d"):format(d2[1], d8[1]))
+	check(
+		"big races aren't worth more than small ones",
+		math.abs(d2[1] - d8[1]) <= 3,
+		("duel %+d vs 8-player %+d"):format(d2[1], d8[1])
+	)
 end
 
 print("\n-- anti-farm --")
@@ -140,11 +143,17 @@ end
 print("\n-- win rewards --")
 check("streak 1 has no bonus", RaceSettlement.StreakBonusPoints(1) == 0)
 check("streak 2 -> +10", RaceSettlement.StreakBonusPoints(2) == 10)
-check("streak bonus caps at 50", RaceSettlement.StreakBonusPoints(6) == 50 and RaceSettlement.StreakBonusPoints(50) == 50)
+check(
+	"streak bonus caps at 50",
+	RaceSettlement.StreakBonusPoints(6) == 50 and RaceSettlement.StreakBonusPoints(50) == 50
+)
 do
 	local first = RaceSettlement.WinReward(0, 1, PPW, 1)
-	check("first win counts and pays PointsPerWin", first.CountsAsWin and first.WinStreak == 1 and first.Points == PPW,
-		("%d pts"):format(first.Points))
+	check(
+		"first win counts and pays PointsPerWin",
+		first.CountsAsWin and first.WinStreak == 1 and first.Points == PPW,
+		("%d pts"):format(first.Points)
+	)
 	local streaked = RaceSettlement.WinReward(4, 1, PPW, 1)
 	check("streak adds its bonus", streaked.Points == PPW + 40, ("%d pts"):format(streaked.Points))
 	local vip = RaceSettlement.WinReward(0, 1, PPW, 2)
@@ -171,8 +180,10 @@ do
 		end
 	end
 	check("points stay bounded across every weight", bounded, ("max %d of %d"):format(worst, ceiling))
-	check("weight scales points monotonically",
-		RaceSettlement.WinReward(3, 0.25, PPW, 1).Points < RaceSettlement.WinReward(3, 0.75, PPW, 1).Points)
+	check(
+		"weight scales points monotonically",
+		RaceSettlement.WinReward(3, 0.25, PPW, 1).Points < RaceSettlement.WinReward(3, 0.75, PPW, 1).Points
+	)
 end
 
 print("\n-- hype milestones --")
@@ -231,8 +242,11 @@ do
 	check("every difficulty is a real tier", difficultiesValid)
 	check("every gimmick is a real kind", gimmicksValid)
 	check("every weather has a lighting preset", weathersPresetted)
-	check("every difficulty tier is represented", counts.Easy > 0 and counts.Medium > 0 and counts.Hard > 0,
-		("%d easy / %d medium / %d hard"):format(counts.Easy, counts.Medium, counts.Hard))
+	check(
+		"every difficulty tier is represented",
+		counts.Easy > 0 and counts.Medium > 0 and counts.Hard > 0,
+		("%d easy / %d medium / %d hard"):format(counts.Easy, counts.Medium, counts.Hard)
+	)
 	-- A random roll should land on a punishing course less than half the time.
 	check("hard stages are the minority", counts.Hard < #Stages / 2, ("%d of %d"):format(counts.Hard, #Stages))
 end
@@ -318,10 +332,16 @@ for _, stage in Stages do
 		-- 15%, against StageLayout's own 20% design margin: a player arrives
 		-- at a takeoff edge with whatever speed they have, not always a clean
 		-- sprint.
-		check(label .. ": every jump clearable with margin", worstMargin > 0.15,
-			("worst %.0f%% spare at platform %d"):format(worstMargin * 100, worstAt))
-		check(label .. ": platforms never touch", clearance,
-			if overlapAt > 0 then ("overlap at platform %d"):format(overlapAt) else nil)
+		check(
+			label .. ": every jump clearable with margin",
+			worstMargin > 0.15,
+			("worst %.0f%% spare at platform %d"):format(worstMargin * 100, worstAt)
+		)
+		check(
+			label .. ": platforms never touch",
+			clearance,
+			if overlapAt > 0 then ("overlap at platform %d"):format(overlapAt) else nil
+		)
 	end
 
 	do
@@ -344,8 +364,11 @@ for _, stage in Stages do
 				onStillPlatforms = false
 			end
 		end
-		check(label .. ": checkpoints avoid gimmick platforms", onStillPlatforms,
-			("%d checkpoints"):format(#plan.Checkpoints))
+		check(
+			label .. ": checkpoints avoid gimmick platforms",
+			onStillPlatforms,
+			("%d checkpoints"):format(#plan.Checkpoints)
+		)
 		check(label .. ": checkpoints sit on the deck", onTop)
 	end
 
@@ -354,10 +377,15 @@ for _, stage in Stages do
 		local banner = plan.Finish
 		-- Across the pad's near edge and tall enough that an arc can't clear
 		-- it: this part is what win detection is bound to.
-		check(label .. ": finish banner crosses the pad", banner.SizeZ > finishPad.SizeZ * 0.9 and banner.SizeY >= 12,
-			("%.1f wide, %.1f tall"):format(banner.SizeZ, banner.SizeY))
-		check(label .. ": finish banner stands on the pad",
-			banner.Y - banner.SizeY / 2 >= finishPad.Y + finishPad.SizeY / 2 - 1e-6)
+		check(
+			label .. ": finish banner crosses the pad",
+			banner.SizeZ > finishPad.SizeZ * 0.9 and banner.SizeY >= 12,
+			("%.1f wide, %.1f tall"):format(banner.SizeZ, banner.SizeY)
+		)
+		check(
+			label .. ": finish banner stands on the pad",
+			banner.Y - banner.SizeY / 2 >= finishPad.Y + finishPad.SizeY / 2 - 1e-6
+		)
 	end
 
 	do
@@ -372,8 +400,10 @@ for _, stage in Stages do
 		check(label .. ": void hangs below the course", void.Y + void.SizeY / 2 < lowest)
 		-- Wider than the course on both sides, and generous past the finish:
 		-- overshooting the finish is a real outcome on a Speed stage.
-		check(label .. ": void covers the whole footprint",
-			void.X - void.SizeX / 2 < minX and void.X + void.SizeX / 2 > maxX + 40)
+		check(
+			label .. ": void covers the whole footprint",
+			void.X - void.SizeX / 2 < minX and void.X + void.SizeX / 2 > maxX + 40
+		)
 	end
 
 	do
@@ -413,8 +443,10 @@ for _, stage in Stages do
 			end
 		end
 		check(label .. ": start grid stays on the pad", fits, ("worst slot at %.0f%% of the pad"):format(worst * 100))
-		check(label .. ": spawn marker is most of the pad",
-			spawn.SizeX > startPad.SizeZ * 0.8 and spawn.SizeZ > startPad.SizeX * 0.8)
+		check(
+			label .. ": spawn marker is most of the pad",
+			spawn.SizeX > startPad.SizeZ * 0.8 and spawn.SizeZ > startPad.SizeX * 0.8
+		)
 	end
 end
 
@@ -428,8 +460,11 @@ do
 	local PAD_ACROSS, PAD_ALONG = 28, 30
 
 	local across, along = StageLayout.SpawnMarkerSize(PAD_ACROSS, PAD_ALONG, PAD_ALONG / 2)
-	check("centred marker uses the inset pad size", across == PAD_ACROSS * 0.9 and along == PAD_ALONG * 0.9,
-		("%.1f across, %.1f along"):format(across, along))
+	check(
+		"centred marker uses the inset pad size",
+		across == PAD_ACROSS * 0.9 and along == PAD_ALONG * 0.9,
+		("%.1f across, %.1f along"):format(across, along)
+	)
 
 	local _, shallowAlong = StageLayout.SpawnMarkerSize(PAD_ACROSS, PAD_ALONG, 4)
 	check("marker near the back edge shrinks to fit", shallowAlong == 8, ("%.1f along"):format(shallowAlong))
@@ -497,8 +532,11 @@ do
 
 	-- Tap() is the one that protects fingers: scaling a 44pt button down on the
 	-- very device that uses a thumb is precisely backwards.
-	check("a tap target never shrinks below the touch minimum",
-		LayoutMath.Tap(PHONE, 26) == LayoutMath.MinTouchTarget, ("%d"):format(LayoutMath.Tap(PHONE, 26)))
+	check(
+		"a tap target never shrinks below the touch minimum",
+		LayoutMath.Tap(PHONE, 26) == LayoutMath.MinTouchTarget,
+		("%d"):format(LayoutMath.Tap(PHONE, 26))
+	)
 	check("a large tap target still scales", LayoutMath.Tap(PHONE, 200) < 200)
 	check("desktop tap targets are not inflated", LayoutMath.Tap(DESKTOP, 26) == 26)
 	local everyTargetIsReachable = true
@@ -511,8 +549,7 @@ do
 	check("every audited button size clears the touch minimum on a phone", everyTargetIsReachable)
 
 	check("tiers read off width", LayoutMath.Tier(PHONE) == "Phone" and LayoutMath.Tier(DESKTOP) == "Desktop")
-	check("the touch band is touch-only",
-		LayoutMath.TouchBand(PHONE) > 0 and LayoutMath.TouchBand(DESKTOP) == 0)
+	check("the touch band is touch-only", LayoutMath.TouchBand(PHONE) > 0 and LayoutMath.TouchBand(DESKTOP) == 0)
 
 	-- Workspace.CurrentCamera.ViewportSize really does report (1, 1) for a
 	-- 1001x747 window, and it does not necessarily correct itself. A width of 1
@@ -526,8 +563,89 @@ do
 	check("a real phone is accepted", LayoutMath.IsSaneViewport(PHONE.Width, PHONE.Height))
 	check("a small desktop window is accepted", LayoutMath.IsSaneViewport(640, 480))
 	-- The floor must sit below any device and above any bad read.
-	check("the sanity floor is below every real device",
-		LayoutMath.MinSaneViewport < 320, ("%d"):format(LayoutMath.MinSaneViewport))
+	check(
+		"the sanity floor is below every real device",
+		LayoutMath.MinSaneViewport < 320,
+		("%d"):format(LayoutMath.MinSaneViewport)
+	)
+
+	-- Both of these come from measuring the actual device emulator, which
+	-- reported 801x334 -- not from reasoning about what a phone "should" be.
+	local EMULATED_PHONE = { Width = 801, Height = 334, Touch = true }
+
+	-- 801 is one point over the old width-only phone threshold, so a real phone
+	-- was being classified as a Tablet and none of the phone reflows fired.
+	check(
+		"the emulated phone is classified as a Phone",
+		LayoutMath.Tier(EMULATED_PHONE) == "Phone",
+		LayoutMath.Tier(EMULATED_PHONE)
+	)
+	check(
+		"a landscape tablet is still a Tablet",
+		LayoutMath.Tier({ Width = 1180, Height = 700, Touch = true }) == "Tablet"
+	)
+	-- A narrow desktop WINDOW is not a phone -- no touch, so width still rules.
+	check(
+		"a short desktop window is not a phone",
+		LayoutMath.Tier({ Width = 1600, Height = 400, Touch = false }) == "Desktop"
+	)
+
+	-- The flat 190pt band is 57% of a 334-tall screen, which left FitHeight
+	-- almost nothing to work with.
+	local band = LayoutMath.TouchBand(EMULATED_PHONE)
+	check(
+		"the control band never eats half a short screen",
+		band < EMULATED_PHONE.Height * 0.5,
+		("%d of %d"):format(band, EMULATED_PHONE.Height)
+	)
+	-- Calibrated against the real control, not a guess: Roblox's jump button
+	-- measured 70x70 with its top edge 90pt above the bottom of the screen, so
+	-- the band has to cover at least the button plus a little margin. An earlier
+	-- version of this test asserted >= 100 purely because that was the number the
+	-- code happened to produce.
+	check("the band covers the real jump button", band >= 80, ("%d, button needs ~90"):format(band))
+	check("the band is exactly the documented value", band == 90, ("%d"):format(band))
+	-- Roblox's documented jump-button geometry: 70x70 below a 500pt minimum axis
+	-- sitting size+20 off the bottom, 120x120 above it sitting size*1.75 off. The
+	-- old share-of-height guess UNDER-reserved a tablet (162 against a real 210)
+	-- while over-reserving a phone's corners (190 against a real 105).
+	local tablet = { Width = 1180, Height = 800, Touch = true }
+	check(
+		"a large touch screen reserves the documented 210",
+		LayoutMath.TouchBand(tablet) == 210,
+		("%d"):format(LayoutMath.TouchBand(tablet))
+	)
+	check(
+		"phone corners are the documented 105",
+		LayoutMath.CornerWidth(EMULATED_PHONE) == 105,
+		("%d"):format(LayoutMath.CornerWidth(EMULATED_PHONE))
+	)
+	check(
+		"tablet corners are the documented 180",
+		LayoutMath.CornerWidth(tablet) == 180,
+		("%d"):format(LayoutMath.CornerWidth(tablet))
+	)
+
+	-- The correction that reclaimed a third of the phone screen: the controls own
+	-- the bottom CORNERS, so a row narrow enough to pass between them reaches the
+	-- real bottom instead of being stranded above a full-width band.
+	local narrow = LayoutMath.BottomRowY(EMULATED_PHONE, 0, 44, 400)
+	local wide = LayoutMath.BottomRowY(EMULATED_PHONE, 0, 44, 780)
+	check(
+		"a row fitting between the controls reaches the bottom",
+		narrow > wide,
+		("narrow y=%d vs wide y=%d"):format(narrow, wide)
+	)
+	check(
+		"a bottom row still respects the screen margin",
+		narrow + 44 <= EMULATED_PHONE.Height - LayoutMath.ScreenMargin + 1,
+		("ends at %d of %d"):format(narrow + 44, EMULATED_PHONE.Height)
+	)
+	check(
+		"there is real room left for chrome on the emulated phone",
+		EMULATED_PHONE.Height - band - LayoutMath.ScreenMargin * 2 > 150,
+		("%d usable"):format(EMULATED_PHONE.Height - band - LayoutMath.ScreenMargin * 2)
+	)
 end
 
 -- The clamps are what actually stopped panels being drawn off the screen, so
@@ -563,33 +681,37 @@ do
 	-- A panel is positioned from its top, so a clamp that let the top go
 	-- negative would trade a lost footer for a lost header -- which is exactly
 	-- what the tutorial did (title off the top, dismiss button off the bottom).
-	check("clamping never pushes a top edge off-screen",
-		LayoutMath.ClampY(PHONE, -400, 200) >= margin)
-	check("clamping never pushes a left edge off-screen",
-		LayoutMath.ClampX(PHONE, -400, 200) >= margin)
-	check("a box taller than the screen still starts on-screen",
-		LayoutMath.ClampY(PHONE, 100, 10000) >= margin)
+	check("clamping never pushes a top edge off-screen", LayoutMath.ClampY(PHONE, -400, 200) >= margin)
+	check("clamping never pushes a left edge off-screen", LayoutMath.ClampX(PHONE, -400, 200) >= margin)
+	check("a box taller than the screen still starts on-screen", LayoutMath.ClampY(PHONE, 100, 10000) >= margin)
 
-	check("desktop panels are untouched by FitHeight",
-		LayoutMath.FitHeight(DESKTOP, 520, 116) == 520, ("%d"):format(LayoutMath.FitHeight(DESKTOP, 520, 116)))
+	check(
+		"desktop panels are untouched by FitHeight",
+		LayoutMath.FitHeight(DESKTOP, 520, 116) == 520,
+		("%d"):format(LayoutMath.FitHeight(DESKTOP, 520, 116))
+	)
 
 	-- ClearCorners keeps low-sitting controls out of the thumbstick and jump
-	-- button. The corner width is the same on both sides.
-	local corner = LayoutMath.TouchCornerWidth
-	check("a control in the left corner is pushed clear",
-		LayoutMath.ClearCorners(PHONE, 10, 145) >= corner)
-	check("a control in the right corner is pushed clear",
-		LayoutMath.ClearCorners(PHONE, 600, 145) + 145 <= PHONE.Width - corner)
-	check("a centred control is left alone",
-		LayoutMath.ClearCorners(PHONE, 260, 145) == 260)
+	-- button. The corner width now comes from Roblox's documented jump-button
+	-- geometry rather than a flat constant, so it depends on the viewport.
+	local corner = LayoutMath.CornerWidth(PHONE)
+	check("a control in the left corner is pushed clear", LayoutMath.ClearCorners(PHONE, 10, 145) >= corner)
+	check(
+		"a control in the right corner is pushed clear",
+		LayoutMath.ClearCorners(PHONE, 600, 145) + 145 <= PHONE.Width - corner
+	)
+	check("a centred control is left alone", LayoutMath.ClearCorners(PHONE, 260, 145) == 260)
 	check("desktop is never nudged", LayoutMath.ClearCorners(DESKTOP, 0, 145) == 0)
 
 	-- A control wider than the clear strip can't escape both corners. It must
 	-- still come back centred rather than jammed against one side or, worse,
 	-- pushed to a negative coordinate by two fighting clamps.
 	local wide = LayoutMath.ClearCorners(PHONE, 0, 600)
-	check("an over-wide control centres instead of oscillating",
-		math.abs(wide - (PHONE.Width - 600) / 2) < 1, ("x=%d"):format(wide))
+	check(
+		"an over-wide control centres instead of oscillating",
+		math.abs(wide - (PHONE.Width - 600) / 2) < 1,
+		("x=%d"):format(wide)
+	)
 end
 
 print("\n-- void slab coverage --")
@@ -597,13 +719,19 @@ do
 	local CURRENT_MIN, CURRENT_MAX = -50, 50
 
 	local centre, size = StageLayout.CoverSpan(CURRENT_MIN, CURRENT_MAX, -10, 10)
-	check("a span already covering the pads is left alone", centre == 0 and size == 100,
-		("centre %.1f, size %.1f"):format(centre, size))
+	check(
+		"a span already covering the pads is left alone",
+		centre == 0 and size == 100,
+		("centre %.1f, size %.1f"):format(centre, size)
+	)
 
 	-- The reported case: the pad overhangs one end by a couple of studs.
 	local offCentre, offSize = StageLayout.CoverSpan(CURRENT_MIN, CURRENT_MAX, -52.5, 10)
-	check("an overhang extends only the end that overhangs", offSize == 102.5 and offCentre == -1.25,
-		("centre %.2f, size %.2f"):format(offCentre, offSize))
+	check(
+		"an overhang extends only the end that overhangs",
+		offSize == 102.5 and offCentre == -1.25,
+		("centre %.2f, size %.2f"):format(offCentre, offSize)
+	)
 
 	local _, bothSize = StageLayout.CoverSpan(CURRENT_MIN, CURRENT_MAX, -60, 70)
 	check("overhangs at both ends both extend", bothSize == 130, ("%.1f"):format(bothSize))
@@ -631,11 +759,17 @@ do
 	-- A pad entirely off one end (not overlapping at all) still has to be
 	-- swallowed rather than producing a span that skips the gap between them.
 	local disjointCentre, disjointSize = StageLayout.CoverSpan(CURRENT_MIN, CURRENT_MAX, 200, 220)
-	check("a disjoint pad is bridged, not jumped to", disjointSize == 270 and disjointCentre == 85,
-		("centre %.1f, size %.1f"):format(disjointCentre, disjointSize))
+	check(
+		"a disjoint pad is bridged, not jumped to",
+		disjointSize == 270 and disjointCentre == 85,
+		("centre %.1f, size %.1f"):format(disjointCentre, disjointSize)
+	)
 
-	check("the pad margin clears a character's width", StageLayout.Void.PadMargin >= 2,
-		("%.1f"):format(StageLayout.Void.PadMargin))
+	check(
+		"the pad margin clears a character's width",
+		StageLayout.Void.PadMargin >= 2,
+		("%.1f"):format(StageLayout.Void.PadMargin)
+	)
 end
 
 -- StageEndpointService reshapes Stage1-4's start and finish pads to
@@ -662,12 +796,18 @@ do
 			meteor = ability
 		end
 	end
-	check("Meteor Dash is still a lifting dash", meteor ~= nil and (meteor.UpwardBoost or 0) > 0,
-		meteor and ("%d studs/s for %.2fs"):format(meteor.UpwardBoost, meteor.DurationSeconds))
+	check(
+		"Meteor Dash is still a lifting dash",
+		meteor ~= nil and (meteor.UpwardBoost or 0) > 0,
+		meteor and ("%d studs/s for %.2fs"):format(meteor.UpwardBoost, meteor.DurationSeconds)
+	)
 
 	local meteorPeak = hip + StageLayout.LaunchArcHeight(meteor.UpwardBoost, meteor.DurationSeconds)
-	check("capture volume clears a Meteor Dash", capture > meteorPeak,
-		("peak %.1f vs volume %.1f"):format(meteorPeak, capture))
+	check(
+		"capture volume clears a Meteor Dash",
+		capture > meteorPeak,
+		("peak %.1f vs volume %.1f"):format(meteorPeak, capture)
+	)
 
 	-- StageGimmickService's BOUNCE_UP / BOUNCE_THRUST. Duplicated here because
 	-- they live in a server module the headless runner cannot require -- if they
@@ -675,22 +815,33 @@ do
 	-- consequence of NOT updating it visible.
 	local BOUNCE_UP, BOUNCE_THRUST = 55, 0.12
 	local bouncePeak = hip + StageLayout.LaunchArcHeight(BOUNCE_UP, BOUNCE_THRUST)
-	check("capture volume clears a bounce pad", capture > bouncePeak,
-		("peak %.1f vs volume %.1f"):format(bouncePeak, capture))
-	check("bounce is the taller of the two, as documented", bouncePeak > meteorPeak,
-		("bounce %.1f > meteor %.1f"):format(bouncePeak, meteorPeak))
+	check(
+		"capture volume clears a bounce pad",
+		capture > bouncePeak,
+		("peak %.1f vs volume %.1f"):format(bouncePeak, capture)
+	)
+	check(
+		"bounce is the taller of the two, as documented",
+		bouncePeak > meteorPeak,
+		("bounce %.1f > meteor %.1f"):format(bouncePeak, meteorPeak)
+	)
 
 	-- The margin is the whole point: a dash fired while already rising off a
 	-- bounce is not in either figure above.
-	check("volume keeps headroom over the worst single launch", capture - bouncePeak >= 5,
-		("%.1f studs spare"):format(capture - bouncePeak))
+	check(
+		"volume keeps headroom over the worst single launch",
+		capture - bouncePeak >= 5,
+		("%.1f studs spare"):format(capture - bouncePeak)
+	)
 
 	check("a zero launch has no arc", StageLayout.LaunchArcHeight(0, 0.5) == 0)
 	-- Held velocity and the ballistic arc off it, both accounted for: a helper
 	-- that dropped either term would still look plausible at a glance.
-	check("arc counts the held climb and the ballistic rise",
+	check(
+		"arc counts the held climb and the ballistic rise",
 		math.abs(StageLayout.LaunchArcHeight(50, 0.2) - (10 + 2500 / (2 * 196.2))) < 1e-9,
-		("%.2f"):format(StageLayout.LaunchArcHeight(50, 0.2)))
+		("%.2f"):format(StageLayout.LaunchArcHeight(50, 0.2))
+	)
 end
 
 print("\n-- endpoint convention --")
@@ -707,12 +858,16 @@ do
 	local startPad = plan.Platforms[1]
 	local finishPad = plan.Platforms[#plan.Platforms]
 
-	check("start pad matches the generated one",
+	check(
+		"start pad matches the generated one",
 		endpoint.StartPadAlong == startPad.SizeX and endpoint.StartPadAcross == startPad.SizeZ,
-		("%.0f along, %.0f across"):format(endpoint.StartPadAlong, endpoint.StartPadAcross))
-	check("finish pad matches the generated one",
+		("%.0f along, %.0f across"):format(endpoint.StartPadAlong, endpoint.StartPadAcross)
+	)
+	check(
+		"finish pad matches the generated one",
 		endpoint.FinishPadAlong == finishPad.SizeX and endpoint.FinishPadAcross == finishPad.SizeZ,
-		("%.0f along, %.0f across"):format(endpoint.FinishPadAlong, endpoint.FinishPadAcross))
+		("%.0f along, %.0f across"):format(endpoint.FinishPadAlong, endpoint.FinishPadAcross)
+	)
 	check("pad thickness matches the generated one", endpoint.PadThickness == finishPad.SizeY)
 
 	-- The banner is rebuilt from these three off a pad measured in Studio, so a
@@ -720,18 +875,24 @@ do
 	-- reproduce plan.Finish exactly.
 	check("banner height matches the generated one", endpoint.BannerHeight == plan.Finish.SizeY)
 	check("banner thickness matches the generated one", endpoint.BannerThickness == plan.Finish.SizeX)
-	check("banner spans the same share of the pad",
+	check(
+		"banner spans the same share of the pad",
 		math.abs(endpoint.BannerWidthFactor * finishPad.SizeZ - plan.Finish.SizeZ) < 1e-9,
-		("%.1f wide"):format(plan.Finish.SizeZ))
+		("%.1f wide"):format(plan.Finish.SizeZ)
+	)
 
 	-- A start pad the field cannot fit on is the whole reason Stage1-4 needed
 	-- reshaping rather than restyling, so the convention itself has to clear the
 	-- bar a full wave sets.
-	local across, along = StageLayout.SpawnMarkerSize(endpoint.StartPadAcross, endpoint.StartPadAlong, endpoint.StartPadAlong / 2)
+	local across, along =
+		StageLayout.SpawnMarkerSize(endpoint.StartPadAcross, endpoint.StartPadAlong, endpoint.StartPadAlong / 2)
 	local MARGIN, SPACING, FIELD = 3, 5, 8
 	local columns = math.clamp(math.floor(math.max(0, across - MARGIN * 2) / SPACING) + 1, 1, FIELD)
-	check("convention start pad holds a full wave", math.ceil(FIELD / columns) <= 2 and columns >= 4,
-		("%d columns x %d rows on a %.0f x %.0f marker"):format(columns, math.ceil(FIELD / columns), across, along))
+	check(
+		"convention start pad holds a full wave",
+		math.ceil(FIELD / columns) <= 2 and columns >= 4,
+		("%d columns x %d rows on a %.0f x %.0f marker"):format(columns, math.ceil(FIELD / columns), across, along)
+	)
 end
 
 do

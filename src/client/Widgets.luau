@@ -169,6 +169,10 @@ export type ModalOpts = {
 	PanelOpts: PanelOpts?,
 }
 
+-- Comfortably above anything a caller builds into a panel, so the close button
+-- is always on top of the modal's own content. See the note where it is applied.
+local MODAL_CLOSE_ZINDEX = 50
+
 -- A fully self-contained modal: its own ScreenGui, a dimmed click-outside-to-
 -- close backdrop, the panel itself, and a close-✕ pinned to its top-right
 -- corner. Returns (panel, open, close, setClickOutsideEnabled) -- callers
@@ -192,7 +196,12 @@ export type ModalOpts = {
 -- why a modal needs its OWN ScreenGui in the first place (so it can sit
 -- above whatever DisplayOrder the base HUD's buttons happen to use) rather
 -- than trying to out-ZIndex them from inside a shared ScreenGui.
-function Widgets.Modal(name: string, size: UDim2, position: UDim2, opts: ModalOpts?): (CanvasGroup, () -> (), () -> (), (boolean) -> (), ScreenGui)
+function Widgets.Modal(
+	name: string,
+	size: UDim2,
+	position: UDim2,
+	opts: ModalOpts?
+): (CanvasGroup, () -> (), () -> (), (boolean) -> (), ScreenGui)
 	opts = opts or {}
 
 	local screenGui = Instance.new("ScreenGui")
@@ -231,9 +240,19 @@ function Widgets.Modal(name: string, size: UDim2, position: UDim2, opts: ModalOp
 	closeButton.AutoButtonColor = false
 	closeButton.BackgroundColor3 = Theme.Candy.Red.Face
 	closeButton.BorderSizePixel = 0
-	closeButton.Size = UDim2.fromOffset(34, 34)
+	-- Tap() rather than a flat 34: this one button is shared by every modal in
+	-- the game (11 of them), and on touch it is the primary way to dismiss any
+	-- of them. It was the single most-repeated sub-44 target in the HUD.
+	closeButton.Size = UDim2.fromOffset(Responsive.Tap(34), Responsive.Tap(34))
 	closeButton.AnchorPoint = Vector2.new(1, 0)
 	closeButton.Position = UDim2.new(1, -10, 0, 10)
+	-- Above the panel's own content. These ScreenGuis use ZIndexBehavior.Global,
+	-- where a child does NOT inherit its parent's ZIndex -- so the ✕ sat at the
+	-- default 1, the same as the scrolling grid a caller builds into the panel
+	-- afterwards. Equal ZIndex means later-in-tree wins, so the grid rendered
+	-- over the ✕ and swallowed the tap: measured on a phone, the emote modal
+	-- could not be closed at all.
+	closeButton.ZIndex = MODAL_CLOSE_ZINDEX
 	closeButton.Parent = panel
 
 	local closeButtonCorner = Instance.new("UICorner")
@@ -251,14 +270,22 @@ function Widgets.Modal(name: string, size: UDim2, position: UDim2, opts: ModalOp
 	local closeScale = Instance.new("UIScale")
 	closeScale.Parent = closeButton
 
+	-- Scaled with the button: Tap() can push it to 44 on touch, and a 16pt X
+	-- adrift in a 44pt disc looks like a rendering fault.
+	local closeSize = closeButton.Size.X.Offset
+	local barScale = closeSize / 34
 	for _, rotation in { 45, -45 } do
 		local bar = Instance.new("Frame")
 		bar.AnchorPoint = Vector2.new(0.5, 0.5)
 		bar.Position = UDim2.fromScale(0.5, 0.5)
-		bar.Size = UDim2.fromOffset(16, 2.5)
+		bar.Size = UDim2.fromOffset(math.round(16 * barScale), math.max(2, 2.5 * barScale))
 		bar.Rotation = rotation
 		bar.BackgroundColor3 = Color3.new(1, 1, 1)
 		bar.BorderSizePixel = 0
+		-- Same reasoning as the button itself: children do not inherit ZIndex
+		-- under ZIndexBehavior.Global, so the bars need lifting too or the X
+		-- disappears behind the panel content the button now sits above.
+		bar.ZIndex = MODAL_CLOSE_ZINDEX + 1
 		local barCorner = Instance.new("UICorner")
 		barCorner.CornerRadius = UDim.new(1, 0)
 		barCorner.Parent = bar
@@ -332,7 +359,10 @@ function Widgets.Modal(name: string, size: UDim2, position: UDim2, opts: ModalOp
 		if not clickOutsideEnabled then
 			return
 		end
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		if
+			input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch
+		then
 			if isWithinPanel(Vector2.new(input.Position.X, input.Position.Y)) then
 				return
 			end
@@ -370,9 +400,13 @@ export type TabDef = {
 -- no idea what "selecting a tab" should show, that's entirely on the
 -- caller via onSelected. Meant to sit immediately to the LEFT of a
 -- Widgets.Modal panel, positioned by the caller like anything else here.
-function Widgets.TabStrip(tabs: { TabDef }, position: UDim2, opts: { Size: number?, Gap: number? }?): (Frame, (string) -> (), ((string) -> ()) -> ())
+function Widgets.TabStrip(
+	tabs: { TabDef },
+	position: UDim2,
+	opts: { Size: number?, Gap: number? }?
+): (Frame, (string) -> (), ((string) -> ()) -> ())
 	opts = opts or {}
-	local tabSize = opts.Size or 56
+	local tabSize = Responsive.Tap(opts.Size or 56)
 	local gap = opts.Gap or 10
 
 	local strip = Instance.new("Frame")
@@ -588,6 +622,13 @@ local BUTTON_PALETTE: { [TextButton]: ButtonPalette } = setmetatable({}, { __mod
 -- path the constructor uses instead of poking properties behind its back.
 local BUTTON_REPAINT: { [TextButton]: () -> () } = setmetatable({}, { __mode = "k" }) :: any
 
+-- Re-runs a button's text fit against its CURRENT size. Widgets.Relayout calls
+-- this: computeLabelTextSize closes over the size the button was BUILT with, so
+-- without it a resized button keeps a label fitted for the old width -- which is
+-- exactly why "Emotes"/"PRACTICE"/"METEOR DASH" were still rendering as
+-- "E..."/"PRA..."/"METEOR..." after the responsive pass resized them.
+local BUTTON_REFIT: { [TextButton]: (UDim2) -> () } = setmetatable({}, { __mode = "k" }) :: any
+
 -- How far the bevel strip peeks out along the bottom edge -- big enough to
 -- read as "3D depth" at every button size used in the game, small enough to
 -- never eat into a short button's text.
@@ -685,7 +726,13 @@ end
 -- Text did, and hand-tuning a per-button width/position for every affected
 -- HUD button (several sit only px away from a hand-placed neighbor) is far
 -- more brittle than just letting the label ask "does this fit?" directly.
-local function fitTextSize(text: string, font: Enum.Font, maxSize: number, availableWidth: number, availableHeight: number): number
+local function fitTextSize(
+	text: string,
+	font: Enum.Font,
+	maxSize: number,
+	availableWidth: number,
+	availableHeight: number
+): number
 	local size = maxSize
 	while size > 10 do
 		local bounds = TextService:GetTextSize(text, size, font, Vector2.new(1000, availableHeight))
@@ -791,12 +838,56 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	-- before this change: rely on TextTruncate as the overflow safety net)
 	-- rather than feeding fitTextSize a bogus ~0 width, which would floor
 	-- every one of those buttons' text down to 10px.
+	-- Set when the label cannot fit alongside the icon even at the smallest
+	-- readable size, in which case the icon is dropped so the words survive.
+	--
+	-- Seen on a real phone: "Emotes" rendered as "E...", "PRACTICE" as "PRA...",
+	-- "METEOR DASH" as "METEOR...". Those buttons carry an icon AND a label, and
+	-- once the button scales down there is not room for both -- fitTextSize
+	-- bottoms out at 10pt and TextTruncate eats the rest. A truncated word plus a
+	-- glyph is the worst of the three options: the icon alone would at least be
+	-- recognisable, and the word alone certainly is. So the icon yields, since
+	-- these labels ("Emotes", "Party", "PRACTICE") are the thing a player reads.
+	local iconSuppressed = false
+
+	-- Mutable so Relayout can re-fit against the button's new size; starts as the
+	-- size it was constructed with.
+	local currentSize = size
+
 	local function computeLabelTextSize(labelText: string): number
-		if size.X.Offset <= 0 then
+		if currentSize.X.Offset <= 0 then
 			return maxLabelTextSize
 		end
-		local availableWidth = size.X.Offset - leftInset - rightInset
-		return fitTextSize(labelText, button.Font, maxLabelTextSize, availableWidth, math.max(size.Y.Offset, 20))
+
+		local height = math.max(currentSize.Y.Offset, 20)
+		local withIcon = currentSize.X.Offset - leftInset - rightInset
+		local fitted = fitTextSize(labelText, button.Font, maxLabelTextSize, withIcon, height)
+
+		-- Does it actually fit at the size we settled on, or did fitTextSize hit
+		-- its floor and give up?
+		local bounds = TextService:GetTextSize(labelText, fitted, button.Font, Vector2.new(1000, height))
+		if bounds.X <= withIcon or not opts.Icon then
+			iconSuppressed = false
+			return fitted
+		end
+
+		iconSuppressed = true
+		return fitTextSize(labelText, button.Font, maxLabelTextSize, currentSize.X.Offset - rightInset * 2, height)
+	end
+
+	-- Applies whatever computeLabelTextSize decided about the icon.
+	local function applyIconSuppression(labelObject: TextLabel)
+		local iconHolder = button:FindFirstChild("Icon")
+		if iconHolder and iconHolder:IsA("GuiObject") then
+			iconHolder.Visible = not iconSuppressed
+		end
+		if iconSuppressed then
+			labelObject.Position = UDim2.fromOffset(rightInset, 0)
+			labelObject.Size = UDim2.new(1, -rightInset * 2, 1, 0)
+		else
+			labelObject.Position = UDim2.fromOffset(leftInset, 0)
+			labelObject.Size = UDim2.new(1, -(leftInset + rightInset), 1, 0)
+		end
 	end
 
 	local label = Instance.new("TextLabel")
@@ -814,6 +905,13 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	label.Text = button.Text
 	label.TextSize = computeLabelTextSize(button.Text)
 	label.Parent = button
+	applyIconSuppression(label)
+
+	BUTTON_REFIT[button] = function(newSize: UDim2)
+		currentSize = newSize
+		label.TextSize = computeLabelTextSize(label.Text)
+		applyIconSuppression(label)
+	end
 
 	button.Text = ""
 	-- A naive "set a syncing flag, clear button.Text, reset the flag" guard
@@ -836,6 +934,7 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 		end
 		label.Text = newText
 		label.TextSize = computeLabelTextSize(newText)
+		applyIconSuppression(label)
 		button.Text = ""
 	end)
 
@@ -1006,6 +1105,105 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	return button, setActive
 end
 
+-- Keeps a HUD rail button in its slot for the life of the session.
+--
+-- Scaling a button's size and position at CONSTRUCTION is not enough: those
+-- values are computed once, so the button keeps them forever while everything
+-- with a layout callback moves around it. Measured on the emulator after a
+-- device change -- the Shop toggle had followed the new viewport width while
+-- Gacha was still placed for the old one, because neither had any way to be told
+-- the screen had changed.
+--
+-- `side` is "Left" (x measured from the left edge) or "Right" (from the right).
+function Widgets.BindRail(
+	button: TextButton,
+	refWidth: number,
+	refHeight: number,
+	slot: number,
+	side: "Left" | "Right",
+	refInset: number
+)
+	-- The parent the button lives in while it belongs to the rail. MobileMenu can
+	-- reparent it into the drawer on a phone, and when it does, the drawer owns
+	-- its position -- two layout callbacks writing the same button fight, and
+	-- which one wins depends on observer order. Measured: Inventory, Party and
+	-- Gacha all landed on top of each other inside the drawer because this kept
+	-- placing them at their rail slot after the drawer had already placed them.
+	local home = button.Parent
+
+	Responsive.Observe(function()
+		if button.Parent ~= home then
+			return
+		end
+		local width = Responsive.Px(refWidth)
+		local height = Responsive.Tap(refHeight)
+		local inset = Responsive.Px(refInset)
+		local x = if side == "Right" then Responsive.ViewportSize().X - width - inset else inset
+		Widgets.Relayout(
+			button,
+			UDim2.fromOffset(width, height),
+			UDim2.fromOffset(Responsive.ClampX(x, width), Responsive.RailY(slot))
+		)
+	end)
+end
+
+-- Wraps a panel's existing content in a ScrollingFrame.
+--
+-- For panels whose content genuinely needs more height than a phone has: the
+-- profile card is 509pt of avatar, stats and best-times against a 334pt screen,
+-- so clamping the panel alone would just crop it. The panel gets clamped AND the
+-- content scrolls inside whatever is left.
+--
+-- Existing children move across, except the ones that belong to the panel's
+-- chrome rather than its content -- the hanging title Ribbon, the close button
+-- and the pop-animation UIScale all stay put.
+local PANEL_CHROME = { Ribbon = true, CloseButton = true, PopScale = true }
+
+-- `clearCloseButton` (default true) pushes the content below the ✕. Pass false
+-- for a panel whose top content is CENTRED -- the profile card leads with a
+-- centred avatar that a corner button was never going to cover, and reserving
+-- the close button's full height there just left a band of empty panel above it.
+function Widgets.MakePanelScrollable(panel: GuiObject, pad: number, clearCloseButton: boolean?): ScrollingFrame
+	local existing = panel:FindFirstChild("ContentScroll")
+	if existing and existing:IsA("ScrollingFrame") then
+		return existing
+	end
+
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Name = "ContentScroll"
+	scroll.BackgroundTransparency = 1
+	scroll.BorderSizePixel = 0
+	scroll.CanvasSize = UDim2.new()
+	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	scroll.ScrollBarThickness = 4
+	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+	scroll.Parent = panel
+
+	for _, child in panel:GetChildren() do
+		if child ~= scroll and child:IsA("GuiObject") and not PANEL_CHROME[child.Name] then
+			child.Parent = scroll
+		end
+	end
+
+	Responsive.Observe(function()
+		local top = if clearCloseButton == false then pad else Widgets.ModalContentTop(pad)
+		scroll.Position = UDim2.fromOffset(pad, top)
+		scroll.Size = UDim2.new(1, -pad * 2, 1, -(top + pad))
+	end)
+
+	return scroll
+end
+
+-- The y a modal's content must start at to clear the close button.
+--
+-- The ✕ is anchored inside the panel's top-right corner (a CanvasGroup clips, so
+-- it cannot straddle the edge), which means any content starting above its
+-- bottom edge renders underneath it. Measured on a phone: the emote grid, the
+-- shop list and the inventory list all had the ✕ sitting on their first row.
+function Widgets.ModalContentTop(pad: number): number
+	return math.max(pad, Responsive.Tap(34) + pad * 2)
+end
+
 -- Reference geometry for the accept/decline toasts below.
 local TOAST_WIDTH = 360
 local TOAST_HEIGHT = 130
@@ -1113,6 +1311,15 @@ function Widgets.Relayout(button: TextButton, size: UDim2, position: UDim2)
 		local bevelInset = size.Y.Offset / 2 + 3
 		bevelStrip.Size = UDim2.new(1, -bevelInset * 2, 0, bevelStrip.Size.Y.Offset)
 	end
+
+	-- The label was fitted to the size the button was BUILT at. Without this a
+	-- button that shrank keeps oversized text and truncates it to "PRA..." --
+	-- measured on a real phone, and invisible to any check that only reads
+	-- geometry.
+	local refit = BUTTON_REFIT[button]
+	if refit then
+		refit(size)
+	end
 end
 
 -- For a caller that needs to swap a button's full color set at runtime
@@ -1167,7 +1374,12 @@ end
 -- Works with both mouse and touch. Returns the container Frame and a
 -- setValue(value) setter for a caller that needs to move it programmatically
 -- (e.g. syncing back to a value set elsewhere) without re-firing onChanged.
-function Widgets.Slider(size: UDim2, position: UDim2, initial: number, onChanged: (number) -> ()): (Frame, (number) -> ())
+function Widgets.Slider(
+	size: UDim2,
+	position: UDim2,
+	initial: number,
+	onChanged: (number) -> ()
+): (Frame, (number) -> ())
 	local container = Instance.new("Frame")
 	container.Name = "Slider"
 	container.Size = size
@@ -1258,7 +1470,13 @@ function Widgets.Slider(size: UDim2, position: UDim2, initial: number, onChanged
 	-- bounds. Listening globally and gating on `dragging` keeps tracking the
 	-- drag anywhere on screen until the button/touch actually lifts.
 	UserInputService.InputChanged:Connect(function(input: InputObject)
-		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+		if
+			dragging
+			and (
+				input.UserInputType == Enum.UserInputType.MouseMovement
+				or input.UserInputType == Enum.UserInputType.Touch
+			)
+		then
 			updateFromScreenX(input.Position.X)
 		end
 	end)

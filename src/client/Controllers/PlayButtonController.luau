@@ -25,8 +25,29 @@ local PlayButtonController = {}
 
 -- Reference geometry for the bottom cluster. ROW_GAP is 10 because VS BOTS and
 -- PRACTICE were authored at -150 and +5 from centre -- 145 wide with 10 between.
-local PLAY_WIDTH, PLAY_HEIGHT, PLAY_BOTTOM = 220, 64, 120
-local ROW_WIDTH, ROW_HEIGHT, ROW_BOTTOM, ROW_GAP = 145, 44, 172, 10
+-- The old *_BOTTOM offsets are gone: rows are stacked up from the touch-control
+-- band by Responsive.BottomRowY, so their distance from the bottom is derived
+-- from the heights they actually have rather than hand-set.
+-- The phone action row: SPRINT, PLAY and DASH side by side. All three
+-- controllers compute it from the same widths and gap, so none can drift.
+local ACTION_GAP = 10
+local function actionRowWidths(): { number }
+	return {
+		Responsive.Px(150), -- SPRINT (SprintController)
+		Responsive.Px(220), -- PLAY   (PlayButtonController)
+		Responsive.Px(200), -- DASH   (AbilityController)
+	}
+end
+
+-- Total width of that row, so BottomRowY can tell whether it fits between the
+-- touch controls and may therefore sit at the real bottom of the screen.
+local function actionRowTotal(): number
+	local widths = actionRowWidths()
+	return widths[1] + widths[2] + widths[3] + Responsive.Px(ACTION_GAP) * 2
+end
+
+local PLAY_WIDTH, PLAY_HEIGHT = 220, 64
+local ROW_WIDTH, ROW_HEIGHT, ROW_GAP = 145, 44, 10
 
 -- Exposed so GhostController knows whether the race that's about to start is
 -- a practice run (and should fetch/record a ghost) without needing its own
@@ -218,17 +239,30 @@ local function buildUI()
 		local gap = px(ROW_GAP)
 		local viewport = Responsive.ViewportSize()
 
-		local playX = Responsive.ClearCorners(math.round((viewport.X - playWidth) / 2), playWidth)
-		Widgets.Relayout(button, UDim2.fromOffset(playWidth, playHeight), UDim2.new(0, playX, 1, -px(PLAY_BOTTOM)))
+		-- On a phone PLAY sits between SPRINT and DASH on one row; elsewhere it
+		-- keeps its own centred row with those two stacked above.
+		local onPhone = Responsive.Tier() == "Phone"
+		local playX
+		if onPhone then
+			playX = Responsive.CenterRow(actionRowWidths(), Responsive.Px(ACTION_GAP))[2]
+		else
+			playX = Responsive.ClearCorners(math.round((viewport.X - playWidth) / 2), playWidth)
+		end
+		Widgets.Relayout(
+			button,
+			UDim2.fromOffset(playWidth, playHeight),
+			UDim2.fromOffset(playX, Responsive.BottomRowY(0, playHeight, onPhone and actionRowTotal() or playWidth))
+		)
 
+		-- VS BOTS + PRACTICE sit one row above whatever PLAY is on.
 		local pairWidth = rowWidth * 2 + gap
 		local pairX = Responsive.ClearCorners(math.round((viewport.X - pairWidth) / 2), pairWidth)
-		local rowY = -px(ROW_BOTTOM)
-		Widgets.Relayout(botsButton, UDim2.fromOffset(rowWidth, rowHeight), UDim2.new(0, pairX, 1, rowY))
+		local rowY = Responsive.BottomRowY(1, rowHeight, pairWidth)
+		Widgets.Relayout(botsButton, UDim2.fromOffset(rowWidth, rowHeight), UDim2.fromOffset(pairX, rowY))
 		Widgets.Relayout(
 			practiceButton,
 			UDim2.fromOffset(rowWidth, rowHeight),
-			UDim2.new(0, pairX + rowWidth + gap, 1, rowY)
+			UDim2.fromOffset(pairX + rowWidth + gap, rowY)
 		)
 	end)
 end

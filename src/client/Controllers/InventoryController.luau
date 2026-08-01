@@ -9,6 +9,7 @@ local RemoteNames = require(Shared.RemoteNames)
 
 local AbilityIcons = require(script.Parent.Parent.AbilityIcons)
 local CategoryIcons = require(script.Parent.Parent.CategoryIcons)
+local MobileMenu = require(script.Parent.Parent.MobileMenu)
 local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
@@ -60,7 +61,8 @@ local function buildAbilityRow(info: Abilities.AbilityInfo, profile): Frame
 
 	-- Sits in the gap between the rarity swatch and the name text -- same
 	-- rationale as the gacha reel card's icon.
-	local icon = AbilityIcons.Create(info.Id, 40, UDim2.fromOffset(16, 9), RARITY_COLOR[info.Rarity] or Theme.Color.TextMuted)
+	local icon =
+		AbilityIcons.Create(info.Id, 40, UDim2.fromOffset(16, 9), RARITY_COLOR[info.Rarity] or Theme.Color.TextMuted)
 	icon.Parent = row
 
 	local nameLabel = Widgets.Label(info.Name, UDim2.new(0.55, -62, 0, 22), UDim2.fromOffset(64, 6), {
@@ -90,10 +92,15 @@ local function buildAbilityRow(info: Abilities.AbilityInfo, profile): Frame
 	subLabel.Parent = row
 
 	if owned then
-		local actionButton = Widgets.Button(if equipped then "Equipped" else "Equip", UDim2.fromScale(0.32, 0.66), UDim2.fromScale(0.65, 0.17), {
-			Variant = if equipped then "Success" else "Primary",
-			TextSize = 14,
-		})
+		local actionButton = Widgets.Button(
+			if equipped then "Equipped" else "Equip",
+			UDim2.fromScale(0.32, 0.66),
+			UDim2.fromScale(0.65, 0.17),
+			{
+				Variant = if equipped then "Success" else "Primary",
+				TextSize = 14,
+			}
+		)
 		actionButton.Parent = row
 		if equipped then
 			actionButton.Active = false
@@ -150,20 +157,34 @@ local function buildUI()
 	-- Directly below LeaderboardController's toggle button (same X, same
 	-- 8px-gap-below-a-48px-button convention used throughout this stack),
 	-- and to the left of PartyController's toggle (same row).
-	local toggleButton = Widgets.Button("Inventory", UDim2.fromOffset(220, 48), UDim2.fromOffset(10, 116), {
-		-- Reuses the same icon the old Inventory tab drew in its tab strip
-		-- (see CategoryIcons) -- same concept, no need for a second icon.
-		Icon = function(holder, color)
-			CategoryIcons.Populate(holder, "Inventory", holder.Size.X.Offset, color)
-		end,
-	})
+	local toggleButton = Widgets.Button(
+		"Inventory",
+		UDim2.fromOffset(Responsive.Px(220), Responsive.Tap(48)),
+		UDim2.fromOffset(Responsive.Px(10), Responsive.RailY(2)),
+		{
+			-- Reuses the same icon the old Inventory tab drew in its tab strip
+			-- (see CategoryIcons) -- same concept, no need for a second icon.
+			Icon = function(holder, color)
+				CategoryIcons.Populate(holder, "Inventory", holder.Size.X.Offset, color)
+			end,
+		}
+	)
 	toggleButton.Parent = screenGui
+	Widgets.BindRail(toggleButton, 220, 48, 2, "Left", 10)
+	-- Folded into the drawer on phones only: three rail rows plus the
+	-- bottom gameplay cluster do not both fit a 334pt screen.
+	MobileMenu.Adopt(toggleButton, 5, true)
 
 	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a
 	-- bare Widgets.Panel only closable via this one toggle button.
-	panel, openPanel, closePanel = Widgets.Modal("Inventory", UDim2.fromOffset(INV_WIDTH, INV_HEIGHT), UDim2.new(0.5, -INV_WIDTH / 2, 0.5, -INV_HEIGHT / 2), {
-		DisplayOrder = 30,
-	})
+	panel, openPanel, closePanel = Widgets.Modal(
+		"Inventory",
+		UDim2.fromOffset(INV_WIDTH, INV_HEIGHT),
+		UDim2.new(0.5, -INV_WIDTH / 2, 0.5, -INV_HEIGHT / 2),
+		{
+			DisplayOrder = 30,
+		}
+	)
 
 	-- Centred, so a 480-tall panel on a 375pt viewport loses ~52pt off BOTH ends
 	-- -- the ribbon off the top and the last ability row off the bottom.
@@ -184,8 +205,10 @@ local function buildUI()
 	ribbon.Parent = panel
 
 	abilityList = Instance.new("ScrollingFrame")
-	abilityList.Size = UDim2.new(1, -16, 1, -60)
-	abilityList.Position = UDim2.fromOffset(8, 52)
+	-- Below the modal's ✕ rather than under it -- see Widgets.ModalContentTop.
+	local listTop = Widgets.ModalContentTop(8)
+	abilityList.Size = UDim2.new(1, -16, 1, -(listTop + 8))
+	abilityList.Position = UDim2.fromOffset(8, listTop)
 	abilityList.BackgroundTransparency = 1
 	abilityList.BorderSizePixel = 0
 	abilityList.CanvasSize = UDim2.new(0, 0, 0, 0)

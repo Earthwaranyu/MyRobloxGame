@@ -17,6 +17,8 @@ local LeaderboardController = {}
 -- laid out on numbers that don't refer to the panel's actual width is how Stage
 -- 4 ended up rendering off the edge of its own row.
 local PANEL_WIDTH = 360
+-- Authored height of a Global/Friends tab; Tap() raises it on touch.
+local SCOPE_TAB_HEIGHT = 26
 -- A maximum, not a fixed height: Responsive.PlacePanel clamps it to whatever the
 -- viewport can actually show.
 local PANEL_HEIGHT = 454
@@ -120,9 +122,7 @@ function LeaderboardController.Refresh()
 	end
 
 	if #entries == 0 then
-		local emptyText = if friendsOnly
-			then "None of your friends have a time here yet."
-			else "No times recorded yet."
+		local emptyText = if friendsOnly then "None of your friends have a time here yet." else "No times recorded yet."
 		local emptyLabel = Widgets.Label(emptyText, UDim2.new(1, -16, 0, 32), UDim2.fromOffset(8, 0), {
 			Color = Theme.Color.TextMuted,
 			Bold = false,
@@ -149,18 +149,25 @@ local function buildUI()
 	-- rendered blurry/illegible in testing regardless of color/stroke tweaks
 	-- -- confirmed empirically that a taller button + bigger text is what
 	-- actually fixes it, not further contrast changes.
-	local toggleButton = Widgets.Button("Leaderboard", UDim2.fromOffset(220, 48), UDim2.fromOffset(10, 60), {
-		Icon = function(holder, color)
-			MenuIcons.Populate(holder, "Leaderboard", color)
-		end,
-	})
+	local toggleButton = Widgets.Button(
+		"Leaderboard",
+		UDim2.fromOffset(Responsive.Px(220), Responsive.Tap(48)),
+		UDim2.fromOffset(Responsive.Px(10), Responsive.RailY(1)),
+		{
+			Icon = function(holder, color)
+				MenuIcons.Populate(holder, "Leaderboard", color)
+			end,
+		}
+	)
 	toggleButton.Parent = screenGui
+	Widgets.BindRail(toggleButton, 220, 48, 1, "Left", 10)
 
 	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a
 	-- bare Widgets.Panel only closable via this one toggle button.
-	panel, openPanel, closePanel = Widgets.Modal("Leaderboard", UDim2.fromOffset(PANEL_WIDTH, PANEL_HEIGHT), UDim2.fromOffset(10, 116), {
-		DisplayOrder = 30,
-	})
+	panel, openPanel, closePanel =
+		Widgets.Modal("Leaderboard", UDim2.fromOffset(PANEL_WIDTH, PANEL_HEIGHT), UDim2.fromOffset(10, 116), {
+			DisplayOrder = 30,
+		})
 
 	-- 454 tall at y=116 puts the bottom 195pt of this panel past the edge of a
 	-- phone -- including the rows a player opens it to read. The entries list is
@@ -202,16 +209,21 @@ local function buildUI()
 	-- A grid, not a list: UIListLayout has no wrapping, so a second row of
 	-- tabs would otherwise have to be positioned by hand.
 	local tabLayout = Instance.new("UIGridLayout")
-	tabLayout.CellSize = UDim2.fromOffset(tabWidth, TAB_HEIGHT)
+	tabLayout.CellSize = UDim2.fromOffset(Responsive.Px(tabWidth), Responsive.Tap(TAB_HEIGHT))
 	tabLayout.CellPadding = UDim2.fromOffset(TAB_PADDING, TAB_PADDING)
 	tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	tabLayout.Parent = tabRow
 
 	for i, stage in Stages do
-		local tabButton, setActive = Widgets.Button(stage.Name, UDim2.fromOffset(tabWidth, TAB_HEIGHT), UDim2.fromOffset(0, 0), {
-			Variant = "Tab",
-			TextSize = 15,
-		})
+		local tabButton, setActive = Widgets.Button(
+			stage.Name,
+			UDim2.fromOffset(Responsive.Px(tabWidth), Responsive.Tap(TAB_HEIGHT)),
+			UDim2.fromOffset(0, 0),
+			{
+				Variant = "Tab",
+				TextSize = 15,
+			}
+		)
 		tabButton.Name = "Tab_" .. stage.Id
 		tabButton.LayoutOrder = i
 		tabButton.Parent = tabRow
@@ -230,10 +242,15 @@ local function buildUI()
 	-- tabs pushes the scope buttons and the entry list down instead of being
 	-- drawn underneath them.
 	local scopeY = 44 + tabRowHeight + 4
-	local entriesY = scopeY + 26 + 4
+	-- The row is as tall as the buttons INSIDE it. Tap() floors those at 44 on
+	-- touch while the row stayed at its authored 26, so the tabs burst out of it
+	-- and sat on top of the entries below -- measured, 39pt buttons in a 23pt
+	-- row. The entries list then has to start below the row's real height too.
+	local scopeHeight = Responsive.Tap(SCOPE_TAB_HEIGHT)
+	local entriesY = scopeY + scopeHeight + Responsive.Px(4)
 
 	local scopeRow = Instance.new("Frame")
-	scopeRow.Size = UDim2.new(1, -16, 0, 26)
+	scopeRow.Size = UDim2.new(1, -16, 0, scopeHeight)
 	scopeRow.Position = UDim2.fromOffset(8, scopeY)
 	scopeRow.BackgroundTransparency = 1
 	scopeRow.Parent = panel
@@ -249,7 +266,7 @@ local function buildUI()
 		-- minimum on a phone and leaves it at 26 on desktop.
 		local scopeButton, setActive = Widgets.Button(
 			scope,
-			UDim2.fromOffset(Responsive.Px(90), Responsive.Tap(26)),
+			UDim2.fromOffset(Responsive.Px(90), scopeHeight),
 			UDim2.fromOffset(0, 0),
 			{ Variant = "Tab", TextSize = Responsive.Text(13) }
 		)

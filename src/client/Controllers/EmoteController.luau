@@ -159,6 +159,7 @@ local function buildUI()
 			end,
 		})
 	toggleButton.Parent = screenGui
+	Widgets.BindRail(toggleButton, 140, 48, 1, "Left", 240)
 
 	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a
 	-- bare Widgets.Panel only closable via this one toggle button.
@@ -226,9 +227,17 @@ local function buildUI()
 	-- AutomaticCanvasSize tracks the result), so narrow screens end up with fewer
 	-- columns and more rows to scroll rather than a clipped row.
 	local function relayout()
-		local panelWidth = Responsive.Px(PANEL_WIDTH)
-		panel.Size = UDim2.fromOffset(panelWidth, Responsive.Px(PANEL_HEIGHT))
-		panel.Position = UDim2.new(0.5, -panelWidth / 2, 0, Responsive.Px(PANEL_TOP))
+		-- Through PlacePanel rather than sizing itself, so it picks up the phone
+		-- floors: a hand-sized panel came out 16% of an 801x334 screen, leaving
+		-- room for a single row of emotes on the device with the most screen to
+		-- spare.
+		local viewport = Responsive.ViewportSize()
+		local panelWidth, panelHeight =
+			Responsive.PlacePanel(panel, PANEL_WIDTH, PANEL_HEIGHT, 0, Responsive.Px(PANEL_TOP))
+		panel.Position = UDim2.fromOffset(
+			math.round((viewport.X - panelWidth) / 2),
+			Responsive.ClampY(math.round((viewport.Y - panelHeight) / 2), panelHeight)
+		)
 
 		local ribbonHeight = Responsive.Px(RIBBON_HEIGHT)
 		ribbon.Size = UDim2.fromOffset(Responsive.Px(RIBBON_WIDTH), ribbonHeight)
@@ -240,18 +249,22 @@ local function buildUI()
 		hint.Position = UDim2.fromOffset(pad, Responsive.Px(HINT_TOP))
 		hint.TextSize = Responsive.Text(HINT_TEXT)
 
-		grid.Size = UDim2.new(1, -pad * 2, 1, -(gridTop + Responsive.Px(4)))
-		grid.Position = UDim2.fromOffset(pad, gridTop)
+		-- Below the modal's close button, not under it. The ✕ is anchored to the
+		-- panel's top-right corner INSIDE the panel (a CanvasGroup clips, so it
+		-- cannot straddle the edge), and the grid used to start above its bottom
+		-- edge -- so the ✕ sat on top of the first row of emote tiles.
+		local headerBottom = math.max(gridTop, Responsive.Tap(34) + pad * 2)
+		grid.Size = UDim2.new(1, -pad * 2, 1, -(headerBottom + Responsive.Px(4)))
+		grid.Position = UDim2.fromOffset(pad, headerBottom)
 
 		local cell = Responsive.Tap(TILE_SIZE)
 		layout.CellSize = UDim2.fromOffset(cell, cell)
 		layout.CellPadding = UDim2.fromOffset(Responsive.Px(TILE_GAP), Responsive.Px(TILE_GAP))
 
-		Widgets.Relayout(
-			toggleButton,
-			UDim2.fromOffset(Responsive.Px(TOGGLE_WIDTH), Responsive.Tap(TOGGLE_HEIGHT)),
-			UDim2.fromOffset(Responsive.Px(TOGGLE_X), Responsive.Px(TOGGLE_Y))
-		)
+		-- The toggle is owned by Widgets.BindRail (see buildUI). Two layout
+		-- callbacks writing the same button's position fight, and which one wins
+		-- depends on observer order -- that is how it ended up 3pt off the TOP of
+		-- the screen on the emulator.
 	end
 	Responsive.Observe(relayout)
 

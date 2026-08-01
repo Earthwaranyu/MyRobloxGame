@@ -6,6 +6,7 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 local RankTiers = require(Shared.RankTiers)
 
+local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
 
@@ -18,8 +19,12 @@ local player = Players.LocalPlayer
 local dot: Frame
 local label: TextLabel
 
-local function refresh()
-	local profile = Net.GetRemoteFunction(RemoteNames.GetProfile):InvokeServer()
+-- The last profile the server sent, so the pill can be re-rendered on a viewport
+-- change without another round trip -- the text format depends on the tier.
+local lastProfile: { Elo: number, Points: number }? = nil
+
+local function render()
+	local profile = lastProfile
 	if not profile then
 		return
 	end
@@ -28,7 +33,25 @@ local function refresh()
 	local rankColor = Theme.GetRankColor(rankName)
 
 	dot.BackgroundColor3 = rankColor
-	label.Text = ("%s  %d elo  •  %d pts"):format(rankName, profile.Elo, profile.Points)
+	-- Compact on a phone. The full form ("Bronze  1000 elo  •  1293 pts") needs
+	-- more width than the pill has once everything scales down -- measured on the
+	-- emulator at 137px of label for a string wanting well over that, so it
+	-- rendered as "Bronze  1000 elo  •...". Dropping the unit words keeps every
+	-- number the player actually reads.
+	if Responsive.Tier() == "Phone" then
+		label.Text = ("%s  %d  •  %d"):format(rankName, profile.Elo, profile.Points)
+	else
+		label.Text = ("%s  %d elo  •  %d pts"):format(rankName, profile.Elo, profile.Points)
+	end
+end
+
+local function refresh()
+	local profile = Net.GetRemoteFunction(RemoteNames.GetProfile):InvokeServer()
+	if not profile then
+		return
+	end
+	lastProfile = profile
+	render()
 end
 
 local function buildUI()
@@ -37,7 +60,10 @@ local function buildUI()
 	screenGui.ResetOnSpawn = false
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
-	local pill = Widgets.StatPill(UDim2.fromOffset(230, 32), UDim2.fromOffset(10, 14))
+	local pill = Widgets.StatPill(
+		UDim2.fromOffset(Responsive.Px(230), Responsive.Px(32)),
+		UDim2.fromOffset(Responsive.Px(10), Responsive.Px(14))
+	)
 	pill.Parent = screenGui
 
 	dot = Instance.new("Frame")
@@ -50,11 +76,23 @@ local function buildUI()
 	dotCorner.Parent = dot
 	dot.Parent = pill
 
-	label = Widgets.Label("", UDim2.fromOffset(190, 32), UDim2.fromOffset(0, 0), {
+	label = Widgets.Label("", UDim2.fromOffset(Responsive.Px(190), Responsive.Px(32)), UDim2.fromOffset(0, 0), {
 		TextSize = 14,
 	})
 	label.LayoutOrder = 2
 	label.Parent = pill
+
+	-- Re-lays out on a viewport change AND re-renders the text, because the
+	-- pill's format is tier-dependent -- a device crossing the phone threshold
+	-- needs the shorter string, not just a smaller box.
+	Responsive.Observe(function()
+		pill.Size = UDim2.fromOffset(Responsive.Px(230), Responsive.Px(32))
+		pill.Position = UDim2.fromOffset(Responsive.Px(10), Responsive.Px(14))
+		label.Size = UDim2.fromOffset(Responsive.Px(190), Responsive.Px(32))
+		label.TextSize = Responsive.Text(14)
+		dot.Size = UDim2.fromOffset(Responsive.Px(10), Responsive.Px(10))
+		render()
+	end)
 end
 
 function StatsPillController.Init()

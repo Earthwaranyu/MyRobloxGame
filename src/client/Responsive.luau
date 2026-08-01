@@ -155,8 +155,54 @@ function Responsive.Tap(offset: number): number
 	return LayoutMath.Tap(view(), offset)
 end
 
+-- How much of the bottom edge Roblox's own touch controls actually occupy,
+-- MEASURED rather than assumed.
+--
+-- The constant in LayoutMath is a fallback estimate, and measuring showed it was
+-- badly wrong: on an 801x334 phone the real jump button is 70x70 at y=244, so
+-- the genuine keep-out is 90pt -- while the estimate reserved 127 and the
+-- original flat figure would have reserved 190. That difference is most of why
+-- the HUD bunched into the top half with 40% of the screen left empty.
+--
+-- Roblox builds these into PlayerGui.TouchGui, so they can simply be read. The
+-- estimate stays for the frames before that exists.
 function Responsive.TouchBand(): number
-	return LayoutMath.TouchBand(view())
+	local estimate = LayoutMath.TouchBand(view())
+	if estimate <= 0 then
+		return 0
+	end
+
+	local player = Players.LocalPlayer
+	local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
+	local touchGui = playerGui and playerGui:FindFirstChild("TouchGui")
+	local frame = touchGui and touchGui:FindFirstChild("TouchControlFrame")
+	if not (frame and frame:IsA("GuiObject")) then
+		return estimate
+	end
+
+	-- The JUMP BUTTON specifically, by name -- not the topmost of everything
+	-- under TouchControlFrame. Scanning all descendants picks up layout
+	-- containers that span most of the screen: measured, that returned a top
+	-- edge of y=111 on a 579-tall viewport, i.e. a "band" of 467pt covering 80%
+	-- of the display. The jump button is the one control that is always present,
+	-- always visible, and actually bounded.
+	local jump: GuiObject? = nil
+	for _, control in frame:GetDescendants() do
+		if control.Name == "JumpButton" and control:IsA("GuiObject") then
+			jump = control
+			break
+		end
+	end
+	if not (jump and jump.Visible and jump.AbsoluteSize.Y > 0) then
+		return estimate
+	end
+
+	-- Measured from the button's top edge to the bottom of the screen, and never
+	-- allowed to exceed the estimate -- a bad reading should cost layout room,
+	-- never hand a control's area back to the HUD.
+	local viewportHeight = viewportSize().Y
+	local top = jump.AbsolutePosition.Y - frame.AbsolutePosition.Y
+	return math.round(math.clamp(viewportHeight - top, 0, estimate))
 end
 
 function Responsive.FitHeight(refHeight: number, top: number): number
@@ -173,6 +219,25 @@ end
 
 function Responsive.ClearCorners(x: number, width: number): number
 	return LayoutMath.ClearCorners(view(), x, width)
+end
+
+-- y of the nth HUD rail slot from the top (0-based). Rows derive their position
+-- from the height rows actually have, so a Tap() floor can never close the gap
+-- between two of them -- see LayoutMath.RailY.
+function Responsive.RailY(index: number): number
+	return LayoutMath.RailY(view(), index)
+end
+
+-- y of the nth row up from the bottom of the usable area (0 = bottom-most).
+-- `rowWidth` lets a row that fits between the touch controls sit at the actual
+-- bottom of the screen rather than above them -- see LayoutMath.BottomRowY.
+function Responsive.BottomRowY(indexFromBottom: number, rowHeight: number, rowWidth: number?): number
+	return LayoutMath.BottomRowY(view(), indexFromBottom, rowHeight, rowWidth)
+end
+
+-- x positions for a row of boxes centred as a group -- see LayoutMath.CenterRow.
+function Responsive.CenterRow(widths: { number }, gap: number): { number }
+	return LayoutMath.CenterRow(view(), widths, gap)
 end
 
 -- Sizes and places a panel so the whole of it is on screen, and reports the size
@@ -195,9 +260,7 @@ function Responsive.PlacePanel(
 	x: number,
 	y: number
 ): (number, number)
-	local margin = Responsive.ScreenMargin
-	local width = math.min(Responsive.Px(refWidth), math.round(viewportSize().X - margin * 2))
-	local height = Responsive.FitHeight(refHeight, margin)
+	local width, height = LayoutMath.PanelSize(view(), refWidth, refHeight)
 	gui.Size = UDim2.fromOffset(width, height)
 	gui.Position = UDim2.fromOffset(Responsive.ClampX(x, width), Responsive.ClampY(y, height))
 	return width, height
@@ -210,47 +273,78 @@ end
 -- Immediately, not just on change, because every call site would otherwise have
 -- to duplicate the initial layout pass, and the one that forgets is the one that
 -- looks broken until the player happens to rotate their phone.
+-- ONE binding for every observer, rather than one binding each.
+--
+-- The per-caller version had a hole with teeth: it bound to the probe's
+-- AbsoluteSize at the moment Observe was called, and if the probe did not exist
+-- yet (PlayerGui not populated when that controller happened to initialise) it
+-- silently bound nothing. That caller then never heard about a resize again --
+-- and the camera fallback cannot cover it, because the camera's ViewportSize is
+-- the broken value that never changes. Measured: the mobile drawer was still
+-- positioned for a 1001-wide window long after the viewport had become
+-- something else, while every other panel had followed along.
+--
+-- A single dispatcher retried until the probe exists fixes it for everyone at
+-- once, and means a controller's position in load order stops mattering.
+local observers: { [number]: () -> () } = {}
+local nextObserverId = 0
+local dispatcherStarted = false
+local lastSize: Vector2? = nil
+
+local function fireAll()
+	for _, callback in observers do
+		-- One controller's layout error must not stop the rest from updating.
+		local ok, err = pcall(callback)
+		if not ok then
+			warn("Responsive: layout callback failed -- " .. tostring(err))
+		end
+	end
+end
+
+local function startDispatcher()
+	if dispatcherStarted then
+		return
+	end
+	dispatcherStarted = true
+
+	-- Polled rather than driven by GetPropertyChangedSignal("AbsoluteSize").
+	--
+	-- That signal is the obvious choice and it is what this used to do, but it
+	-- proved unreliable in practice: measured on a running client, forcing the
+	-- probe to a new size updated AbsoluteSize correctly while no observer ever
+	-- fired, leaving every panel laid out for the previous viewport. A missed
+	-- resize is silent and total -- the HUD simply stays the wrong size -- which
+	-- is too expensive a failure to accept for an event that fires a handful of
+	-- times in a session.
+	--
+	-- Comparing the value directly cannot miss a change for any reason. At 5Hz
+	-- over a Vector2 compare the cost is nil, and fireAll only does real work on
+	-- the rare frame where the number actually moved.
+	task.spawn(function()
+		while true do
+			local probe = ensureProbe()
+			if probe then
+				local size = probe.AbsoluteSize
+				if LayoutMath.IsSaneViewport(size.X, size.Y) and size ~= lastSize then
+					lastSize = size
+					fireAll()
+				end
+			end
+			task.wait(0.2)
+		end
+	end)
+end
+
 function Responsive.Observe(callback: () -> ()): () -> ()
 	callback()
 
-	local connections: { RBXScriptConnection } = {}
-
-	-- The probe's AbsoluteSize is both the value layout reads and the thing that
-	-- changes when the window does, so it is the signal as well as the source --
-	-- no risk of laying out against one number while listening to another.
-	local probe = ensureProbe()
-	if probe then
-		table.insert(connections, probe:GetPropertyChangedSignal("AbsoluteSize"):Connect(callback))
-	end
-
-	-- The camera stays as a secondary trigger. It is not trusted for the VALUE
-	-- (see viewportSize -- it reports 1x1 on a real 1001x747 window), but when it
-	-- does change it is a reliable hint that the window did too, and it fires in
-	-- cases where a probe rebuild is what's needed.
-	local camera = Workspace.CurrentCamera
-	if camera then
-		table.insert(connections, camera:GetPropertyChangedSignal("ViewportSize"):Connect(callback))
-	end
-
-	-- The camera is replaced on respawn in some modes; so is PlayerGui's contents
-	-- on a ResetOnSpawn GUI. Re-running the callback covers both, and ensureProbe
-	-- rebuilds the probe if it was destroyed with them.
-	table.insert(
-		connections,
-		Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
-			local rebuilt = ensureProbe()
-			if rebuilt then
-				table.insert(connections, rebuilt:GetPropertyChangedSignal("AbsoluteSize"):Connect(callback))
-			end
-			callback()
-		end)
-	)
+	nextObserverId += 1
+	local id = nextObserverId
+	observers[id] = callback
+	startDispatcher()
 
 	return function()
-		for _, connection in connections do
-			connection:Disconnect()
-		end
-		table.clear(connections)
+		observers[id] = nil
 	end
 end
 

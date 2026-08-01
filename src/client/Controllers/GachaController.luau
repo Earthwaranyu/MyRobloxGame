@@ -10,6 +10,7 @@ local RemoteNames = require(Shared.RemoteNames)
 
 local AbilityIcons = require(script.Parent.Parent.AbilityIcons)
 local CategoryIcons = require(script.Parent.Parent.CategoryIcons)
+local MobileMenu = require(script.Parent.Parent.MobileMenu)
 local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
@@ -26,6 +27,37 @@ local Sounds = require(script.Parent.Parent.Sounds)
 -- alongside every other simple toggle; this file only ever reads profile.
 -- SkipGachaAnimationEnabled, it doesn't own that preference.
 local GachaController = {}
+
+-- The pull rows stack by the height a row actually has, not by its authored y.
+--
+-- Authored at y = 0 / 38 / 78, which scale to 0 / 27 / 56 on a phone -- while
+-- Tap() holds each row at the 44pt touch minimum. Gaps of 27 between 44-tall
+-- rows means every row overlapped the one above it: measured, four overlapping
+-- pairs, and on screen the two Pull buttons sat on top of each other.
+local GACHA_ROW_GAP = 6
+
+-- Where the drop-rates section starts: below the last pull row, derived rather
+-- than hard-coded at 162/172/194/218. Those literals were authored against
+-- 36pt rows; once Tap() floors every row to 44 on touch the rows grow past them
+-- and the divider, heading and subtitle end up inside the skip row.
+local function gachaRowY(index: number): number
+	-- index is 0-based; row 0 is the Lucky banner, which is shorter.
+	local lucky = Responsive.Tap(32)
+	if index == 0 then
+		return 0
+	end
+	return lucky + GACHA_ROW_GAP + (index - 1) * (Responsive.Tap(36) + GACHA_ROW_GAP)
+end
+
+-- Heading height, named so the subtitle can be placed BELOW it rather than at
+-- another hand-picked offset -- the two were 2pt apart and overlapped.
+local ODDS_HEADING_H = 20
+local ODDS_SUBTITLE_H = 18
+
+-- Top of the drop-rates block: below the skip-gacha row (row 3).
+local function oddsTop(): number
+	return gachaRowY(3) + GACHA_ROW_GAP + Responsive.Tap(32) + Responsive.Px(12)
+end
 
 -- Reference geometry. Both heights are maximums -- Responsive.PlacePanel clamps
 -- them to what the viewport can show.
@@ -176,7 +208,12 @@ local function buildReelCard(info: Abilities.AbilityInfo, layoutOrder: number): 
 	-- about what the ability actually DOES at a glance (a real player
 	-- complaint: "Idk what does sky hop really do"). Icon color matches the
 	-- card's own rarity tint rather than a fixed white/black.
-	local icon = AbilityIcons.Create(info.Id, 68, UDim2.fromOffset((CARD_WIDTH - 68) / 2, 16), RARITY_COLOR[info.Rarity] or Theme.Color.TextSecondary)
+	local icon = AbilityIcons.Create(
+		info.Id,
+		68,
+		UDim2.fromOffset((CARD_WIDTH - 68) / 2, 16),
+		RARITY_COLOR[info.Rarity] or Theme.Color.TextSecondary
+	)
 	icon.Parent = card
 
 	local nameLabel = Widgets.Label(info.Name, UDim2.new(1, -12, 0, 60), UDim2.fromOffset(6, 96), {
@@ -285,7 +322,12 @@ local function populateResultIcons(results)
 
 	for i, r in results do
 		local info = getAbilityById(r.Id) or pool[1]
-		local icon = AbilityIcons.Create(info.Id, 44, UDim2.fromOffset(0, 0), RARITY_COLOR[info.Rarity] or Theme.Color.TextSecondary)
+		local icon = AbilityIcons.Create(
+			info.Id,
+			44,
+			UDim2.fromOffset(0, 0),
+			RARITY_COLOR[info.Rarity] or Theme.Color.TextSecondary
+		)
 		icon.LayoutOrder = i
 		icon.Parent = resultIconsRow
 	end
@@ -419,21 +461,28 @@ local function buildOddsRow(info: Abilities.AbilityInfo, layoutOrder: number): F
 	swatchCorner.Parent = swatch
 	swatch.Parent = row
 
-	local icon = AbilityIcons.Create(info.Id, 24, UDim2.new(0, 14, 0.5, -12), RARITY_COLOR[info.Rarity] or Theme.Color.TextMuted)
+	local icon =
+		AbilityIcons.Create(info.Id, 24, UDim2.new(0, 14, 0.5, -12), RARITY_COLOR[info.Rarity] or Theme.Color.TextMuted)
 	icon.Parent = row
 
-	local nameLabel = Widgets.Label(("%s (%s)"):format(info.Name, info.Rarity), UDim2.new(0.55, -42, 1, 0), UDim2.fromOffset(44, 0), {
-		TextSize = 14,
-	})
+	local nameLabel =
+		Widgets.Label(("%s (%s)"):format(info.Name, info.Rarity), UDim2.new(0.55, -42, 1, 0), UDim2.fromOffset(44, 0), {
+			TextSize = 14,
+		})
 	nameLabel.Parent = row
 
 	local baseOdds = info.PullWeight or 0
 	local luckyOdds = info.LuckyPullWeight or baseOdds
-	local oddsLabel = Widgets.Label(("%d%%  ·  %d%% w/ Lucky"):format(baseOdds, luckyOdds), UDim2.new(0.45, -10, 1, 0), UDim2.new(0.55, 0, 0, 0), {
-		TextSize = 13,
-		Align = Enum.TextXAlignment.Right,
-		Color = Theme.Color.TextSecondary,
-	})
+	local oddsLabel = Widgets.Label(
+		("%d%%  ·  %d%% w/ Lucky"):format(baseOdds, luckyOdds),
+		UDim2.new(0.45, -10, 1, 0),
+		UDim2.new(0.55, 0, 0, 0),
+		{
+			TextSize = 13,
+			Align = Enum.TextXAlignment.Right,
+			Color = Theme.Color.TextSecondary,
+		}
+	)
 	oddsLabel.Parent = row
 
 	return row
@@ -452,15 +501,24 @@ local function buildMainPanel()
 
 	-- Sits directly below ShopController's toggle button, same X, same
 	-- 8px-gap-below-a-48px-button convention used throughout this stack.
-	local toggleButton = Widgets.Button("Gacha", UDim2.fromOffset(130, 48), UDim2.new(1, -140, 0, 116), {
-		-- Reuses the same "Pulls" gift-box glyph this panel's own tab strip
-		-- already draws (see CategoryIcons) -- same concept, no need for a
-		-- second icon.
-		Icon = function(holder, color)
-			CategoryIcons.Populate(holder, "Pulls", holder.Size.X.Offset, color)
-		end,
-	})
+	local toggleButton = Widgets.Button(
+		"Gacha",
+		UDim2.fromOffset(Responsive.Px(130), Responsive.Tap(48)),
+		UDim2.new(1, -Responsive.Px(140), 0, Responsive.RailY(2)),
+		{
+			-- Reuses the same "Pulls" gift-box glyph this panel's own tab strip
+			-- already draws (see CategoryIcons) -- same concept, no need for a
+			-- second icon.
+			Icon = function(holder, color)
+				CategoryIcons.Populate(holder, "Pulls", holder.Size.X.Offset, color)
+			end,
+		}
+	)
 	toggleButton.Parent = toggleGui
+	Widgets.BindRail(toggleButton, 130, 48, 2, "Right", 10)
+	-- Folded into the drawer on phones only: three rail rows plus the
+	-- bottom gameplay cluster do not both fit a 334pt screen.
+	MobileMenu.Adopt(toggleButton, 7, true)
 
 	panel, openMainPanel, closeMainPanel = Widgets.Modal(
 		"Gacha",
@@ -500,8 +558,19 @@ local function buildMainPanel()
 	-- beside Pulls; there is nothing left to switch between now that they sit
 	-- under the pull buttons, and the strip's own "Pulls" tab was pointing at
 	-- the only page there was.
-	local content = Instance.new("Frame")
+	-- Scrolls as a whole. Everything in here -- three pull rows, the skip row and
+	-- the drop-rates block -- needs about 320pt, against roughly 258 of panel on
+	-- a phone. The old fixed frame gave whatever was left to the odds list, which
+	-- measured NINE pixels tall: the rates were technically present and in
+	-- practice unreadable. Scrolling the panel is what makes them reachable.
+	local content = Instance.new("ScrollingFrame")
 	content.Name = "Content"
+	content.CanvasSize = UDim2.new()
+	content.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	content.ScrollBarThickness = 4
+	content.ScrollingDirection = Enum.ScrollingDirection.Y
+	content.BackgroundTransparency = 1
+	content.BorderSizePixel = 0
 	content.Size = UDim2.new(1, -16, 1, -60)
 	content.Position = UDim2.fromOffset(8, 52)
 	content.BackgroundTransparency = 1
@@ -518,10 +587,15 @@ local function buildMainPanel()
 	-- confirmed crisp). 26 (not 28) specifically because 28 overflows
 	-- "Lucky Active — Better Odds" past this button's width -- see the
 	-- TextService margin check done during testing.
-	luckyButton = Widgets.Button("🍀 Get Lucky — Better Odds", UDim2.new(1, 0, 0, Responsive.Tap(32)), UDim2.fromOffset(0, 0), {
-		Variant = "Danger",
-		TextSize = 26,
-	})
+	luckyButton = Widgets.Button(
+		"🍀 Get Lucky — Better Odds",
+		UDim2.new(1, 0, 0, Responsive.Tap(32)),
+		UDim2.fromOffset(0, 0),
+		{
+			Variant = "Danger",
+			TextSize = 26,
+		}
+	)
 	luckyButton.Parent = content
 	luckyButton.MouseButton1Click:Connect(function()
 		if not luckyOwned then
@@ -529,10 +603,15 @@ local function buildMainPanel()
 		end
 	end)
 	-- See luckyButton's comment above -- same explicit crisp-text size.
-	local pullOneButton = Widgets.Button("Pull x1 — 1500 pts", UDim2.fromOffset(Responsive.Px(272), Responsive.Tap(36)), UDim2.fromOffset(0, Responsive.Px(38)), {
-		Variant = "Primary",
-		TextSize = 26,
-	})
+	local pullOneButton = Widgets.Button(
+		"Pull x1 — 1500 pts",
+		UDim2.fromOffset(Responsive.Px(272), Responsive.Tap(36)),
+		UDim2.fromOffset(0, gachaRowY(1)),
+		{
+			Variant = "Primary",
+			TextSize = 26,
+		}
+	)
 	pullOneButton.Parent = content
 	pullOneButton.MouseButton1Click:Connect(function()
 		local success, message = pullRemote:InvokeServer(1)
@@ -544,19 +623,29 @@ local function buildMainPanel()
 	-- R$ was already crisp at 14px (dark text on this Secondary variant's
 	-- white fill doesn't show the same softness white text does), but sized
 	-- to match pullOneButton's text instead of looking mismatched next to it.
-	local robuxOneButton = Widgets.Button("R$", UDim2.fromOffset(Responsive.Px(96), Responsive.Tap(36)), UDim2.fromOffset(Responsive.Px(280), Responsive.Px(38)), {
-		Variant = "Secondary",
-		TextSize = 26,
-	})
+	local robuxOneButton = Widgets.Button(
+		"R$",
+		UDim2.fromOffset(Responsive.Px(96), Responsive.Tap(36)),
+		UDim2.fromOffset(Responsive.Px(280), gachaRowY(1)),
+		{
+			Variant = "Secondary",
+			TextSize = 26,
+		}
+	)
 	robuxOneButton.Parent = content
 	robuxOneButton.MouseButton1Click:Connect(function()
 		promptRobuxRemote:FireServer(1)
 	end)
 
-	local pullTenButton = Widgets.Button("Pull x10 — 13500 pts", UDim2.fromOffset(Responsive.Px(272), Responsive.Tap(36)), UDim2.fromOffset(0, Responsive.Px(78)), {
-		Variant = "Primary",
-		TextSize = 26,
-	})
+	local pullTenButton = Widgets.Button(
+		"Pull x10 — 13500 pts",
+		UDim2.fromOffset(Responsive.Px(272), Responsive.Tap(36)),
+		UDim2.fromOffset(0, gachaRowY(2)),
+		{
+			Variant = "Primary",
+			TextSize = 26,
+		}
+	)
 	pullTenButton.Parent = content
 	pullTenButton.MouseButton1Click:Connect(function()
 		local success, message = pullRemote:InvokeServer(10)
@@ -565,10 +654,15 @@ local function buildMainPanel()
 		end
 	end)
 
-	local robuxTenButton = Widgets.Button("R$", UDim2.fromOffset(Responsive.Px(96), Responsive.Tap(36)), UDim2.fromOffset(Responsive.Px(280), Responsive.Px(78)), {
-		Variant = "Secondary",
-		TextSize = 26,
-	})
+	local robuxTenButton = Widgets.Button(
+		"R$",
+		UDim2.fromOffset(Responsive.Px(96), Responsive.Tap(36)),
+		UDim2.fromOffset(Responsive.Px(280), gachaRowY(2)),
+		{
+			Variant = "Secondary",
+			TextSize = 26,
+		}
+	)
 	robuxTenButton.Parent = content
 	robuxTenButton.MouseButton1Click:Connect(function()
 		promptRobuxRemote:FireServer(10)
@@ -580,8 +674,8 @@ local function buildMainPanel()
 	-- at all once it's owned (ON/OFF lives in Settings from then on).
 	local skipRow = Instance.new("Frame")
 	skipRow.Name = "SkipRow"
-	skipRow.Size = UDim2.new(1, 0, 0, 32)
-	skipRow.Position = UDim2.fromOffset(0, 118)
+	skipRow.Size = UDim2.new(1, 0, 0, Responsive.Tap(32))
+	skipRow.Position = UDim2.fromOffset(0, gachaRowY(3) + GACHA_ROW_GAP)
 	skipRow.BackgroundTransparency = 1
 	skipRow.Parent = content
 
@@ -613,23 +707,24 @@ local function buildMainPanel()
 	local oddsDivider = Instance.new("Frame")
 	oddsDivider.Name = "OddsDivider"
 	oddsDivider.Size = UDim2.new(1, 0, 0, 1)
-	oddsDivider.Position = UDim2.fromOffset(0, 162)
+	oddsDivider.Position = UDim2.fromOffset(0, oddsTop())
 	oddsDivider.BackgroundColor3 = Theme.Color.Stroke
 	oddsDivider.BackgroundTransparency = 0.4
 	oddsDivider.BorderSizePixel = 0
 	oddsDivider.Parent = content
 
-	local oddsHeading = Widgets.Label("DROP RATES", UDim2.new(1, 0, 0, 20), UDim2.fromOffset(0, 172), {
-		TextSize = 14,
-		Color = Theme.Color.TextPrimary,
-		Align = Enum.TextXAlignment.Center,
-	})
+	local oddsHeading =
+		Widgets.Label("DROP RATES", UDim2.new(1, 0, 0, 20), UDim2.fromOffset(0, oddsTop() + Responsive.Px(12)), {
+			TextSize = 14,
+			Color = Theme.Color.TextPrimary,
+			Align = Enum.TextXAlignment.Center,
+		})
 	oddsHeading.Parent = content
 
 	local oddsSubtitle = Widgets.Label(
 		"Dash is never in the pool -- it's free for everyone.",
 		UDim2.new(1, 0, 0, 18),
-		UDim2.fromOffset(0, 194),
+		UDim2.fromOffset(0, oddsTop() + Responsive.Px(12) + ODDS_HEADING_H + Responsive.Px(4)),
 		{ TextSize = 12, Color = Theme.Color.TextSecondary, Align = Enum.TextXAlignment.Center, Bold = false }
 	)
 	oddsSubtitle.TextWrapped = true
@@ -638,15 +733,15 @@ local function buildMainPanel()
 	-- Scrolls: one row per pullable ability, so the list grows every time an
 	-- ability is added and a fixed frame would quietly cut the newest ones off
 	-- the bottom -- exactly the class of bug that hid Stage 4 on the leaderboard.
-	local oddsList = Instance.new("ScrollingFrame")
-	oddsList.Size = UDim2.new(1, 0, 1, -218)
-	oddsList.Position = UDim2.fromOffset(0, 218)
+	-- A plain auto-sized frame, not a ScrollingFrame: `content` scrolls now, and
+	-- a scroll inside a scroll is a fight over every drag.
+	local oddsList = Instance.new("Frame")
+	oddsList.AutomaticSize = Enum.AutomaticSize.Y
+	-- Width from the parent, height from AutomaticSize.
+	oddsList.Size = UDim2.fromScale(1, 0)
+	oddsList.Position = UDim2.fromOffset(0, oddsTop() + Responsive.Px(20) + ODDS_HEADING_H + ODDS_SUBTITLE_H)
 	oddsList.BackgroundTransparency = 1
 	oddsList.BorderSizePixel = 0
-	oddsList.CanvasSize = UDim2.new()
-	oddsList.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	oddsList.ScrollBarThickness = 4
-	oddsList.ScrollingDirection = Enum.ScrollingDirection.Y
 	oddsList.Parent = content
 
 	local oddsLayout = Instance.new("UIListLayout")
@@ -787,10 +882,15 @@ local function buildRevealOverlay()
 	-- Span 334-374 (computed the same way -- position.Y.Scale*H + offset +
 	-- height/2 = the button's actual CENTER), leaving an 8px gap below
 	-- summaryLabel's 256-326 span instead of overlapping it.
-	continueButton = Widgets.Button("Continue", UDim2.fromOffset(Responsive.Px(180), Responsive.Tap(40)), UDim2.new(0.5, -Responsive.Px(180) / 2, 1, -(Responsive.Tap(40) + Responsive.Px(6))), {
-		Variant = "Primary",
-		TextSize = 15,
-	})
+	continueButton = Widgets.Button(
+		"Continue",
+		UDim2.fromOffset(Responsive.Px(180), Responsive.Tap(40)),
+		UDim2.new(0.5, -Responsive.Px(180) / 2, 1, -(Responsive.Tap(40) + Responsive.Px(6))),
+		{
+			Variant = "Primary",
+			TextSize = 15,
+		}
+	)
 	continueButton.Visible = false
 	continueButton.Parent = revealPanel
 	continueButton.MouseButton1Click:Connect(function()

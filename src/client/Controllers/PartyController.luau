@@ -6,6 +6,7 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
+local MobileMenu = require(script.Parent.Parent.MobileMenu)
 local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
@@ -16,6 +17,8 @@ local Sounds = require(script.Parent.Parent.Sounds)
 -- is just the UI for it: invite other players currently in this server,
 -- accept/decline incoming invites, and see your current roster.
 local PartyController = {}
+
+local PARTY_WIDTH, PARTY_HEIGHT = 360, 360
 
 local player = Players.LocalPlayer
 
@@ -69,10 +72,11 @@ local function buildInviteRow(targetPlayer: Player, layoutOrder: number): Frame
 	)
 	nameLabel.Parent = row
 
-	local inviteButton = Widgets.Button("Invite", UDim2.fromOffset(Responsive.Px(84), Responsive.Tap(32)), UDim2.new(1, -92, 0.5, -16), {
-		Variant = "Secondary",
-		TextSize = 13,
-	})
+	local inviteButton =
+		Widgets.Button("Invite", UDim2.fromOffset(Responsive.Px(84), Responsive.Tap(32)), UDim2.new(1, -92, 0.5, -16), {
+			Variant = "Secondary",
+			TextSize = 13,
+		})
 	inviteButton.Parent = row
 	inviteButton.MouseButton1Click:Connect(function()
 		requestInviteRemote:FireServer(targetPlayer.UserId)
@@ -104,11 +108,12 @@ local function refreshInviteList()
 	end
 
 	if order == 0 then
-		local empty = Widgets.Label("No one else to invite right now.", UDim2.new(1, 0, 0, 30), UDim2.fromOffset(0, 0), {
-			TextSize = 13,
-			Align = Enum.TextXAlignment.Center,
-			Color = Theme.Color.TextMuted,
-		})
+		local empty =
+			Widgets.Label("No one else to invite right now.", UDim2.new(1, 0, 0, 30), UDim2.fromOffset(0, 0), {
+				TextSize = 13,
+				Align = Enum.TextXAlignment.Center,
+				Color = Theme.Color.TextMuted,
+			})
 		empty.Parent = inviteList
 	end
 end
@@ -166,43 +171,75 @@ local function buildUI()
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
 	-- Sits directly below EmoteController's toggle button, same X.
-	local toggleButton = Widgets.Button("Party", UDim2.fromOffset(140, 48), UDim2.fromOffset(240, 118), {
-		Icon = function(holder, color)
-			MenuIcons.Populate(holder, "Party", color)
-		end,
-	})
+	local toggleButton = Widgets.Button(
+		"Party",
+		UDim2.fromOffset(Responsive.Px(140), Responsive.Tap(48)),
+		UDim2.fromOffset(Responsive.Px(240), Responsive.RailY(2)),
+		{
+			Icon = function(holder, color)
+				MenuIcons.Populate(holder, "Party", color)
+			end,
+		}
+	)
 	toggleButton.Parent = screenGui
+	Widgets.BindRail(toggleButton, 140, 48, 2, "Left", 240)
+	-- Folded into the drawer on phones only: three rail rows plus the
+	-- bottom gameplay cluster do not both fit a 334pt screen.
+	MobileMenu.Adopt(toggleButton, 6, true)
 
 	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a
 	-- bare Widgets.Panel only closable via this one toggle button.
-	panel, openPanel, closePanel = Widgets.Modal("Party", UDim2.fromOffset(360, 360), UDim2.new(0.5, -180, 0.5, -180), {
-		DisplayOrder = 30,
-	})
+	panel, openPanel, closePanel = Widgets.Modal(
+		"Party",
+		UDim2.fromOffset(PARTY_WIDTH, PARTY_HEIGHT),
+		UDim2.new(0.5, -PARTY_WIDTH / 2, 0.5, -PARTY_HEIGHT / 2),
+		{
+			DisplayOrder = 30,
+		}
+	)
+
+	-- 360x360 centred runs off a 334pt phone at both ends; PlacePanel clamps it
+	-- and applies the phone floors.
+	Responsive.Observe(function()
+		local viewport = Responsive.ViewportSize()
+		local width, height = Responsive.PlacePanel(panel, PARTY_WIDTH, PARTY_HEIGHT, 0, 0)
+		panel.Position = UDim2.fromOffset(
+			math.round((viewport.X - width) / 2),
+			Responsive.ClampY(math.round((viewport.Y - height) / 2), height)
+		)
+	end)
 
 	local ribbon = Widgets.Ribbon("PARTY", UDim2.fromOffset(180, 40), UDim2.new(0.5, 0, 0, -20))
 	ribbon.Parent = panel
 
-	rosterLabel = Widgets.Label("Playing solo -- invite someone below!", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 34), {
-		TextSize = 14,
-		Color = Theme.Color.TextSecondary,
-	})
+	rosterLabel =
+		Widgets.Label("Playing solo -- invite someone below!", UDim2.new(1, -16, 0, 40), UDim2.fromOffset(8, 34), {
+			TextSize = 14,
+			Color = Theme.Color.TextSecondary,
+		})
 	rosterLabel.TextWrapped = true
 	rosterLabel.Parent = panel
 
-	leaveButton = Widgets.Button("Leave Party", UDim2.new(1, -Responsive.Px(16), 0, Responsive.Tap(36)), UDim2.fromOffset(8, 78), {
-		Variant = "Danger",
-		TextSize = 14,
-	})
+	leaveButton = Widgets.Button(
+		"Leave Party",
+		UDim2.new(1, -Responsive.Px(16), 0, Responsive.Tap(36)),
+		UDim2.fromOffset(8, 78),
+		{
+			Variant = "Danger",
+			TextSize = 14,
+		}
+	)
 	leaveButton.Visible = false
 	leaveButton.Parent = panel
 	leaveButton.MouseButton1Click:Connect(function()
 		leaveRemote:FireServer()
 	end)
 
-	local inviteHeader = Widgets.Label("INVITE PLAYERS IN THIS SERVER", UDim2.new(1, -16, 0, 20), UDim2.fromOffset(8, 122), {
-		TextSize = 13,
-		Color = Theme.Color.TextMuted,
-	})
+	local inviteHeader =
+		Widgets.Label("INVITE PLAYERS IN THIS SERVER", UDim2.new(1, -16, 0, 20), UDim2.fromOffset(8, 122), {
+			TextSize = 13,
+			Color = Theme.Color.TextMuted,
+		})
 	inviteHeader.Parent = panel
 
 	inviteList = Instance.new("ScrollingFrame")
@@ -247,20 +284,22 @@ local function buildUI()
 	toastLabel.TextWrapped = true
 	toastLabel.Parent = inviteToast
 
-	local acceptButton = Widgets.Button("Accept", UDim2.fromOffset(Responsive.Px(150), Responsive.Tap(40)), UDim2.fromOffset(20, 78), {
-		Variant = "Success",
-		TextSize = 15,
-	})
+	local acceptButton =
+		Widgets.Button("Accept", UDim2.fromOffset(Responsive.Px(150), Responsive.Tap(40)), UDim2.fromOffset(20, 78), {
+			Variant = "Success",
+			TextSize = 15,
+		})
 	acceptButton.Parent = inviteToast
 	acceptButton.MouseButton1Click:Connect(function()
 		respondRemote:FireServer(true)
 		hideToast()
 	end)
 
-	local declineButton = Widgets.Button("Decline", UDim2.fromOffset(Responsive.Px(150), Responsive.Tap(40)), UDim2.fromOffset(190, 78), {
-		Variant = "Danger",
-		TextSize = 15,
-	})
+	local declineButton =
+		Widgets.Button("Decline", UDim2.fromOffset(Responsive.Px(150), Responsive.Tap(40)), UDim2.fromOffset(190, 78), {
+			Variant = "Danger",
+			TextSize = 15,
+		})
 	declineButton.Parent = inviteToast
 	declineButton.MouseButton1Click:Connect(function()
 		respondRemote:FireServer(false)
@@ -279,20 +318,22 @@ local function buildUI()
 	joinRequestLabel.TextWrapped = true
 	joinRequestLabel.Parent = joinRequestToast
 
-	local joinAcceptButton = Widgets.Button("Accept", UDim2.fromOffset(Responsive.Px(150), Responsive.Tap(40)), UDim2.fromOffset(20, 78), {
-		Variant = "Success",
-		TextSize = 15,
-	})
+	local joinAcceptButton =
+		Widgets.Button("Accept", UDim2.fromOffset(Responsive.Px(150), Responsive.Tap(40)), UDim2.fromOffset(20, 78), {
+			Variant = "Success",
+			TextSize = 15,
+		})
 	joinAcceptButton.Parent = joinRequestToast
 	joinAcceptButton.MouseButton1Click:Connect(function()
 		respondJoinRemote:FireServer(true)
 		hideJoinRequestToast()
 	end)
 
-	local joinDeclineButton = Widgets.Button("Decline", UDim2.fromOffset(Responsive.Px(150), Responsive.Tap(40)), UDim2.fromOffset(190, 78), {
-		Variant = "Danger",
-		TextSize = 15,
-	})
+	local joinDeclineButton =
+		Widgets.Button("Decline", UDim2.fromOffset(Responsive.Px(150), Responsive.Tap(40)), UDim2.fromOffset(190, 78), {
+			Variant = "Danger",
+			TextSize = 15,
+		})
 	joinDeclineButton.Parent = joinRequestToast
 	joinDeclineButton.MouseButton1Click:Connect(function()
 		respondJoinRemote:FireServer(false)

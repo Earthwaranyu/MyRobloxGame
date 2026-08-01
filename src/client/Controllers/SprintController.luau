@@ -17,6 +17,27 @@ local SprintController = {}
 -- PAIR_WIDTH is SPRINT + gap + DASH (150 + 10 + 200), the group whose midpoint
 -- sits on the screen centre -- see the placement comment in buildUI.
 local SPRINT_WIDTH, SPRINT_HEIGHT, SPRINT_BOTTOM = 150, 44, 224
+
+-- The phone action row: SPRINT, PLAY and DASH side by side on one line.
+-- PlayButtonController and AbilityController declare the same pair of values, so
+-- all three derive identical x positions from Responsive.CenterRow and cannot
+-- drift apart.
+local ACTION_GAP = 10
+local function actionRowWidths(): { number }
+	return {
+		Responsive.Px(150), -- SPRINT
+		Responsive.Px(220), -- PLAY
+		Responsive.Px(200), -- DASH
+	}
+end
+
+-- Total width of that row, so BottomRowY can tell whether it fits between the
+-- touch controls and may therefore sit at the real bottom of the screen.
+local function actionRowTotal(): number
+	local widths = actionRowWidths()
+	return widths[1] + widths[2] + widths[3] + Responsive.Px(ACTION_GAP) * 2
+end
+
 local PAIR_WIDTH = 360
 
 -- Exposed so purely cosmetic client features (wind effect, etc.) can react
@@ -96,15 +117,31 @@ local function buildUI()
 	)
 	button.Parent = screenGui
 
-	-- The SPRINT/DASH pair is centred as a group (see the comment above), which
-	-- puts SPRINT's left edge ~36pt into the thumbstick's corner on a phone. The
-	-- pair keeps its spacing and shifts right together, so the two stay a pair.
+	-- Two arrangements. On anything roomy, SPRINT and DASH are a centred pair two
+	-- rows above PLAY. On a phone that does not fit -- 334pt of height cannot
+	-- take two rail rows plus three stacked action rows, and the top of the stack
+	-- collided with the Emotes button -- so the three share ONE row instead,
+	-- which the wide-but-short phone shape has plenty of width for.
 	Responsive.Observe(function()
 		local px = Responsive.Px
 		local width, height = px(SPRINT_WIDTH), Responsive.Tap(SPRINT_HEIGHT)
-		local pairWidth = px(PAIR_WIDTH)
-		local pairX = Responsive.ClearCorners(math.round((Responsive.ViewportSize().X - pairWidth) / 2), pairWidth)
-		Widgets.Relayout(button, UDim2.fromOffset(width, height), UDim2.new(0, pairX, 1, -px(SPRINT_BOTTOM)))
+		local x, row
+		if Responsive.Tier() == "Phone" then
+			x = Responsive.CenterRow(actionRowWidths(), px(ACTION_GAP))[1]
+			row = 0
+		else
+			local pairWidth = px(PAIR_WIDTH)
+			x = Responsive.ClearCorners(math.round((Responsive.ViewportSize().X - pairWidth) / 2), pairWidth)
+			row = 2
+		end
+		Widgets.Relayout(
+			button,
+			UDim2.fromOffset(width, height),
+			UDim2.fromOffset(
+				x,
+				Responsive.BottomRowY(row, height, Responsive.Tier() == "Phone" and actionRowTotal() or width)
+			)
+		)
 	end)
 
 	button.MouseButton1Down:Connect(function()

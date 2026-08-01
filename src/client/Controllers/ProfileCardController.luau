@@ -11,6 +11,7 @@ local RaceVisibilityController = require(script.Parent.RaceVisibilityController)
 
 local AvatarThumbnail = require(script.Parent.Parent.AvatarThumbnail)
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
+local MobileMenu = require(script.Parent.Parent.MobileMenu)
 local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
@@ -489,10 +490,15 @@ local function buildUI()
 		bestTimesLabels[i] = label
 	end
 
-	duelButton = Widgets.Button("Request 1v1", UDim2.fromOffset(CONTENT_WIDTH, 40), UDim2.fromOffset(PAD_X, duelY), {
-		Variant = "Primary",
-		TextSize = 15,
-	})
+	duelButton = Widgets.Button(
+		"Request 1v1",
+		UDim2.fromOffset(CONTENT_WIDTH, Responsive.Tap(40)),
+		UDim2.fromOffset(PAD_X, duelY),
+		{
+			Variant = "Primary",
+			TextSize = 15,
+		}
+	)
 	duelButton.Parent = panel
 	duelButton.MouseButton1Click:Connect(function()
 		if not currentTarget then
@@ -503,10 +509,15 @@ local function buildUI()
 		closePanel()
 	end)
 
-	joinPartyButton = Widgets.Button("Ask to Join Party", UDim2.fromOffset(CONTENT_WIDTH, 40), UDim2.fromOffset(PAD_X, joinY), {
-		Variant = "Secondary",
-		TextSize = 15,
-	})
+	joinPartyButton = Widgets.Button(
+		"Ask to Join Party",
+		UDim2.fromOffset(CONTENT_WIDTH, Responsive.Tap(40)),
+		UDim2.fromOffset(PAD_X, joinY),
+		{
+			Variant = "Secondary",
+			TextSize = 15,
+		}
+	)
 	joinPartyButton.Parent = panel
 	joinPartyButton.MouseButton1Click:Connect(function()
 		if not currentTarget then
@@ -527,11 +538,30 @@ local function buildUI()
 	-- the TARGET from the client -- no remote, and nothing the server needs to
 	-- vouch for. It does nothing between Studio's simulated test accounts, so
 	-- this button only really answers in a live session.
-	friendButton = Widgets.Button("Add Friend", UDim2.fromOffset(CONTENT_WIDTH, 40), UDim2.fromOffset(PAD_X, friendY), {
-		Variant = "Secondary",
-		TextSize = 15,
-	})
+	friendButton = Widgets.Button(
+		"Add Friend",
+		UDim2.fromOffset(CONTENT_WIDTH, Responsive.Tap(40)),
+		UDim2.fromOffset(PAD_X, friendY),
+		{
+			Variant = "Secondary",
+			TextSize = 15,
+		}
+	)
 	friendButton.Parent = panel
+	-- Clamped to the viewport AND scrollable. The card is 509pt of avatar, stats
+	-- and best-times, which does not fit a 334pt phone at any scale -- so the
+	-- panel is bounded and the content scrolls inside it. Left unbounded it ran
+	-- 116pt off the TOP of the screen and cut the avatar in half.
+	Widgets.MakePanelScrollable(panel, Responsive.Px(8), false)
+	Responsive.Observe(function()
+		local viewport = Responsive.ViewportSize()
+		local width, height = Responsive.PlacePanel(panel, PANEL_WIDTH, PANEL_HEIGHT, 0, 0)
+		panel.Position = UDim2.fromOffset(
+			math.round((viewport.X - width) / 2),
+			Responsive.ClampY(math.round((viewport.Y - height) / 2), height)
+		)
+	end)
+
 	friendButton.MouseButton1Click:Connect(function()
 		if not currentTarget then
 			return
@@ -539,20 +569,27 @@ local function buildUI()
 		local ok = pcall(function()
 			currentTarget:RequestFriendship()
 		end)
-		showNotice(if ok
-			then "Friend request sent to " .. currentTarget.Name .. "!"
-			else "Couldn't send a friend request right now.")
+		showNotice(
+			if ok
+				then "Friend request sent to " .. currentTarget.Name .. "!"
+				else "Couldn't send a friend request right now."
+		)
 		closePanel()
 	end)
 
 	-- Same slot as duelButton/joinPartyButton/friendButton -- swapped in over
 	-- all three (see openProfileCard's isSelf check) when viewing your own
 	-- profile.
-	selfNoteLabel = Widgets.Label("This is your profile", UDim2.fromOffset(CONTENT_WIDTH, friendY + 40 - duelY), UDim2.fromOffset(PAD_X, duelY), {
-		TextSize = 15,
-		Align = Enum.TextXAlignment.Center,
-		Color = Theme.Color.TextMuted,
-	})
+	selfNoteLabel = Widgets.Label(
+		"This is your profile",
+		UDim2.fromOffset(CONTENT_WIDTH, friendY + 40 - duelY),
+		UDim2.fromOffset(PAD_X, duelY),
+		{
+			TextSize = 15,
+			Align = Enum.TextXAlignment.Center,
+			Color = Theme.Color.TextMuted,
+		}
+	)
 	selfNoteLabel.Visible = false
 	selfNoteLabel.Parent = panel
 
@@ -567,12 +604,22 @@ local function buildUI()
 	hudGui.ResetOnSpawn = false
 	hudGui.Parent = player:WaitForChild("PlayerGui")
 
-	local myProfileButton = Widgets.Button("My Profile", UDim2.fromOffset(220, 48), UDim2.fromOffset(10, 172), {
-		Icon = function(holder, color)
-			MenuIcons.Populate(holder, "Profile", color)
-		end,
-	})
+	-- Left rail, 4th slot -- which on a 375pt phone starts at y=172 and runs to
+	-- 220, dipping 35pt into the band the movement thumbstick occupies. There is
+	-- no free slot above it (stats pill, leaderboard, inventory), so it folds
+	-- into the drawer with the other secondary buttons.
+	local myProfileButton = Widgets.Button(
+		"My Profile",
+		UDim2.fromOffset(Responsive.Px(220), Responsive.Tap(48)),
+		UDim2.fromOffset(Responsive.Px(10), Responsive.Px(172)),
+		{
+			Icon = function(holder, color)
+				MenuIcons.Populate(holder, "Profile", color)
+			end,
+		}
+	)
 	myProfileButton.Parent = hudGui
+	MobileMenu.Adopt(myProfileButton, 4)
 	myProfileButton.MouseButton1Click:Connect(function()
 		if panel.Visible then
 			closePanel()
@@ -589,16 +636,15 @@ local function buildUI()
 	toastGui.DisplayOrder = 12
 	toastGui.Parent = player:WaitForChild("PlayerGui")
 
-	duelToast = Widgets.Panel(
-		UDim2.fromOffset(TOAST_WIDTH, TOAST_HEIGHT),
-		UDim2.new(0.5, -TOAST_WIDTH / 2, 0.24, TOAST_DROP)
-	)
+	duelToast =
+		Widgets.Panel(UDim2.fromOffset(TOAST_WIDTH, TOAST_HEIGHT), UDim2.new(0.5, -TOAST_WIDTH / 2, 0.24, TOAST_DROP))
 	duelToast.Parent = toastGui
 
-	duelToastLabel = Widgets.Label("", UDim2.new(1, -TOAST_PAD * 2, 0, TOAST_LABEL_HEIGHT), UDim2.fromOffset(TOAST_PAD, 12), {
-		TextSize = TOAST_TEXT,
-		Align = Enum.TextXAlignment.Center,
-	})
+	duelToastLabel =
+		Widgets.Label("", UDim2.new(1, -TOAST_PAD * 2, 0, TOAST_LABEL_HEIGHT), UDim2.fromOffset(TOAST_PAD, 12), {
+			TextSize = TOAST_TEXT,
+			Align = Enum.TextXAlignment.Center,
+		})
 	duelToastLabel.TextWrapped = true
 	duelToastLabel.Parent = duelToast
 

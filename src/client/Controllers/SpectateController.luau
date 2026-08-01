@@ -9,6 +9,7 @@ local RemoteNames = require(Shared.RemoteNames)
 
 local MenuIcons = require(script.Parent.Parent.MenuIcons)
 local Theme = require(script.Parent.Parent.Theme)
+local Responsive = require(script.Parent.Parent.Responsive)
 local Widgets = require(script.Parent.Parent.Widgets)
 local MatchStateController = require(script.Parent.MatchStateController)
 
@@ -202,12 +203,17 @@ local function buildUI()
 	-- reference the "Click a name" button-row approach was replaced with),
 	-- rather than a row of small per-racer buttons that only worked at all
 	-- for a couple of racers before running out of room.
-	prevButton = Widgets.Button("", UDim2.fromOffset(ARROW_SIZE, ARROW_SIZE), UDim2.fromOffset(8, 62), {
-		Variant = "Secondary",
-		Icon = function(holder, color)
-			MenuIcons.Populate(holder, "ArrowLeft", color)
-		end,
-	})
+	prevButton = Widgets.Button(
+		"",
+		UDim2.fromOffset(Responsive.Tap(ARROW_SIZE), Responsive.Tap(ARROW_SIZE)),
+		UDim2.fromOffset(8, 62),
+		{
+			Variant = "Secondary",
+			Icon = function(holder, color)
+				MenuIcons.Populate(holder, "ArrowLeft", color)
+			end,
+		}
+	)
 	prevButton.Parent = panel
 	prevButton.MouseButton1Click:Connect(function()
 		if #currentRacers > 1 then
@@ -217,7 +223,7 @@ local function buildUI()
 
 	nextButton = Widgets.Button(
 		"",
-		UDim2.fromOffset(ARROW_SIZE, ARROW_SIZE),
+		UDim2.fromOffset(Responsive.Tap(ARROW_SIZE), Responsive.Tap(ARROW_SIZE)),
 		UDim2.fromOffset(PANEL_WIDTH - 8 - ARROW_SIZE, 62),
 		{
 			Variant = "Secondary",
