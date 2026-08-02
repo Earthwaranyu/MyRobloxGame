@@ -184,11 +184,8 @@ local function onPracticeComplete(elapsedSeconds: number)
 	stopPlayback()
 
 	if currentStageId and #recordedPositions > 0 then
-		Net.GetRemoteEvent(RemoteNames.SubmitGhostRun):FireServer(
-			currentStageId,
-			recordedPositions,
-			math.floor(elapsedSeconds * 1000)
-		)
+		Net.GetRemoteEvent(RemoteNames.SubmitGhostRun)
+			:FireServer(currentStageId, recordedPositions, math.floor(elapsedSeconds * 1000))
 	end
 
 	local minutes = math.floor(elapsedSeconds / 60)
@@ -215,6 +212,7 @@ local function buildUI()
 	-- happening at the same time as a real race outcome, so there's no
 	-- overlap sharing the position.
 	panel = Widgets.Panel(UDim2.fromOffset(360, 130), UDim2.new(0.5, -180, 0.55, 0))
+	Widgets.LayoutCard(panel, 360, 130, 0.55)
 	panel.Parent = screenGui
 
 	local title = Widgets.Label("PRACTICE COMPLETE", UDim2.new(1, -20, 0, 34), UDim2.fromOffset(10, 14), {

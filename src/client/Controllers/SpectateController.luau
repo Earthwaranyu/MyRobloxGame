@@ -179,20 +179,23 @@ local function buildUI()
 	screenGui.ResetOnSpawn = false
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
-	local PANEL_WIDTH = 280
+	-- Reference geometry; the real numbers come from layout() below.
+	local PANEL_WIDTH, PANEL_HEIGHT = 280, 120
 	local ARROW_SIZE = 40
+	local PAD, GAP = 8, 6
+	local TITLE_H, STATUS_H = 20, 24
 
-	panel = Widgets.Panel(UDim2.fromOffset(PANEL_WIDTH, 120), UDim2.new(1, -(PANEL_WIDTH + 10), 0, 230))
+	panel = Widgets.Panel(UDim2.fromOffset(PANEL_WIDTH, PANEL_HEIGHT), UDim2.new(1, -(PANEL_WIDTH + 10), 0, 230))
 	panel.Parent = screenGui
 
-	local title = Widgets.Label("SPECTATING", UDim2.new(1, -16, 0, 20), UDim2.fromOffset(8, 8), {
+	local title = Widgets.Label("SPECTATING", UDim2.new(1, -16, 0, TITLE_H), UDim2.fromOffset(PAD, PAD), {
 		TextSize = 14,
 		Color = Theme.Color.TextMuted,
 		Align = Enum.TextXAlignment.Center,
 	})
 	title.Parent = panel
 
-	statusLabel = Widgets.Label("Watching the finish...", UDim2.new(1, -16, 0, 24), UDim2.fromOffset(8, 30), {
+	statusLabel = Widgets.Label("Watching the finish...", UDim2.new(1, -16, 0, STATUS_H), UDim2.fromOffset(PAD, 30), {
 		Font = Theme.Font.Heading,
 		TextSize = 16,
 		Align = Enum.TextXAlignment.Center,
@@ -239,13 +242,63 @@ local function buildUI()
 		end
 	end)
 
-	local nameX = 8 + ARROW_SIZE + 6
+	local nameX = PAD + ARROW_SIZE + GAP
 	nameLabel = Widgets.Label("", UDim2.fromOffset(PANEL_WIDTH - nameX * 2, ARROW_SIZE), UDim2.fromOffset(nameX, 62), {
 		TextSize = 16,
 		Bold = true,
 		Align = Enum.TextXAlignment.Center,
 	})
 	nameLabel.Parent = panel
+
+	-- This card was the last one in the HUD still laid out purely in raw offsets,
+	-- with no Responsive pass at all. Measured on an 801x334 phone: 280x120 pinned
+	-- at y=230 put its bottom 16pt below the edge of the screen, and the
+	-- next-racer arrow landed at x 743-787 -- inside the bottom-right corner where
+	-- Roblox draws the jump button ON TOP of every ScreenGui this game makes. So
+	-- the one control that cycles who you are watching could not be pressed at
+	-- all on the device most likely to be spectating.
+	--
+	-- Deliberately NOT Responsive.PlacePanel: that applies the phone floors (72%
+	-- of the viewport wide, 82% tall) which exist for MODALS. This is a small HUD
+	-- card, and inflating it to most of the screen would be a worse bug than the
+	-- one being fixed.
+	Responsive.Observe(function()
+		local px = Responsive.Px
+		local pad, gap = px(PAD), px(GAP)
+		local titleHeight, statusHeight = px(TITLE_H), px(STATUS_H)
+		local arrow = Responsive.Tap(ARROW_SIZE)
+
+		-- Height follows the rows rather than a fixed 120: Tap() floors the arrows
+		-- to 44 on touch, which a scaled-down 120 cannot contain.
+		local height = pad * 2 + titleHeight + gap + statusHeight + gap + arrow
+		-- Wide enough for both arrows plus a readable name between them.
+		local width = math.max(px(PANEL_WIDTH), arrow * 2 + gap * 2 + pad * 2 + px(100))
+		local rowY = pad + titleHeight + gap + statusHeight + gap
+
+		panel.Size = UDim2.fromOffset(width, height)
+		panel.Position = UDim2.fromOffset(
+			-- ClearCorners keeps the whole card (and therefore both arrows) out of
+			-- the jump button and the movement pad -- see LayoutMath.ClearStrip.
+			Responsive.ClampX(Responsive.ClearCorners(Responsive.ViewportSize().X - width - px(10), width), width),
+			Responsive.ClampY(px(230), height)
+		)
+
+		title.Size = UDim2.new(1, -pad * 2, 0, titleHeight)
+		title.Position = UDim2.fromOffset(pad, pad)
+		title.TextSize = Responsive.Text(14)
+
+		statusLabel.Size = UDim2.new(1, -pad * 2, 0, statusHeight)
+		statusLabel.Position = UDim2.fromOffset(pad, pad + titleHeight + gap)
+		statusLabel.TextSize = Responsive.Text(16)
+
+		Widgets.Relayout(prevButton, UDim2.fromOffset(arrow, arrow), UDim2.fromOffset(pad, rowY))
+		Widgets.Relayout(nextButton, UDim2.fromOffset(arrow, arrow), UDim2.fromOffset(width - pad - arrow, rowY))
+
+		local textX = pad + arrow + gap
+		nameLabel.Size = UDim2.fromOffset(math.max(0, width - textX * 2), arrow)
+		nameLabel.Position = UDim2.fromOffset(textX, rowY)
+		nameLabel.TextSize = Responsive.Text(16)
+	end)
 end
 
 function SpectateController.Init()

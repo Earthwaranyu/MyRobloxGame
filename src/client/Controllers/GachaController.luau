@@ -243,7 +243,14 @@ local function startReelSpin(resultInfo: Abilities.AbilityInfo, onDone: () -> ()
 		buildReelCard(info, i).Parent = reel
 	end
 
-	local targetX = WINDOW_WIDTH / 2 - ((WINNING_INDEX - 1) * STEP + CARD_WIDTH / 2)
+	-- Measured, not the authored WINDOW_WIDTH: the window now takes its width from
+	-- the panel (see buildRevealOverlay), so the landing offset has to come from
+	-- the width it actually got or the winning card stops off-centre.
+	local windowWidth = reelWindow.AbsoluteSize.X
+	if windowWidth <= 0 then
+		windowWidth = WINDOW_WIDTH
+	end
+	local targetX = windowWidth / 2 - ((WINNING_INDEX - 1) * STEP + CARD_WIDTH / 2)
 	reel.Position = UDim2.fromOffset(0, 0)
 
 	task.spawn(function()
@@ -574,8 +581,13 @@ local function buildMainPanel()
 	content.ScrollingDirection = Enum.ScrollingDirection.Y
 	content.BackgroundTransparency = 1
 	content.BorderSizePixel = 0
-	content.Size = UDim2.new(1, -16, 1, -60)
-	content.Position = UDim2.fromOffset(8, 52)
+	-- Below the ✕ rather than under it. 52 was a hand-measured figure against a
+	-- 34pt close button; on touch Tap() makes that button 44, so the first thing
+	-- in this list (the Lucky banner) had its top corner tucked under the ✕.
+	-- Widgets.ModalContentTop is the figure that already knows both cases.
+	local contentTop = Widgets.ModalContentTop(8)
+	content.Size = UDim2.new(1, -16, 1, -(contentTop + 8))
+	content.Position = UDim2.fromOffset(8, contentTop)
 	content.BackgroundTransparency = 1
 	content.Parent = panel
 
@@ -827,8 +839,17 @@ local function buildRevealOverlay()
 	progressLabel.Parent = revealPanel
 
 	reelWindow = Instance.new("Frame")
-	reelWindow.Size = UDim2.fromOffset(WINDOW_WIDTH, CARD_HEIGHT)
-	reelWindow.Position = UDim2.new(0.5, -WINDOW_WIDTH / 2, 0, 58)
+	-- Width from the PANEL, not the authored 560.
+	--
+	-- The reveal panel is clamped to the viewport (min(Px(640), screen)), so on
+	-- anything narrower than ~640 the panel shrinks and a fixed 560 window does
+	-- not -- measured on a 706x579 tablet, a 560 window inside a 461 panel hung
+	-- 49pt out of each side. A CanvasGroup does not clip that away (confirmed by
+	-- sampling the hanging title, which renders perfectly well outside its
+	-- panel), so the spinning reel simply spilled past the edges of the card it
+	-- is supposed to be inside.
+	reelWindow.Size = UDim2.new(1, -16, 0, CARD_HEIGHT)
+	reelWindow.Position = UDim2.fromOffset(8, 58)
 	reelWindow.BackgroundTransparency = 1
 	reelWindow.ClipsDescendants = true
 	reelWindow.Parent = revealPanel

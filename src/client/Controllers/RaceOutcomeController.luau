@@ -43,23 +43,6 @@ local function buildUI()
 	panel = Widgets.Panel(UDim2.fromOffset(OUTCOME_WIDTH, OUTCOME_HEIGHT), UDim2.new(0.5, -OUTCOME_WIDTH / 2, 0.55, 0))
 	panel.Parent = screenGui
 
-	-- y = 0.55 was chosen to clear the countdown/"GO!" flash near y = 0.22-0.3.
-	-- On a 375pt phone that resolves to y = 206, and 206 + 196 = 402 -- so the
-	-- bottom 27pt of your own race result sat off the screen. Kept at 0.55 where
-	-- there is room and clamped up where there isn't, so it still avoids the
-	-- flash on the screens that can fit both.
-	Responsive.Observe(function()
-		local viewport = Responsive.ViewportSize()
-		local width = math.min(Responsive.Px(OUTCOME_WIDTH), viewport.X - Responsive.ScreenMargin * 2)
-		Responsive.PlacePanel(
-			panel,
-			OUTCOME_WIDTH,
-			OUTCOME_HEIGHT,
-			math.round((viewport.X - width) / 2),
-			math.round(viewport.Y * 0.55)
-		)
-	end)
-
 	titleLabel = Widgets.Label("", UDim2.new(1, -20, 0, 50), UDim2.fromOffset(10, 16), {
 		Font = Theme.Font.Display,
 		TextSize = 34,
@@ -87,6 +70,42 @@ local function buildUI()
 		Color = Theme.Color.Warning,
 	})
 	streakLabel.Parent = panel
+
+	-- y = 0.55 was chosen to clear the countdown/"GO!" flash near y = 0.22-0.3.
+	-- On a 375pt phone that resolves to y = 206, and 206 + 196 = 402 -- so the
+	-- bottom 27pt of your own race result sat off the screen. Kept at 0.55 where
+	-- there is room and clamped up where there isn't, so it still avoids the
+	-- flash on the screens that can fit both.
+	--
+	-- The PANEL was made responsive; its four rows were not, and they were the
+	-- part that had to be. Their y offsets are authored against the full 196pt
+	-- card, so on any viewport where PlacePanel scales the card down -- 141pt on a
+	-- 706x579 tablet -- the streak line still sat at y 136..160 and hung 19pt
+	-- below the bottom of the card it belongs to. A CanvasGroup does not clip
+	-- that, so it rendered as a loose line of gold text floating under the panel.
+	Responsive.Observe(function()
+		local px, tx = Responsive.Px, Responsive.Text
+		local viewport = Responsive.ViewportSize()
+		local width = math.min(px(OUTCOME_WIDTH), viewport.X - Responsive.ScreenMargin * 2)
+		Responsive.PlacePanel(
+			panel,
+			OUTCOME_WIDTH,
+			OUTCOME_HEIGHT,
+			math.round((viewport.X - width) / 2),
+			math.round(viewport.Y * 0.55)
+		)
+
+		local pad = px(10)
+		local function place(label: TextLabel, y: number, height: number, size: number)
+			label.Size = UDim2.new(1, -pad * 2, 0, px(height))
+			label.Position = UDim2.fromOffset(pad, px(y))
+			label.TextSize = tx(size)
+		end
+		place(titleLabel, 16, 50, 34)
+		place(detailLabel, 70, 28, 20)
+		place(rankLabel, 106, 24, 16)
+		place(streakLabel, 136, 24, 17)
+	end)
 end
 
 local function applyRankUp(eloDelta: number)
@@ -129,7 +148,9 @@ local function show(data: {
 		Sounds.Play("Victory")
 
 		if data.WinStreak and data.WinStreak >= 2 then
-			local bonusText = if data.StreakBonus and data.StreakBonus > 0 then (" (+%d pts)"):format(data.StreakBonus) else ""
+			local bonusText = if data.StreakBonus and data.StreakBonus > 0
+				then (" (+%d pts)"):format(data.StreakBonus)
+				else ""
 			streakLabel.Text = ("🔥 %d WIN STREAK%s"):format(data.WinStreak, bonusText)
 		end
 	elseif data.EloDelta then
@@ -160,9 +181,7 @@ local function show(data: {
 		detailLabel.Text = table.concat(parts, "   ")
 		-- Only a genuine Elo loss should read as bad news; points are always
 		-- a gain, so a points-only line (bot matches) stays positive.
-		detailLabel.TextColor3 = if data.EloDelta and data.EloDelta < 0
-			then Theme.Color.Danger
-			else Theme.Color.Success
+		detailLabel.TextColor3 = if data.EloDelta and data.EloDelta < 0 then Theme.Color.Danger else Theme.Color.Success
 	else
 		detailLabel.Text = if data.Total then ("%d of %d racers"):format(data.Placement or 0, data.Total) else ""
 		detailLabel.TextColor3 = Theme.Color.TextSecondary

@@ -115,6 +115,21 @@ function LayoutMath.MoveAreaWidth(view: View): number
 	return math.round(view.Width * LayoutMath.MoveAreaWidthShare)
 end
 
+-- The y the movement pad's capture frame starts at.
+--
+-- Only a real constraint in PORTRAIT, where the pad spans the full width and the
+-- only way past it is above it. In landscape it is merely where the pad begins
+-- on the left-hand side, which a row sitting in the clear strip may ignore.
+function LayoutMath.MoveAreaTop(view: View): number
+	if not view.Touch then
+		return view.Height
+	end
+	if view.Height > view.Width then
+		return math.round(view.Height * 0.6)
+	end
+	return math.round(view.Height * (1 - LayoutMath.MoveAreaHeightShare))
+end
+
 -- The horizontal span along the bottom of the screen that neither touch control
 -- claims: right of the movement pad, left of the jump button. This is the only
 -- part of the bottom edge the game may put a button in.
@@ -283,6 +298,15 @@ function LayoutMath.BottomRowY(view: View, indexFromBottom: number, rowHeight: n
 		then view.Height - margin
 		else view.Height - LayoutMath.TouchBand(view) - margin
 
+	-- In PORTRAIT the pad claims the bottom 40% across the whole width, so there
+	-- is no strip to sit in and the jump button's own band is nowhere near enough
+	-- room -- measured at 375x667, the band puts the floor at 569 while the pad
+	-- starts at 400, leaving the entire action cluster sitting on the pad. A row
+	-- that cannot go beside the pad has to go above it.
+	if not fitsBetweenControls and view.Touch and view.Height > view.Width then
+		floorY = math.min(floorY, LayoutMath.MoveAreaTop(view))
+	end
+
 	return math.round(floorY - (indexFromBottom + 1) * rowHeight - indexFromBottom * gap)
 end
 
@@ -426,14 +450,24 @@ function LayoutMath.ClearCorners(view: View, x: number, width: number): number
 	if x + width > right then
 		x = right - width
 	end
-	-- A box wider than the clear strip cannot be moved out of both keep-outs.
-	-- Centre it on the SCREEN rather than on the strip: the strip is off-centre
-	-- (the movement pad is much wider than the jump button), so centring an
-	-- over-wide box on it would push the box's right edge past the edge of the
-	-- display -- overlapping a control is survivable, being drawn off-screen is
-	-- not.
+	-- A box wider than the clear strip cannot be moved out of both keep-outs, so
+	-- it has to choose which one to sit on -- and the two are not equally bad.
+	--
+	-- A control over the JUMP BUTTON is merely covered by it. A control over the
+	-- MOVEMENT PAD swallows the touch that would have started a walk, which is
+	-- the bug this whole keep-out exists for. So the box clears the pad and
+	-- overflows into the jump corner instead, as long as it still fits on screen.
+	--
+	-- Measured on a 706x579 tablet: SPRINT+DASH is 259 wide against a 244-wide
+	-- strip, and the old screen-centred fallback put its left edge 58pt inside
+	-- the pad. Clearing the pad costs 15pt under the jump button instead.
+	--
+	-- Only when it cannot even clear the pad AND stay on screen does it fall back
+	-- to centring, which at that width is overlapping everything regardless --
+	-- being drawn off the edge of the display is the one outcome with no upside.
 	if x < left then
-		x = (view.Width - width) / 2
+		local clearOfPad = view.Width - width - LayoutMath.ScreenMargin
+		x = if clearOfPad >= left then left else (view.Width - width) / 2
 	end
 	return math.round(x)
 end

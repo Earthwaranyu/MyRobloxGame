@@ -726,6 +726,25 @@ do
 	)
 	check("an over-wide control still fits on screen", wide >= 0 and wide + 600 <= PHONE.Width, ("x=%d"):format(wide))
 
+	-- When a box CAN clear the movement pad and still fit on screen, it does --
+	-- even though that leaves it overlapping the jump button. Measured on a
+	-- 706x579 tablet, where SPRINT+DASH is 259 wide against a 244-wide strip:
+	-- centring it on the screen put 58pt of SPRINT on the pad, which is what
+	-- makes a sprint press eat the touch that would have started a walk.
+	local TABLET_TOUCH = { Width = 706, Height = 579, Touch = true }
+	local padEnd = LayoutMath.MoveAreaWidth(TABLET_TOUCH)
+	local squeezed = LayoutMath.ClearCorners(TABLET_TOUCH, 224, 259)
+	check(
+		"a control too wide for the strip still clears the movement pad",
+		squeezed >= padEnd,
+		("x=%d, pad ends at %d"):format(squeezed, padEnd)
+	)
+	check(
+		"and stays on screen while doing it",
+		squeezed + 259 <= TABLET_TOUCH.Width,
+		("ends at %d of %d"):format(squeezed + 259, TABLET_TOUCH.Width)
+	)
+
 	-- The whole point of the pad keep-out: the action row must not sit on top of
 	-- the movement control, at any of the sizes a phone actually reports.
 	for _, view in

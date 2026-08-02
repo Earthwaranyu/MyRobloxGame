@@ -49,7 +49,14 @@ local HOVER_LIFT = 8
 -- long time, so the fast option has to be the obvious default rather than
 -- something buried at the end of the row.
 local CARDS = {
-	{ Target = QueueModes.AnySize, Count = 3, Title = "QUICK PLAY", Blurb = "Any size", Palette = Theme.Candy.Gold, Best = true },
+	{
+		Target = QueueModes.AnySize,
+		Count = 3,
+		Title = "QUICK PLAY",
+		Blurb = "Any size",
+		Palette = Theme.Candy.Gold,
+		Best = true,
+	},
 	{ Target = 2, Count = 2, Title = "1 v 1", Blurb = "Duel", Palette = Theme.Candy.Pink },
 	{ Target = 3, Count = 3, Title = "3 PLAYERS", Blurb = "Small pack", Palette = Theme.Candy.Teal },
 	{ Target = 4, Count = 4, Title = "4 PLAYERS", Blurb = "Full grid", Palette = Theme.Candy.Blue },
@@ -63,13 +70,12 @@ local HEADING_WIDTH, HEADING_HEIGHT = 320, 46
 -- these two are all that has to change for the whole card to scale.
 --
 -- WHY THIS PANEL IS THE HARD ONE: five 148-wide cards plus gaps and padding is
--- 844 points across at reference, which is wider than a phone's entire viewport
--- in landscape. Scaling alone gets it to 608 at the floor, which technically
--- fits -- but as five columns of 107px, and a card whose art, watermark and two
--- lines of type were composed at 148. So on a phone the row also WRAPS: three
--- across, two down. That is the reflow case the Responsive header calls out as
--- something a multiplier can't do on its own, and this is the panel that needs
--- it most.
+-- 844 points across at reference, wider than a phone's entire viewport in
+-- landscape, and this is the only panel in the game whose SIZE comes from its
+-- own content rather than from Responsive.PlacePanel -- so nothing clamps it and
+-- it has to get its own reflow right. See the column rule in relayout(): the row
+-- wraps only when it genuinely cannot fit across, because on a phone in
+-- landscape height is the scarce axis and every wrap costs a whole row.
 local M = {
 	CardWidth = CARD_WIDTH,
 	CardHeight = CARD_HEIGHT,
@@ -87,8 +93,7 @@ local M = {
 local function cardOrigin(index: number): (number, number)
 	local column = (index - 1) % M.Columns
 	local row = math.floor((index - 1) / M.Columns)
-	return M.Pad + column * (M.CardWidth + M.CardGap),
-		M.Header + row * (M.CardHeight + M.ShadowDrop + M.CardGap)
+	return M.Pad + column * (M.CardWidth + M.CardGap), M.Header + row * (M.CardHeight + M.ShadowDrop + M.CardGap)
 end
 
 local panel: CanvasGroup
@@ -273,23 +278,25 @@ local function buildCard(spec, index: number)
 	})
 	bandGradient.Parent = band
 
-	local title = Widgets.Label(spec.Title, UDim2.new(1, -px(10), 0, px(24)), UDim2.fromOffset(px(5), M.CardHeight - px(54)), {
-		Font = Theme.Font.Display,
-		TextSize = tx(19),
-		Align = Enum.TextXAlignment.Center,
-		Color = Color3.fromRGB(255, 255, 255),
-	})
+	local title =
+		Widgets.Label(spec.Title, UDim2.new(1, -px(10), 0, px(24)), UDim2.fromOffset(px(5), M.CardHeight - px(54)), {
+			Font = Theme.Font.Display,
+			TextSize = tx(19),
+			Align = Enum.TextXAlignment.Center,
+			Color = Color3.fromRGB(255, 255, 255),
+		})
 	title.ZIndex = 7
 	title.TextStrokeColor3 = Theme.Candy.TextOutline
 	title.TextStrokeTransparency = 0.4
 	title.Parent = card
 
-	local blurb = Widgets.Label(spec.Blurb, UDim2.new(1, -px(10), 0, px(18)), UDim2.fromOffset(px(5), M.CardHeight - px(30)), {
-		Font = Theme.Font.Body,
-		TextSize = tx(14),
-		Align = Enum.TextXAlignment.Center,
-		Color = IDLE_COLOR,
-	})
+	local blurb =
+		Widgets.Label(spec.Blurb, UDim2.new(1, -px(10), 0, px(18)), UDim2.fromOffset(px(5), M.CardHeight - px(30)), {
+			Font = Theme.Font.Body,
+			TextSize = tx(14),
+			Align = Enum.TextXAlignment.Center,
+			Color = IDLE_COLOR,
+		})
 	blurb.ZIndex = 7
 	blurb.Parent = card
 	blurbLabels[spec.Target] = blurb
@@ -424,26 +431,90 @@ local function buildUI()
 		M.CardHeight = px(CARD_HEIGHT)
 		M.CardGap = px(CARD_GAP)
 		M.Pad = px(PAD)
-		M.Header = px(HEADER)
+		-- The header band has to clear the modal's close ✕ with real air, not by a
+		-- pixel. The ✕ is anchored 10pt inside the panel's top-right corner and is
+		-- Tap(34) tall -- 44 on touch, not the 34 the reference header was drawn
+		-- against -- so at the scale floor Px(66) is only 48 and the ✕ reached 6pt
+		-- PAST the header, onto the top-right corner of the last card.
+		--
+		-- The margin passed here is the panel's own PAD rather than a token 8:
+		-- clearing by 2pt is arithmetically correct and still reads as the button
+		-- sitting on the card, because the ✕ is a circle whose corner comes closer
+		-- than its bounding box does. Widgets.ModalContentTop is the same "start
+		-- below the chrome" figure every other modal in the game uses.
+		M.Header = math.max(px(HEADER), Widgets.ModalContentTop(px(PAD)))
 		M.ShadowDrop = px(SHADOW_DROP)
 		M.HoverLift = px(HOVER_LIFT)
-		-- Three across on a phone, all five on anything wider. Five columns at
-		-- the scale floor would be 107px cards -- narrower than their own
-		-- watermark was composed for.
-		M.Columns = if Responsive.Tier() == "Phone" then 3 else #CARDS
+		-- As many columns as the viewport is actually wide enough for, most first.
+		--
+		-- NOT "three on a phone", which is what this used to say. Wrapping to
+		-- fewer columns buys no card width whatsoever -- CardWidth is Px(CARD_WIDTH)
+		-- regardless of how many columns there are -- so all a wrap does is add a
+		-- ROW. Measured on the shape a phone actually reports in landscape
+		-- (801x334): three columns put the panel at 384pt tall against 334pt of
+		-- screen, cutting 25pt off the top and 25 off the bottom and taking the
+		-- hanging heading entirely off-screen, while five columns fit across in
+		-- 609 of the 785 available and need only one row.
+		--
+		-- Height is the scarce axis on a phone in landscape, and MORE columns is
+		-- what buys it. Fewer columns only ever earns its keep when the row
+		-- genuinely does not fit across, which is what this loop tests.
+		local maxWidth = Responsive.ViewportSize().X - Responsive.ScreenMargin * 2
+		M.Columns = 1
+		for columns = #CARDS, 1, -1 do
+			if M.Pad * 2 + columns * M.CardWidth + (columns - 1) * M.CardGap <= maxWidth then
+				M.Columns = columns
+				break
+			end
+		end
 
 		local rows = math.ceil(#CARDS / M.Columns)
-		M.PanelWidth = M.Pad * 2 + M.Columns * M.CardWidth + (M.Columns - 1) * M.CardGap
-		M.PanelHeight = M.Header
-			+ rows * M.CardHeight
-			+ (rows - 1) * (M.ShadowDrop + M.CardGap)
-			+ M.ShadowDrop
-			+ M.Pad * 2
-
-		panel.Size = UDim2.fromOffset(M.PanelWidth, M.PanelHeight)
-		panel.Position = UDim2.new(0.5, -M.PanelWidth / 2, 0.5, -M.PanelHeight / 2)
+		-- Everything in the card band that is NOT card: the gaps between rows and
+		-- the shadow the bottom row floats above.
+		local bandExtras = (rows - 1) * (M.ShadowDrop + M.CardGap) + M.ShadowDrop
+		local function measure()
+			M.PanelWidth = M.Pad * 2 + M.Columns * M.CardWidth + (M.Columns - 1) * M.CardGap
+			M.PanelHeight = M.Header + rows * M.CardHeight + bandExtras + M.Pad * 2
+		end
+		measure()
 
 		local headingHeight = px(HEADING_HEIGHT)
+		local viewport = Responsive.ViewportSize()
+
+		-- When the grid still does not fit, the CARDS shrink.
+		--
+		-- Nothing else can give: the column count is already capped by the width,
+		-- so a narrow, tall screen genuinely needs three rows of card. Measured at
+		-- 320x568 -- two columns, three rows -- that came to 570pt against 568 of
+		-- screen. Shrinking is safe because every offset inside a card is derived
+		-- from CardWidth/CardHeight (see buildCard), and the cards are rebuilt from
+		-- scratch on every layout pass anyway.
+		local available = viewport.Y - Responsive.ScreenMargin * 2 - math.ceil(headingHeight / 2)
+		if M.PanelHeight > available then
+			local room = available - M.Header - M.Pad * 2 - bandExtras
+			local fitted = math.floor(room / rows)
+			if fitted >= 64 then
+				M.CardWidth = math.max(64, math.floor(M.CardWidth * (fitted / M.CardHeight)))
+				M.CardHeight = fitted
+				measure()
+			end
+		end
+
+		panel.Size = UDim2.fromOffset(M.PanelWidth, M.PanelHeight)
+		-- Centred, but never above the room the heading needs. The heading hangs
+		-- HALF above the panel's own top edge, so a panel placed at the screen
+		-- margin would still have half its title off-screen -- and this panel
+		-- sizes itself from its content, so unlike every other one here it has no
+		-- PlacePanel clamping it. Overflowing the bottom is survivable (the cards
+		-- are still readable and reachable); losing the top is not.
+		panel.Position = UDim2.fromOffset(
+			Responsive.ClampX(math.round((viewport.X - M.PanelWidth) / 2), M.PanelWidth),
+			math.max(
+				Responsive.ScreenMargin + math.ceil(headingHeight / 2),
+				math.round((viewport.Y - M.PanelHeight) / 2)
+			)
+		)
+
 		heading.Size = UDim2.fromOffset(px(HEADING_WIDTH), headingHeight)
 		heading.Position = UDim2.new(0.5, 0, 0, -headingHeight / 2)
 

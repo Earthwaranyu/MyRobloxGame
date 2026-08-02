@@ -46,7 +46,8 @@ local M = {
 	WindowHeight = WINDOW_HEIGHT,
 }
 
-local CARD_COLOR_POOL = { Theme.Color.AccentA, Theme.Color.Warning, Theme.Color.Success, Theme.Color.Danger, Theme.Color.AccentB }
+local CARD_COLOR_POOL =
+	{ Theme.Color.AccentA, Theme.Color.Warning, Theme.Color.Success, Theme.Color.Danger, Theme.Color.AccentB }
 
 local DIFFICULTY_COLOR = {
 	Easy = Theme.Color.Success,
@@ -76,7 +77,10 @@ local function getStageEntry(stageId: string)
 	return nil
 end
 
-local function buildCard(entry: { Id: string, Name: string, Color: Color3, Difficulty: string }, layoutOrder: number): Frame
+local function buildCard(
+	entry: { Id: string, Name: string, Color: Color3, Difficulty: string },
+	layoutOrder: number
+): Frame
 	local px, tx = Responsive.Px, Responsive.Text
 
 	local card = Instance.new("Frame")
@@ -111,12 +115,13 @@ local function buildCard(entry: { Id: string, Name: string, Color: Color3, Diffi
 	})
 	label.Parent = card
 
-	local difficultyLabel = Widgets.Label(entry.Difficulty:upper(), UDim2.new(1, -px(12), 0, px(18)), UDim2.fromOffset(px(6), px(66)), {
-		Font = Theme.Font.Body,
-		TextSize = tx(13),
-		Align = Enum.TextXAlignment.Center,
-		Color = DIFFICULTY_COLOR[entry.Difficulty] or Theme.Color.TextSecondary,
-	})
+	local difficultyLabel =
+		Widgets.Label(entry.Difficulty:upper(), UDim2.new(1, -px(12), 0, px(18)), UDim2.fromOffset(px(6), px(66)), {
+			Font = Theme.Font.Body,
+			TextSize = tx(13),
+			Align = Enum.TextXAlignment.Center,
+			Color = DIFFICULTY_COLOR[entry.Difficulty] or Theme.Color.TextSecondary,
+		})
 	difficultyLabel.Parent = card
 
 	return card
@@ -139,10 +144,8 @@ local function buildUI()
 	backdrop.Parent = screenGui
 
 	local overlayWidth = WINDOW_WIDTH + OVERLAY_MARGIN
-	overlay = Widgets.Panel(
-		UDim2.fromOffset(overlayWidth, WINDOW_HEIGHT + 70),
-		UDim2.new(0.5, -overlayWidth / 2, 0.28, 0)
-	)
+	overlay =
+		Widgets.Panel(UDim2.fromOffset(overlayWidth, WINDOW_HEIGHT + 70), UDim2.new(0.5, -overlayWidth / 2, 0.28, 0))
 	overlay.Parent = screenGui
 
 	local title = Widgets.Label("SELECTING MAP", UDim2.new(1, -20, 0, 24), UDim2.fromOffset(10, TITLE_TOP), {
@@ -193,7 +196,15 @@ local function buildUI()
 		M.CardWidth = px(CARD_WIDTH)
 		M.CardHeight = px(CARD_HEIGHT)
 		M.Step = px(CARD_WIDTH + CARD_GAP)
-		M.WindowWidth = px(WINDOW_WIDTH)
+		-- Clamped to the viewport, not just scaled. Px(560) is 403 at the scale
+		-- floor, and the overlay adds its margin on top -- 432 against a 375-wide
+		-- portrait screen, so the spinner ran off both edges. The window is what
+		-- shrinks (the reel inside it is clipped, so a narrower window simply
+		-- shows fewer cards) rather than the panel being allowed to overflow.
+		M.WindowWidth = math.min(
+			px(WINDOW_WIDTH),
+			math.max(px(120), Responsive.ViewportSize().X - Responsive.ScreenMargin * 2 - px(OVERLAY_MARGIN))
+		)
 		M.WindowHeight = px(WINDOW_HEIGHT)
 
 		local panelWidth = M.WindowWidth + px(OVERLAY_MARGIN)

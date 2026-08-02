@@ -579,7 +579,7 @@ local function buildUI()
 	-- and best-times, which does not fit a 334pt phone at any scale -- so the
 	-- panel is bounded and the content scrolls inside it. Left unbounded it ran
 	-- 116pt off the TOP of the screen and cut the avatar in half.
-	Widgets.MakePanelScrollable(panel, Responsive.Px(8), false)
+	local contentScroll = Widgets.MakePanelScrollable(panel, Responsive.Px(8), false)
 	Responsive.Observe(function()
 		local viewport = Responsive.ViewportSize()
 		local width, height = Responsive.PlacePanel(panel, PANEL_WIDTH, PANEL_HEIGHT, 0, 0)
@@ -618,7 +618,15 @@ local function buildUI()
 		}
 	)
 	selfNoteLabel.Visible = false
-	selfNoteLabel.Parent = panel
+	-- The SCROLL, not the panel.
+	--
+	-- MakePanelScrollable moves the panel's existing children into the scroll, but
+	-- this label is built after that call has already run, so parenting it to the
+	-- panel left it outside -- sitting at duelY, which is past the bottom of a
+	-- panel that PlacePanel clamps to the viewport. A CanvasGroup clips, so "This
+	-- is your profile" was never drawn at all: opening your OWN card showed the
+	-- three buttons correctly hidden and nothing whatsoever in their place.
+	selfNoteLabel.Parent = contentScroll
 
 	-- Persistent HUD button, own ScreenGui like the duel/notice toasts below --
 	-- opens this same panel populated with the LOCAL player's own data
@@ -727,6 +735,7 @@ local function buildUI()
 	noticeGui.Parent = player:WaitForChild("PlayerGui")
 
 	noticeToast = Widgets.Panel(UDim2.fromOffset(340, 64), UDim2.new(0.5, -170, 0.14, 0))
+	Widgets.LayoutCard(noticeToast, 340, 64, 0.14)
 	noticeToast.Parent = noticeGui
 
 	noticeLabel = Widgets.Label("", UDim2.new(1, -20, 1, 0), UDim2.fromOffset(10, 0), {

@@ -152,6 +152,81 @@ function Widgets.Ribbon(text: string, size: UDim2, position: UDim2): Frame
 	label.TextSize = 20
 	label.Parent = ribbon
 
+	-- The ribbon's own insides have to be lifted with it.
+	--
+	-- These ScreenGuis use ZIndexBehavior.Global, where a child does NOT inherit
+	-- its parent's ZIndex. So a caller that raises the ribbon to sit above its
+	-- neighbours -- PlayModePickerController sets 30 to clear its cards -- raises
+	-- only the FACE. The label and bevel stay at the default 1, i.e. behind the
+	-- very pill they belong to, and the title renders as a blank gold slab.
+	-- Confirmed on screen: the picker's "CHOOSE YOUR RACE" was invisible.
+	--
+	-- Same trap Widgets.Modal's close button and MobileMenu's liftAbove already
+	-- carry scars from; this is the third place it has bitten, so the ribbon now
+	-- keeps its own stack in order rather than trusting callers to know.
+	local function syncZIndex()
+		local base = ribbon.ZIndex
+		bevelMask.ZIndex = base + 1
+		bevelStrip.ZIndex = base + 1
+		label.ZIndex = base + 2
+	end
+	ribbon:GetPropertyChangedSignal("ZIndex"):Connect(syncZIndex)
+	syncZIndex()
+
+	-- A hanging title must not hang off the top of the SCREEN.
+	--
+	-- Callers park these half above their panel's own top edge, which reads well
+	-- right up until the panel is tall enough that its own clamping pushes it to
+	-- the screen margin. Measured on an 801x334 phone: the Shop, Gacha, Inventory,
+	-- Leaderboard and Profile panels all land at y = 8, which puts 12 of the
+	-- ribbon's 40 points above the top of the display and slices the tops off its
+	-- letters -- on five of the game's most-used panels at once.
+	--
+	-- Fixed here rather than at those five call sites because they place their
+	-- panels five different ways and none of them knows what a ribbon is. When
+	-- there is no room to hang, the ribbon gives up its own overhang and sits on
+	-- the screen edge, overlapping a little more of the panel instead: a title
+	-- that overlaps is still readable, a title cut in half is not.
+	--
+	-- `desired` tracks whatever position was last asked for by someone ELSE --
+	-- PlayModePickerController re-places its heading on every viewport change --
+	-- so a correction here can never overwrite a caller's own repositioning.
+	-- Distinguished by value rather than by a flag, for the same reason
+	-- Widgets.Button's Text sync is: these signals fire deferred, so a flag set
+	-- around the write is already back to false by the time it arrives.
+	local desired = position
+	local lastWritten: UDim2? = nil
+
+	local function clampToScreen()
+		local parent = ribbon.Parent
+		if not (parent and parent:IsA("GuiObject")) then
+			-- Parented straight to a ScreenGui (WaveClockController's wave tab),
+			-- so there is no panel to hang off and nothing to correct.
+			return
+		end
+		local top = parent.AbsolutePosition.Y + desired.Y.Scale * parent.AbsoluteSize.Y + desired.Y.Offset
+		local target = desired
+		if top < 0 then
+			target = UDim2.new(desired.X.Scale, desired.X.Offset, desired.Y.Scale, math.round(desired.Y.Offset - top))
+		end
+		if ribbon.Position ~= target then
+			lastWritten = target
+			ribbon.Position = target
+		end
+	end
+
+	ribbon:GetPropertyChangedSignal("Position"):Connect(function()
+		if ribbon.Position == lastWritten then
+			return
+		end
+		desired = ribbon.Position
+		clampToScreen()
+	end)
+	-- Covers the parent panel moving or resizing under it, which is the case that
+	-- actually bites -- the ribbon's own Position never changes then.
+	ribbon:GetPropertyChangedSignal("AbsolutePosition"):Connect(clampToScreen)
+	Responsive.Observe(clampToScreen)
+
 	return ribbon
 end
 
@@ -1317,6 +1392,34 @@ function Widgets.LayoutToast(parts: ToastParts)
 		UDim2.fromOffset(buttonWidth, buttonHeight),
 		UDim2.fromOffset(pad + buttonWidth + gap, top)
 	)
+end
+
+-- Keeps a fixed-size announcement card on screen and centred.
+--
+-- For the panels that just say something and disappear -- the daily reward, the
+-- referral bonus, a ghost result, the profile card's notice line. They were the
+-- last panels in the game with no responsive pass of any kind: a flat offset size
+-- at a scale position, authored once against one monitor. Measured at 320pt wide
+-- (the narrowest viewport Roblox reports) every one of them was wider than the
+-- screen -- and being one-off cards that appear for three seconds is exactly why
+-- that went unnoticed.
+--
+-- CLAMPS rather than scales, deliberately. Everything inside these cards is
+-- positioned in raw offsets, so shrinking the card with Px() would just move the
+-- overflow inside it. Capping the width leaves the contents exactly as authored
+-- on every screen big enough for them, and only takes room away on the ones that
+-- genuinely do not have it.
+function Widgets.LayoutCard(panel: GuiObject, refWidth: number, refHeight: number, yScale: number)
+	Responsive.Observe(function()
+		local viewport = Responsive.ViewportSize()
+		local width = math.min(refWidth, viewport.X - Responsive.ScreenMargin * 2)
+		local height = math.min(refHeight, viewport.Y - Responsive.ScreenMargin * 2)
+		panel.Size = UDim2.fromOffset(width, height)
+		panel.Position = UDim2.fromOffset(
+			math.round((viewport.X - width) / 2),
+			Responsive.ClampY(math.round(viewport.Y * yScale), height)
+		)
+	end)
 end
 
 -- Re-sizes and re-positions a button after construction, in the SAME terms the

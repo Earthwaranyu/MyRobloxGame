@@ -27,6 +27,7 @@ local function buildUI()
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
 	panel = Widgets.Panel(UDim2.fromOffset(360, 150), UDim2.new(0.5, -180, 0.32, 0))
+	Widgets.LayoutCard(panel, 360, 150, 0.32)
 	panel.Parent = screenGui
 
 	titleLabel = Widgets.Label("DAILY REWARD", UDim2.new(1, -20, 0, 34), UDim2.fromOffset(10, 14), {

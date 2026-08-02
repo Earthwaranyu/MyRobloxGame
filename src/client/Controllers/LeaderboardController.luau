@@ -180,12 +180,17 @@ local function buildUI()
 	local ribbon = Widgets.Ribbon("LEADERBOARD", UDim2.fromOffset(230, 40), UDim2.new(0.5, 0, 0, -20))
 	ribbon.Parent = panel
 
-	-- y=44, not 36 -- the Stage tab row used to start early enough (36) to
-	-- graze the bottom-left corner of Widgets.Modal's close-✕ (which spans
-	-- 10-42 here), confirmed by an AbsolutePosition/AbsoluteSize scan: the
-	-- rightmost tab's top-right corner overlapped the button's bottom-left
-	-- by a real 32x6px, not just a harmless bounding-box graze like most of
-	-- that scan's other (false-positive) hits.
+	-- DERIVED from the close-✕, not hand-picked.
+	--
+	-- This was a literal 44, chosen because the ✕ "spans 10-42 here" -- true when
+	-- that button was a flat 34pt. It is Tap(34) now, which is 44 on touch, so it
+	-- spans 10-54 and the rightmost tab's top-right corner went back under it by
+	-- 10pt. Since the ✕ wins on ZIndex, tapping that stage closed the panel
+	-- instead of selecting it. Exactly the bug the old comment described, brought
+	-- back by a change three files away -- so the number now comes from the same
+	-- helper the button's own size does and cannot drift again.
+	local contentTop = Widgets.ModalContentTop(8)
+
 	-- Tab width DIVIDES a row rather than being a fixed number.
 	--
 	-- It used to be a flat 110px, which fitted the three stages that existed
@@ -202,7 +207,7 @@ local function buildUI()
 
 	local tabRow = Instance.new("Frame")
 	tabRow.Size = UDim2.new(1, -TAB_ROW_INSET * 2, 0, tabRowHeight)
-	tabRow.Position = UDim2.fromOffset(TAB_ROW_INSET, 44)
+	tabRow.Position = UDim2.fromOffset(TAB_ROW_INSET, contentTop)
 	tabRow.BackgroundTransparency = 1
 	tabRow.Parent = panel
 
@@ -241,7 +246,7 @@ local function buildUI()
 	-- rather than on the literal 78/108 it used to sit at, so a second row of
 	-- tabs pushes the scope buttons and the entry list down instead of being
 	-- drawn underneath them.
-	local scopeY = 44 + tabRowHeight + 4
+	local scopeY = contentTop + tabRowHeight + 4
 	-- The row is as tall as the buttons INSIDE it. Tap() floors those at 44 on
 	-- touch while the row stayed at its authored 26, so the tabs burst out of it
 	-- and sat on top of the entries below -- measured, 39pt buttons in a 23pt
