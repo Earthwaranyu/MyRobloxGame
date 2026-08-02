@@ -793,15 +793,9 @@ local function buildRevealOverlay()
 	-- ends on the device most likely to be watching it.
 	Responsive.Observe(function()
 		local viewport = Responsive.ViewportSize()
-		local width = math.min(Responsive.Px(REVEAL_WIDTH), viewport.X - Responsive.ScreenMargin * 2)
-		local height = Responsive.FitHeight(REVEAL_HEIGHT, Responsive.ScreenMargin)
-		Responsive.PlacePanel(
-			revealPanel,
-			REVEAL_WIDTH,
-			REVEAL_HEIGHT,
-			math.round((viewport.X - width) / 2),
-			math.round((viewport.Y - height) / 2)
-		)
+		Responsive.CenterPanel(revealPanel, REVEAL_WIDTH, REVEAL_HEIGHT, function(height)
+			return (viewport.Y - height) / 2
+		end)
 	end)
 
 	-- continueButton below explicitly calls GachaController.Refresh() on its

@@ -193,15 +193,9 @@ local function buildUI()
 	-- -- the ribbon off the top and the last ability row off the bottom.
 	Responsive.Observe(function()
 		local viewport = Responsive.ViewportSize()
-		local width = math.min(Responsive.Px(INV_WIDTH), viewport.X - Responsive.ScreenMargin * 2)
-		local height = Responsive.FitHeight(INV_HEIGHT, Responsive.ScreenMargin)
-		Responsive.PlacePanel(
-			panel,
-			INV_WIDTH,
-			INV_HEIGHT,
-			math.round((viewport.X - width) / 2),
-			math.round((viewport.Y - height) / 2)
-		)
+		Responsive.CenterPanel(panel, INV_WIDTH, INV_HEIGHT, function(height)
+			return (viewport.Y - height) / 2
+		end)
 	end)
 
 	local ribbon = Widgets.Ribbon("INVENTORY", UDim2.fromOffset(220, 40), UDim2.new(0.5, 0, 0, -20))

@@ -5,6 +5,7 @@ local TweenService = game:GetService("TweenService")
 local TextService = game:GetService("TextService")
 local UserInputService = game:GetService("UserInputService")
 
+local Localization = require(script.Parent.Localization)
 local Responsive = require(script.Parent.Responsive)
 local Theme = require(script.Parent.Theme)
 local Sounds = require(script.Parent.Sounds)
@@ -144,7 +145,8 @@ function Widgets.Ribbon(text: string, size: UDim2, position: UDim2): Frame
 	label.Name = "Label"
 	label.BackgroundTransparency = 1
 	label.Size = UDim2.fromScale(1, 1)
-	label.Text = text
+	Localization.Apply(label, text)
+	Localization.Bind(label)
 	label.Font = Theme.Font.Button
 	label.TextColor3 = Color3.new(1, 1, 1)
 	label.TextStrokeColor3 = Theme.Candy.TextOutline
@@ -650,7 +652,8 @@ function Widgets.Label(text: string, size: UDim2, position: UDim2, opts: LabelOp
 	opts = opts or {}
 
 	local label = Instance.new("TextLabel")
-	label.Text = text
+	Localization.Apply(label, text)
+	Localization.Bind(label)
 	label.Size = size
 	label.Position = position
 	label.BackgroundTransparency = 1
@@ -977,7 +980,7 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	label.TextStrokeColor3 = button.TextStrokeColor3
 	label.TextStrokeTransparency = button.TextStrokeTransparency
 	label.TextXAlignment = Enum.TextXAlignment.Center
-	label.Text = button.Text
+	Localization.Apply(label, button.Text)
 	label.TextSize = computeLabelTextSize(button.Text)
 	label.Parent = button
 	applyIconSuppression(label)
@@ -1007,7 +1010,7 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 		if newText == "" then
 			return
 		end
-		label.Text = newText
+		Localization.Apply(label, newText)
 		label.TextSize = computeLabelTextSize(newText)
 		applyIconSuppression(label)
 		button.Text = ""

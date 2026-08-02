@@ -86,14 +86,9 @@ local function buildUI()
 	Responsive.Observe(function()
 		local px, tx = Responsive.Px, Responsive.Text
 		local viewport = Responsive.ViewportSize()
-		local width = math.min(px(OUTCOME_WIDTH), viewport.X - Responsive.ScreenMargin * 2)
-		Responsive.PlacePanel(
-			panel,
-			OUTCOME_WIDTH,
-			OUTCOME_HEIGHT,
-			math.round((viewport.X - width) / 2),
-			math.round(viewport.Y * 0.55)
-		)
+		Responsive.CenterPanel(panel, OUTCOME_WIDTH, OUTCOME_HEIGHT, function()
+			return viewport.Y * 0.55
+		end)
 
 		local pad = px(10)
 		local function place(label: TextLabel, y: number, height: number, size: number)

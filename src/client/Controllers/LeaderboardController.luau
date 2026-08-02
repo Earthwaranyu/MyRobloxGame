@@ -242,10 +242,8 @@ local function buildUI()
 	end
 	refreshTabHighlight()
 
-	-- Everything below the tabs is positioned OFF the tab strip's real height
-	-- rather than on the literal 78/108 it used to sit at, so a second row of
-	-- tabs pushes the scope buttons and the entry list down instead of being
-	-- drawn underneath them.
+	-- Everything below the tabs is positioned off the tab strip's real height --
+	-- MEASURED, not predicted. See the relayout block after the entries list.
 	local scopeY = contentTop + tabRowHeight + 4
 	-- The row is as tall as the buttons INSIDE it. Tap() floors those at 44 on
 	-- touch while the row stayed at its authored 26, so the tabs burst out of it
@@ -302,6 +300,35 @@ local function buildUI()
 	layout.Padding = UDim.new(0, 4)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = entriesList
+
+	-- The tab strip's height is MEASURED off the grid, not predicted from a
+	-- column count.
+	--
+	-- tabRowHeight above is a guess made twice over: it assumes UIGridLayout will
+	-- wrap into `tabRows` rows, and it sizes each row at the authored TAB_HEIGHT
+	-- (30) while the cells are actually Tap(TAB_HEIGHT) -- 44 on touch. The grid
+	-- does neither: it wraps by the row's REAL width, which follows the panel,
+	-- and its cells are the size they were given.
+	--
+	-- Both errors point the same way, so the reserved space is too small and the
+	-- second row of stage tabs lands on top of the Global/Friends buttons --
+	-- measured on a 375-wide panel, 'Stage 4' overlapping 'Global' by 58x24, with
+	-- the ✕ winning the tap. AbsoluteContentSize is what the grid actually laid
+	-- out, so reading it removes both guesses at once, and re-running on the
+	-- signal keeps it right when the panel resizes under a rotating phone.
+	local function layoutBelowTabs()
+		local measured = math.max(tabLayout.AbsoluteContentSize.Y, Responsive.Tap(TAB_HEIGHT))
+		tabRow.Size = UDim2.new(1, -TAB_ROW_INSET * 2, 0, measured)
+
+		local newScopeY = contentTop + measured + Responsive.Px(4)
+		scopeRow.Position = UDim2.fromOffset(8, newScopeY)
+
+		local newEntriesY = newScopeY + scopeHeight + Responsive.Px(4)
+		entriesList.Position = UDim2.fromOffset(8, newEntriesY)
+		entriesList.Size = UDim2.new(1, -16, 1, -(newEntriesY + 8))
+	end
+	tabLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(layoutBelowTabs)
+	Responsive.Observe(layoutBelowTabs)
 
 	toggleButton.MouseButton1Click:Connect(function()
 		if panel.Visible then

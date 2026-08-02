@@ -273,6 +273,35 @@ function Responsive.PlacePanel(
 	return width, height
 end
 
+-- Sizes a panel AND centres it horizontally, from the size it actually got.
+--
+-- Exists because deriving x from a locally-guessed width is a trap that caught
+-- four panels at once. PanelSize applies a phone FLOOR (72% of the viewport), so
+-- a caller that measured `min(Px(ref), viewport - margins)` for itself
+-- underestimates the real width and centres against the wrong number. Measured
+-- at 801 wide: the panel is 577 but x had been computed for 274, putting it
+-- 104pt right of centre -- then ClampX pinned it flush to the right edge. That
+-- is the "victory page isn't in the middle" report, and the race-size, inventory
+-- and gacha-reveal panels all had it too.
+--
+-- `y` receives the real height, so a caller can centre vertically, clear the
+-- touch band, or sit at a fraction of the screen without re-deriving the size.
+-- Returns the size, for anything that needs to lay content out against it.
+function Responsive.CenterPanel(
+	gui: GuiObject,
+	refWidth: number,
+	refHeight: number,
+	y: (height: number) -> number
+): (number, number)
+	local width, height = Responsive.PlacePanel(gui, refWidth, refHeight, 0, 0)
+	local viewport = Responsive.ViewportSize()
+	gui.Position = UDim2.fromOffset(
+		Responsive.ClampX(math.round((viewport.X - width) / 2), width),
+		Responsive.ClampY(math.round(y(height)), height)
+	)
+	return width, height
+end
+
 -- Runs `callback` immediately, then again whenever the viewport changes size --
 -- a phone rotating, a desktop window being dragged, a device with a dynamic
 -- safe area. Returns a disconnect function.
