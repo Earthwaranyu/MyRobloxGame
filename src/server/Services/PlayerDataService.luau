@@ -3,8 +3,8 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
-local Constants = require(Shared.Constants)
 local Net = require(Shared.Net)
+local ProfileSchema = require(Shared.ProfileSchema)
 local RankTiers = require(Shared.RankTiers)
 local RemoteNames = require(Shared.RemoteNames)
 
@@ -17,68 +17,6 @@ local function getStore(): DataStore?
 	end)
 	return if success then store else nil
 end
-
--- Bumped when the rating SCALE changes, so old saves can be rebased rather than
--- silently reinterpreted against new tier thresholds. Version 1 started players
--- at 0 (on the rating floor); version 2 starts them at Constants.Elo.StartingRating.
-local ELO_SCALE_VERSION = 2
-
-local DEFAULT_PROFILE = {
-	Elo = Constants.Elo.StartingRating,
-	EloScaleVersion = ELO_SCALE_VERSION,
-	Points = 0,
-	OwnedTrails = { "Basic" },
-	EquippedTrail = "Basic",
-	WinStreak = 0,
-	BestWinStreak = 0,
-	LastLoginDate = "",
-	DailyStreak = 0,
-	AwardedBadgeKeys = {},
-	OwnedEmotes = {},
-	HasSeenTutorial = false,
-	-- Ranked-race record only (bot/practice matches deliberately don't touch
-	-- these -- see MatchService.PlayerReachedFinish -- since "win rate" here
-	-- means the same thing the Elo ladder already means: real opponents only).
-	Wins = 0,
-	Losses = 0,
-	-- Dash is free and owned by everyone by default; anything else here came
-	-- from a gacha pull (see GachaService). EquippedAbility is always one of
-	-- the ids in this list (enforced by AbilityService.handleEquip).
-	OwnedAbilities = { "Dash" },
-	EquippedAbility = "Dash",
-	-- Guards non-idempotent Robux grants (gacha pulls, points bundles --
-	-- see GachaService.GrantRobuxPull and PurchaseService's point-bundle
-	-- branch) against MarketplaceService replaying the same receipt twice.
-	-- Stored on the profile itself (durable via DataStore) rather than an
-	-- in-memory set, since unlike trail/emote grants (which are already
-	-- idempotent via a plain ownership check) these consume something
-	-- real -- a random roll, or a points balance -- that would double up on
-	-- replay otherwise. One shared set keyed by PurchaseId (a globally
-	-- unique GUID) works fine across different grant types.
-	ProcessedPurchaseIds = {},
-	-- Whether gacha pulls skip straight to the result instead of playing the
-	-- reveal animation. A per-player preference, not just a session toggle
-	-- (see GachaService.SetSkipAnimation), so it doesn't reset every time
-	-- someone rejoins -- but only ever true if they actually own the Skip
-	-- Animation gamepass, enforced server-side at the point it's set, not
-	-- read back out here.
-	SkipGachaAnimationEnabled = false,
-	-- Wall-clock seconds accumulated across past sessions; the current
-	-- session's elapsed time is added on top at read time (see
-	-- PlayerDataService.GetLiveTotalPlaySeconds) rather than kept live in this
-	-- field, so a server crash only loses the current session, not history.
-	TotalPlaySeconds = 0,
-	-- Referral loop (see ReferralService). 0 means "no referrer" -- real
-	-- Roblox UserIds are always positive, same 0-as-unset convention
-	-- MonetizationService's GAMEPASS_IDS uses. Set once, the first time this
-	-- player ever queues in a party alongside a veteran member, and never
-	-- overwritten after that.
-	ReferredByUserId = 0,
-	-- Flips true the instant Wins + Losses first leaves 0 (see
-	-- ReferralService.HandleFirstRealRace) -- guards the referral payout to
-	-- exactly once per player.
-	HasCompletedFirstRace = false,
-}
 
 local PlayerDataService = {}
 
@@ -141,26 +79,11 @@ local function loadProfile(player: Player)
 		end
 	end
 
-	-- Rebase pre-v2 saves onto the new scale BEFORE the default-fill below,
-	-- which would otherwise stamp the current version onto a legacy profile and
-	-- make it indistinguishable from an already-migrated one.
-	--
-	-- A flat shift rather than a rescale: it preserves every player's standing
-	-- relative to each other exactly, and lands the old starting point (0) on
-	-- the new one. Someone who had climbed to 300 keeps that 300 of progress.
-	if data and data.EloScaleVersion == nil then
-		data.Elo = math.max(0, tonumber(data.Elo) or 0) + Constants.Elo.StartingRating
-		data.EloScaleVersion = ELO_SCALE_VERSION
-	end
-
-	local profile = data or table.clone(DEFAULT_PROFILE)
-	for key, value in DEFAULT_PROFILE do
-		if profile[key] == nil then
-			profile[key] = value
-		end
-	end
-
-	profiles[player.UserId] = profile
+	-- Migration and default-fill both live in ProfileSchema, which is pure and
+	-- therefore actually tested (see tests/spec.luau). It is also what stops
+	-- every player in a server sharing one OwnedTrails table -- read the
+	-- deepCopy note there before touching it.
+	profiles[player.UserId] = ProfileSchema.New(data)
 	sessionStartTime[player.UserId] = os.time()
 end
 
@@ -205,7 +128,11 @@ local function saveProfile(player: Player): boolean
 	-- real save. Losing one session's progress is bad; losing the account is
 	-- not recoverable.
 	if saveBlocked[player.UserId] then
-		warn(("Skipping save for %s -- their profile never loaded, so saving would overwrite real data"):format(player.Name))
+		warn(
+			("Skipping save for %s -- their profile never loaded, so saving would overwrite real data"):format(
+				player.Name
+			)
+		)
 		return false
 	end
 

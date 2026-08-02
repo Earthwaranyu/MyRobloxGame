@@ -23,6 +23,7 @@ local StageLayout = require("./StageLayout")
 local LayoutMath = require("./LayoutMath")
 local Abilities = require("./Abilities")
 local Weather = require("./Weather")
+local ProfileSchema = require("./ProfileSchema")
 
 local pass, fail = 0, 0
 local failures = {}
@@ -781,6 +782,66 @@ do
 			LayoutMath.BottomRowY(view, 0, 44, row.Total) > LayoutMath.BottomRowY(view, 0, 44, view.Width)
 		)
 	end
+end
+
+print("\n-- profile schema --")
+do
+	-- The bug this guards: PlayerDataService used to build a profile with
+	-- table.clone (a SHALLOW copy) and fill missing keys straight off the
+	-- template, so every player in a server who needed a default shared ONE
+	-- OwnedTrails array -- and one OwnedAbilities, OwnedEmotes and
+	-- ProcessedPurchaseIds. One player's Robux purchase landed in everybody
+	-- else's profile and in the template itself, then persisted to each of
+	-- their DataStore keys. It needs two players to show up, which is why a
+	-- one-client Studio test never found it.
+	local TABLE_FIELDS = { "OwnedTrails", "OwnedAbilities", "OwnedEmotes", "AwardedBadgeKeys", "ProcessedPurchaseIds" }
+
+	local alice = ProfileSchema.New(nil)
+	local bob = ProfileSchema.New(nil)
+	for _, field in TABLE_FIELDS do
+		check(
+			("two fresh profiles do not share %s"):format(field),
+			alice[field] ~= bob[field] and alice[field] ~= ProfileSchema.Default[field]
+		)
+	end
+
+	-- The actual consequence, end to end.
+	table.insert(alice.OwnedTrails, "Galaxy")
+	check("a purchase does not leak to another player", table.find(bob.OwnedTrails, "Galaxy") == nil)
+	check("a purchase does not leak into the template", table.find(ProfileSchema.Default.OwnedTrails, "Galaxy") == nil)
+	check("a purchase does not leak to a later joiner", table.find(ProfileSchema.New(nil).OwnedTrails, "Galaxy") == nil)
+
+	alice.ProcessedPurchaseIds["guid-alice"] = true
+	check("receipt ids stay per-player", bob.ProcessedPurchaseIds["guid-alice"] == nil)
+
+	-- A returning save predating a field gets its own copy of that default too.
+	local returning = ProfileSchema.New({ Elo = 1400, EloScaleVersion = 2, OwnedTrails = { "Basic", "Flame" } })
+	check("a legacy save gets its own OwnedAbilities", returning.OwnedAbilities ~= ProfileSchema.Default.OwnedAbilities)
+	table.insert(returning.OwnedAbilities, "Blink")
+	check(
+		"a gacha pull does not leak to a new player",
+		table.find(ProfileSchema.New(nil).OwnedAbilities, "Blink") == nil
+	)
+
+	-- Existing data is never overwritten by the fill.
+	check("existing fields survive the default fill", #returning.OwnedTrails == 2 and returning.Elo == 1400)
+
+	-- Nested tables are copied too, not just the top level.
+	local nested = ProfileSchema.New(nil)
+	check("defaults are deep-copied", ProfileSchema.DeepCopy({ a = { b = 1 } }).a ~= nil)
+	check("every default key is present", nested.EquippedTrail == "Basic" and nested.EquippedAbility == "Dash")
+
+	-- Elo scale migration: a pre-v2 save is shifted onto the new floor exactly once.
+	local legacy = ProfileSchema.New({ Elo = 300 })
+	check(
+		"a pre-v2 save is rebased onto the new scale",
+		legacy.Elo == 300 + START and legacy.EloScaleVersion == ProfileSchema.EloScaleVersion,
+		("elo=%d"):format(legacy.Elo)
+	)
+	local alreadyMigrated = ProfileSchema.New({ Elo = 300 + START, EloScaleVersion = ProfileSchema.EloScaleVersion })
+	check("an already-migrated save is left alone", alreadyMigrated.Elo == 300 + START)
+	-- A brand-new player starts on the new floor, not shifted twice.
+	check("a new profile starts at the rating floor", ProfileSchema.New(nil).Elo == START)
 end
 
 print("\n-- void slab coverage --")

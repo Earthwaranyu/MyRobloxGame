@@ -43,6 +43,40 @@ local lastFriendsFetch: { [number]: number } = {}
 local BEST_TIMES_COOLDOWN = 2
 local lastBestTimesFetch: { [number]: number } = {}
 
+-- The top-times board is CACHED per stage rather than cooled per player.
+--
+-- It was neither, while the two lookups above it were both explicitly hardened
+-- against burning the DataStore request budget -- an oversight, not a decision.
+-- Every open of the Leaderboard panel and every tap on a stage tab was its own
+-- uncooled GetSortedAsync, and OrderedDataStore's sorted-read budget is small
+-- (roughly 5 + 2 per player, per minute). Eight stage tabs is eight reads from
+-- one player idly browsing; a modified client spamming the remote could empty
+-- the budget for everyone on the server.
+--
+-- A cooldown was the obvious fix and it is the wrong one here: switching stage
+-- tabs is a legitimate rapid action, and rate-limiting it would make the panel
+-- feel broken. A cache fixes the budget AND makes tab-switching instant, and it
+-- is shared across every player in the server rather than per-caller. Top times
+-- change on the order of races, not seconds, so this is stale by nothing anyone
+-- can perceive.
+local TOP_TIMES_CACHE_SECONDS = 20
+local topTimesCache: { [string]: { At: number, Entries: { any } } } = {}
+
+-- Rejects a stageId that isn't one of ours BEFORE it reaches getStore, which
+-- pastes it straight into an OrderedDataStore NAME. Without this a client could
+-- name an unlimited number of stores and have the server read each one.
+local function isKnownStage(stageId: unknown): boolean
+	if typeof(stageId) ~= "string" then
+		return false
+	end
+	for _, stage in Stages do
+		if stage.Id == stageId then
+			return true
+		end
+	end
+	return false
+end
+
 -- GetOrderedDataStore() throws if API access is disabled (e.g. an unpublished
 -- place in Studio), so this is guarded rather than called directly.
 local function getStore(stageId: string): OrderedDataStore?
@@ -151,7 +185,14 @@ function LeaderboardService.SubmitTime(player: Player, stageId: string, timeSeco
 
 	if not success then
 		warn(("Failed to submit time for %s on %s: %s"):format(player.Name, stageId, tostring(err)))
+		return
 	end
+
+	-- Dropped so the board reflects a run the moment it lands, rather than up to
+	-- TOP_TIMES_CACHE_SECONDS later. The one read the cache exists to avoid is
+	-- the idle-browsing one; a player who just set a time has earned a fresh
+	-- fetch, and it is bounded by how often anyone can actually finish a race.
+	topTimesCache[stageId] = nil
 end
 
 function LeaderboardService.GetTopTimes(stageId: string, count: number?)
@@ -258,6 +299,10 @@ function LeaderboardService.Init()
 
 	local remote = Net.CreateRemoteFunction(RemoteNames.GetLeaderboard)
 	remote.OnServerInvoke = function(player: Player, stageId: string, friendsOnly: boolean?)
+		if not isKnownStage(stageId) then
+			return {}
+		end
+
 		if friendsOnly then
 			local userId = player.UserId
 			local now = os.clock()
@@ -266,6 +311,11 @@ function LeaderboardService.Init()
 			end
 			lastFriendsFetch[userId] = now
 			return LeaderboardService.GetFriendTimes(player, stageId)
+		end
+
+		local cached = topTimesCache[stageId]
+		if cached and os.clock() - cached.At < TOP_TIMES_CACHE_SECONDS then
+			return cached.Entries
 		end
 
 		local rawEntries = LeaderboardService.GetTopTimes(stageId, Constants.Leaderboard.TopCount)
@@ -277,6 +327,9 @@ function LeaderboardService.Init()
 			entries[i] = { Rank = i, Name = name, TimeMs = entry.value }
 		end
 
+		-- Cached even when empty: a stage nobody has finished yet is exactly the
+		-- case that would otherwise re-read on every single request.
+		topTimesCache[stageId] = { At = os.clock(), Entries = entries }
 		return entries
 	end
 

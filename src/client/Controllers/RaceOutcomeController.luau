@@ -132,6 +132,16 @@ local function applyRankUp(eloDelta: number)
 	end)
 end
 
+local function ordinal(n: number): string
+	local lastTwo = n % 100
+	if lastTwo >= 11 and lastTwo <= 13 then
+		return ("%dTH"):format(n)
+	end
+	local last = n % 10
+	local suffix = if last == 1 then "ST" elseif last == 2 then "ND" elseif last == 3 then "RD" else "TH"
+	return ("%d%s"):format(n, suffix)
+end
+
 local function show(data: {
 	Won: boolean,
 	EloDelta: number?,
@@ -153,13 +163,28 @@ local function show(data: {
 				else ""
 			streakLabel.Text = ("🔥 %d WIN STREAK%s"):format(data.WinStreak, bonusText)
 		end
-	elseif data.EloDelta then
+	elseif data.EloDelta and data.EloDelta < 0 then
 		titleLabel.Text = "DEFEAT"
 		titleLabel.TextColor3 = Theme.Color.Danger
 		Sounds.Play("Defeat")
 	else
-		titleLabel.Text = ("Finished #%d"):format(data.Placement or 0)
-		titleLabel.TextColor3 = Theme.Color.TextPrimary
+		-- Not a win, but NOT a defeat either -- and this branch is the whole
+		-- reason MatchService settles every finisher rather than only the winner.
+		--
+		-- The old test here was `elseif data.EloDelta then`, and 0 is truthy in
+		-- Lua, so it caught EVERY non-winner in a ranked race regardless of what
+		-- their rating actually did. Verified against the real settlement module:
+		-- a player rated 1000 finishing 2nd of 8 against a 1400 field gains +24
+		-- Elo, and was shown a red "DEFEAT" headline with a green "+24 Elo" line
+		-- underneath it -- the two halves of the same panel contradicting each
+		-- other, and the placement work thrown away at the last step.
+		--
+		-- Only an actual rating LOSS reads as a defeat now. Everything else is
+		-- reported as what it is: where you came.
+		titleLabel.Text = if data.Placement then ("%s PLACE"):format(ordinal(data.Placement)) else "FINISHED"
+		titleLabel.TextColor3 = if data.EloDelta and data.EloDelta > 0
+			then Theme.Color.Success
+			else Theme.Color.TextPrimary
 		Sounds.Play("Click")
 	end
 
