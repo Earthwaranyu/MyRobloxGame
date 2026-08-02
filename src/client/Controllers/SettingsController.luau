@@ -20,10 +20,34 @@ local TutorialController = require(script.Parent.TutorialController)
 -- same pattern as MatchStateController/SprintController.
 local SettingsController = {}
 
--- Reference geometry for the panel. Its content rows are positioned in scaled
--- offsets against these, so panel and rows shrink as one -- see layoutPanel.
+-- Reference geometry for the panel.
 local PANEL_WIDTH = 360
 local PANEL_HEIGHT = 328
+
+-- Rows are STACKED, not placed at hand-written y offsets.
+--
+-- The hand-written offsets are what put the ON pill under the close ✕ and the
+-- OFF pill on top of the How to Play button. Every row's y was a scaled Px()
+-- offset while its height was a Tap() one, and those two do not move together:
+-- on a phone Px(36) is 26 but Tap(36) is 44, so a row authored as 36 tall
+-- rendered 44 tall while the next row's y had only advanced by 26. Three rows
+-- deep that is an 18pt overlap, which is exactly what the screenshot showed.
+--
+-- So each row now reports the height it ACTUALLY occupies and the next one
+-- starts below it. A row can be as tall as Tap() insists without ever reaching
+-- into its neighbour.
+local ROW_GAP = 8
+-- Every interactive pill in this panel: the wind toggle, the skip-gacha
+-- toggle/buy button. Tap()'d at use, so this is the reference height.
+local TOGGLE_HEIGHT = 36
+local TOGGLE_WIDTH = 110
+-- Gap between a toggle's right edge and the panel's, and how much room the
+-- label beside it has to give up.
+local TOGGLE_INSET = 10
+
+-- A row's builder returns this: how tall it is, and how to place it once the
+-- cursor above it is known.
+type Row = { Height: number, Place: (y: number) -> () }
 
 SettingsController.WindEffectEnabled = true
 SettingsController.Changed = Signal.new()
@@ -83,13 +107,19 @@ type VolumeRow = {
 local function buildVolumeRow(
 	panel: CanvasGroup,
 	labelText: string,
-	yOffset: number,
 	groupName: string,
 	onUserDrag: (() -> ())?
-): VolumeRow
+): (VolumeRow, Row)
 	local px, tx = Responsive.Px, Responsive.Text
 
-	local rowLabel = Widgets.Label(labelText, UDim2.new(1, -px(88), 0, px(20)), UDim2.fromOffset(px(8), yOffset), {
+	local labelHeight = px(20)
+	-- Tap(), not Px(): the slider's container IS its drag target, and a 20pt
+	-- strip is not one on a phone. Widgets.Slider centres the visible track in
+	-- whatever height it is given, so a taller container is a bigger grab area
+	-- and an identical look.
+	local trackHeight = Responsive.Tap(28)
+
+	local rowLabel = Widgets.Label(labelText, UDim2.new(1, -px(88), 0, labelHeight), UDim2.fromOffset(px(8), 0), {
 		TextSize = tx(16),
 		Color = Theme.Color.TextSecondary,
 	})
@@ -100,7 +130,7 @@ local function buildVolumeRow(
 	-- a slider all the way down); the mute button below makes it a one-tap,
 	-- everyday state, so it has to actually fit.
 	local valueLabel =
-		Widgets.Label(formatVolume(1), UDim2.fromOffset(px(70), px(20)), UDim2.new(1, -px(78), 0, yOffset), {
+		Widgets.Label(formatVolume(1), UDim2.fromOffset(px(70), labelHeight), UDim2.new(1, -px(78), 0, 0), {
 			TextSize = tx(16),
 			Align = Enum.TextXAlignment.Right,
 			Color = Theme.Color.TextSecondary,
@@ -117,8 +147,8 @@ local function buildVolumeRow(
 	end
 
 	local slider, setSliderValue = Widgets.Slider(
-		UDim2.new(1, -px(16), 0, px(28)),
-		UDim2.fromOffset(px(8), yOffset + px(24)),
+		UDim2.new(1, -px(16), 0, trackHeight),
+		UDim2.fromOffset(px(8), 0),
 		1,
 		function(value)
 			applyVolume(value)
@@ -129,6 +159,15 @@ local function buildVolumeRow(
 	)
 	slider.Parent = panel
 
+	local row: Row = {
+		Height = labelHeight + trackHeight,
+		Place = function(y: number)
+			rowLabel.Position = UDim2.fromOffset(px(8), y)
+			valueLabel.Position = UDim2.new(1, -px(78), 0, y)
+			slider.Position = UDim2.fromOffset(px(8), y + labelHeight)
+		end,
+	}
+
 	return {
 		GetVolume = function()
 			return current
@@ -137,7 +176,8 @@ local function buildVolumeRow(
 			setSliderValue(value)
 			applyVolume(value)
 		end,
-	}
+	},
+		row
 end
 
 -- Always visible, owned or not -- unlike the old behavior (row didn't exist
@@ -145,11 +185,15 @@ end
 -- tapping it prompts the same purchase flow the Gacha panel's buy row uses
 -- (see GachaController.refreshSkipPurchaseRow) instead of only being
 -- discoverable there.
-local function buildSkipGachaRow(panel: CanvasGroup, yOffset: number)
+local function buildSkipGachaRow(panel: CanvasGroup): Row
+	local height = Responsive.Tap(TOGGLE_HEIGHT)
+	local toggleWidth = Responsive.Px(TOGGLE_WIDTH)
+	local slotRight = toggleWidth + Responsive.Px(TOGGLE_INSET)
+
 	local rowLabel = Widgets.Label(
 		"Skip gacha pull animation",
-		UDim2.new(1, -Responsive.Px(150), 0, Responsive.Px(36)),
-		UDim2.fromOffset(Responsive.Px(8), yOffset),
+		UDim2.new(1, -(slotRight + Responsive.Px(16)), 0, height),
+		UDim2.fromOffset(Responsive.Px(8), 0),
 		{
 			TextSize = Responsive.Text(16),
 			Color = Theme.Color.TextSecondary,
@@ -159,8 +203,8 @@ local function buildSkipGachaRow(panel: CanvasGroup, yOffset: number)
 
 	local actionSlot = Instance.new("Frame")
 	actionSlot.Name = "SkipGachaActionSlot"
-	actionSlot.Size = UDim2.fromOffset(Responsive.Px(110), Responsive.Tap(36))
-	actionSlot.Position = UDim2.new(1, -Responsive.Px(120), 0, yOffset)
+	actionSlot.Size = UDim2.fromOffset(toggleWidth, height)
+	actionSlot.Position = UDim2.new(1, -slotRight, 0, 0)
 	actionSlot.BackgroundTransparency = 1
 	actionSlot.Parent = panel
 
@@ -205,6 +249,14 @@ local function buildSkipGachaRow(panel: CanvasGroup, yOffset: number)
 			setActive(actual)
 		end)
 	end
+
+	return {
+		Height = height,
+		Place = function(y: number)
+			rowLabel.Position = UDim2.fromOffset(Responsive.Px(8), y)
+			actionSlot.Position = UDim2.new(1, -slotRight, 0, y)
+		end,
+	}
 end
 
 local function buildUI()
@@ -242,6 +294,9 @@ local function buildUI()
 			DisplayOrder = 30,
 		})
 
+	-- Drilling into this panel from the drawer should come back to the drawer.
+	MobileMenu.ReopenWhenClosed(toggleButton, panel)
+
 	-- That "bottom edge stays put just above the toggle button" placement is a
 	-- desktop assumption: it resolves to y = -29 on a 375pt phone, clipping the
 	-- panel's top -- and once the toggle moves into the drawer there is no
@@ -266,10 +321,14 @@ local function buildUI()
 	)
 	ribbon.Parent = panel
 
+	local windHeight = Responsive.Tap(TOGGLE_HEIGHT)
+	local windToggleWidth = Responsive.Px(TOGGLE_WIDTH)
+	local windSlotRight = windToggleWidth + Responsive.Px(TOGGLE_INSET)
+
 	local rowLabel = Widgets.Label(
 		"Wind effect while sprinting",
-		UDim2.new(1, -Responsive.Px(150), 0, Responsive.Px(44)),
-		UDim2.fromOffset(Responsive.Px(8), Responsive.Px(44)),
+		UDim2.new(1, -(windSlotRight + Responsive.Px(16)), 0, windHeight),
+		UDim2.fromOffset(Responsive.Px(8), 0),
 		{
 			TextSize = Responsive.Text(16),
 			Color = Theme.Color.TextSecondary,
@@ -280,18 +339,26 @@ local function buildUI()
 	-- Explicit TextSize + widened button (see buildVolumeRow's comment below
 	-- for the full story) -- matches the volume/skip-gacha toggles' sizing so
 	-- all the small pill buttons in this panel look consistent.
-	local windButton, windSetActive = Widgets.Button(
-		"ON",
-		UDim2.fromOffset(Responsive.Px(110), Responsive.Tap(36)),
-		UDim2.new(1, -Responsive.Px(120), 0, Responsive.Px(44)),
-		{
+	local windButton, windSetActive =
+		Widgets.Button("ON", UDim2.fromOffset(windToggleWidth, windHeight), UDim2.new(1, -windSlotRight, 0, 0), {
 			Variant = "Tab",
 			Active = true,
 			TextSize = 28,
-		}
-	)
+		})
 	windButton.Parent = panel
 	windSetActive(true)
+
+	local windRow: Row = {
+		Height = windHeight,
+		Place = function(y: number)
+			rowLabel.Position = UDim2.fromOffset(Responsive.Px(8), y)
+			Widgets.Relayout(
+				windButton,
+				UDim2.fromOffset(windToggleWidth, windHeight),
+				UDim2.new(1, -windSlotRight, 0, y)
+			)
+		end,
+	}
 
 	windButton.MouseButton1Click:Connect(function()
 		local enabled = not SettingsController.WindEffectEnabled
@@ -335,7 +402,7 @@ local function buildUI()
 		end,
 	})
 	muteButton.Parent = screenGui
-	MobileMenu.Adopt(muteButton, 2)
+	MobileMenu.Adopt(muteButton, 2, { KeepOpen = true })
 	muteSetActive(false)
 
 	-- Dragging either slider by hand is an explicit statement about what you
@@ -349,11 +416,10 @@ local function buildUI()
 		end
 	end
 
-	-- Row offsets are scaled at the call site so every row moves with the panel,
-	-- which shrinks with the viewport -- an unscaled row on a scaled panel simply
-	-- falls off the bottom of it.
-	musicRow = buildVolumeRow(panel, "Music volume", Responsive.Px(96), "Music", onVolumeDragged)
-	sfxRow = buildVolumeRow(panel, "SFX volume", Responsive.Px(156), "SFX", onVolumeDragged)
+	local musicLayout: Row
+	local sfxLayout: Row
+	musicRow, musicLayout = buildVolumeRow(panel, "Music volume", "Music", onVolumeDragged)
+	sfxRow, sfxLayout = buildVolumeRow(panel, "SFX volume", "SFX", onVolumeDragged)
 
 	muteButton.MouseButton1Click:Connect(function()
 		muted = not muted
@@ -371,12 +437,13 @@ local function buildUI()
 		refreshMuteButton()
 	end)
 
-	buildSkipGachaRow(panel, Responsive.Px(216))
+	local skipGachaLayout = buildSkipGachaRow(panel)
 
+	local howToPlayHeight = Responsive.Tap(40)
 	local howToPlayButton = Widgets.Button(
 		"How to Play",
-		UDim2.new(1, -Responsive.Px(16), 0, Responsive.Tap(40)),
-		UDim2.fromOffset(Responsive.Px(8), Responsive.Px(260)),
+		UDim2.new(1, -Responsive.Px(16), 0, howToPlayHeight),
+		UDim2.fromOffset(Responsive.Px(8), 0),
 		{
 			Variant = "Secondary",
 			TextSize = 16,
@@ -384,8 +451,50 @@ local function buildUI()
 	)
 	howToPlayButton.Parent = panel
 	howToPlayButton.MouseButton1Click:Connect(function()
+		-- Settings gets out of the way first. This is a navigation step, not a
+		-- setting: the tutorial is a full panel in its own right, and leaving
+		-- Settings open behind it means its backdrop is still dimming the thing
+		-- the player just asked to read, with two ✕s on screen and no clue which
+		-- one goes back. Show() clears the mobile drawer for the same reason --
+		-- see the note there.
+		closePanel()
 		TutorialController.Show()
 	end)
+
+	local howToPlayRow: Row = {
+		Height = howToPlayHeight,
+		Place = function(y: number)
+			Widgets.Relayout(
+				howToPlayButton,
+				UDim2.new(1, -Responsive.Px(16), 0, howToPlayHeight),
+				UDim2.fromOffset(Responsive.Px(8), y)
+			)
+		end,
+	}
+
+	-- The stacking pass. Every row starts below the one above it, so no amount
+	-- of Tap() inflating a row's height can push it into its neighbour.
+	--
+	-- The whole stack also starts below the close ✕ rather than beside it. The
+	-- ✕ is anchored inside the panel's top-right corner and the first row's ON
+	-- toggle is anchored to the same corner, so on touch -- where Tap() makes
+	-- the ✕ 44pt, not 34 -- they were drawn on top of each other. Widgets.
+	-- ModalContentTop is the same "start below the chrome" figure every other
+	-- modal in the game uses.
+	--
+	-- Then the content scrolls: at full touch sizing the rows come to roughly
+	-- 280pt inside a panel that a 334pt phone clamps to 274, and a row that does
+	-- not fit is simply not drawn rather than scrolled to.
+	Widgets.MakePanelScrollable(panel, Responsive.Px(8))
+	local rows: { Row } = { windRow, musicLayout, sfxLayout, skipGachaLayout, howToPlayRow }
+	local cursor = 0
+	for index, row in rows do
+		row.Place(cursor)
+		cursor += row.Height
+		if index < #rows then
+			cursor += Responsive.Px(ROW_GAP)
+		end
+	end
 
 	toggleButton.MouseButton1Click:Connect(function()
 		-- panel.Visible (not a separately-tracked bool) is the source of

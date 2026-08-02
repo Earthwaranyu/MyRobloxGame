@@ -246,20 +246,6 @@ local function buildUI()
 			DisplayOrder = 30,
 		})
 
-	-- 460 tall at y=116 runs 201pt past the bottom of a phone. Both content
-	-- panes are sized relative to the panel over a ScrollingFrame, so clamping
-	-- the panel shortens the scroll window instead of cutting items off.
-	Responsive.Observe(function()
-		local width = math.min(Responsive.Px(SHOP_WIDTH), Responsive.ViewportSize().X - Responsive.ScreenMargin * 2)
-		Responsive.PlacePanel(
-			panel,
-			SHOP_WIDTH,
-			SHOP_HEIGHT,
-			Responsive.ViewportSize().X - width - Responsive.Px(10),
-			Responsive.Px(116)
-		)
-	end)
-
 	local ribbon = Widgets.Ribbon("TRAIL SHOP", UDim2.fromOffset(220, 40), UDim2.new(0.5, 0, 0, -20))
 	ribbon.Parent = panel
 
@@ -274,6 +260,14 @@ local function buildUI()
 		Color = Theme.Candy.Gold.Face,
 	})
 	pointsLabel.Parent = panel
+
+	-- The points readout is right-aligned against the panel's right edge, which
+	-- is exactly where the close ✕ sits -- so it has to stop short of it. In an
+	-- Observe rather than a one-off because the reserved width is Tap()-based and
+	-- therefore changes with the device (34 on a mouse, 44 on touch).
+	Responsive.Observe(function()
+		pointsLabel.Size = UDim2.new(0.4, -Widgets.ModalCloseInset(), 0, 20)
+	end)
 
 	-- Left tab strip (Trails / Points), same reference-image category-strip
 	-- layout language as GachaController's own tab strip -- see its doc
@@ -294,6 +288,47 @@ local function buildUI()
 		},
 	}, UDim2.new(1, -462, 0, 168))
 	tabStrip.Parent = shopScreenGui
+
+	-- Panel AND strip in one observer, in that order.
+	--
+	-- The strip's position has to be derived from where the panel actually
+	-- landed, and splitting that across two Responsive.Observe callbacks would
+	-- make it depend on the order the dispatcher happens to iterate its observer
+	-- table in -- which is a plain map, so there is no order to depend on.
+	--
+	-- 460 tall at y=116 runs 201pt past the bottom of a phone. Both content
+	-- panes are sized relative to the panel over a ScrollingFrame, so clamping
+	-- the panel shortens the scroll window instead of cutting items off.
+	Responsive.Observe(function()
+		local viewport = Responsive.ViewportSize()
+		local desired = math.min(Responsive.Px(SHOP_WIDTH), viewport.X - Responsive.ScreenMargin * 2)
+		Responsive.PlacePanel(
+			panel,
+			SHOP_WIDTH,
+			SHOP_HEIGHT,
+			viewport.X - desired - Responsive.Px(10),
+			Responsive.Px(116)
+		)
+
+		-- The strip hangs off the panel's LEFT edge. It used to be placed at a
+		-- hand-measured `1, -462` from the right of the SCREEN, which only lined
+		-- up beside a 380-wide desktop panel -- on a phone PanelSize floors the
+		-- panel to 72% of the viewport (577 of 801), and -462 then lands 100pt
+		-- INSIDE it, which is why the two category buttons were sitting on top of
+		-- the trail rows.
+		local gap = Responsive.Px(10)
+		local stripWidth = tabStrip.Size.X.Offset
+		local stripHeight = tabStrip.Size.Y.Offset
+		local panelLeft = panel.Position.X.Offset
+		tabStrip.Position = UDim2.fromOffset(
+			-- Clamped rather than allowed to run off the left edge. On a display
+			-- narrow enough that the panel leaves no room beside it, a strip
+			-- pinned to the margin still beats one drawn off-screen -- there is
+			-- no other way to reach the Points tab.
+			Responsive.ClampX(panelLeft - stripWidth - gap, stripWidth),
+			Responsive.ClampY(panel.Position.Y.Offset, stripHeight)
+		)
+	end)
 	tabStrip.Visible = panel.Visible
 	panel:GetPropertyChangedSignal("Visible"):Connect(function()
 		tabStrip.Visible = panel.Visible
@@ -320,9 +355,19 @@ local function buildUI()
 		pointsContent.Visible = id == "Points"
 	end)
 
+	-- Stacked from a cursor rather than at hand-written y offsets, for the same
+	-- reason SettingsController's rows are: the VIP banner's height is Tap()'d
+	-- (44 on touch) while the header and bundle row below it were placed at
+	-- Px() offsets of 40 and 58 (29 and 42 on a phone). Both therefore sat
+	-- UNDER the banner -- "GET POINTS" was not visible at all on a phone, and
+	-- the R$ buttons were pressed right up against the banner's bottom edge.
+	local vipHeight = Responsive.Tap(32)
+	local sectionGap = Responsive.Px(14)
+	local headerHeight = Responsive.Px(16)
+
 	vipButton = Widgets.Button(
 		"👑 Get VIP — 2x Points Everywhere",
-		UDim2.new(1, 0, 0, Responsive.Tap(32)),
+		UDim2.new(1, 0, 0, vipHeight),
 		UDim2.fromOffset(0, 0),
 		{ Variant = "Danger", TextSize = Responsive.Text(14) }
 	)
@@ -333,18 +378,20 @@ local function buildUI()
 		end
 	end)
 
-	local pointsHeader = Widgets.Label("GET POINTS", UDim2.new(1, 0, 0, 16), UDim2.fromOffset(0, 40), {
+	local headerY = vipHeight + sectionGap
+	local pointsHeader = Widgets.Label("GET POINTS", UDim2.new(1, 0, 0, headerHeight), UDim2.fromOffset(0, headerY), {
 		TextSize = 12,
 		Color = Theme.Color.TextMuted,
 	})
 	pointsHeader.Parent = pointsContent
 
 	local BUNDLE_WIDTH = 108
+	local bundleY = headerY + headerHeight + Responsive.Px(6)
 	for i, bundle in PointBundles do
 		local bundleButton = Widgets.Button(
 			bundle.Label .. " · R$",
 			UDim2.fromOffset(Responsive.Px(BUNDLE_WIDTH), Responsive.Tap(34)),
-			UDim2.fromOffset(Responsive.Px((i - 1) * (BUNDLE_WIDTH + 8)), Responsive.Px(58)),
+			UDim2.fromOffset(Responsive.Px((i - 1) * (BUNDLE_WIDTH + 8)), bundleY),
 			{ Variant = "Secondary", TextSize = 13 }
 		)
 		bundleButton.Parent = pointsContent

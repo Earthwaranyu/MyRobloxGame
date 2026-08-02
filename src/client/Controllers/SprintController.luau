@@ -19,25 +19,9 @@ local SprintController = {}
 local SPRINT_WIDTH, SPRINT_HEIGHT, SPRINT_BOTTOM = 150, 44, 224
 
 -- The phone action row: SPRINT, PLAY and DASH side by side on one line.
--- PlayButtonController and AbilityController declare the same pair of values, so
--- all three derive identical x positions from Responsive.CenterRow and cannot
--- drift apart.
-local ACTION_GAP = 10
-local function actionRowWidths(): { number }
-	return {
-		Responsive.Px(150), -- SPRINT
-		Responsive.Px(220), -- PLAY
-		Responsive.Px(200), -- DASH
-	}
-end
-
--- Total width of that row, so BottomRowY can tell whether it fits between the
--- touch controls and may therefore sit at the real bottom of the screen.
-local function actionRowTotal(): number
-	local widths = actionRowWidths()
-	return widths[1] + widths[2] + widths[3] + Responsive.Px(ACTION_GAP) * 2
-end
-
+-- PlayButtonController and AbilityController read the same Responsive.ActionRow,
+-- which owns the widths, the gap and the x positions, so the three cannot drift
+-- apart and none of them can wander onto the movement pad.
 local PAIR_WIDTH = 360
 
 -- Exposed so purely cosmetic client features (wind effect, etc.) can react
@@ -89,8 +73,8 @@ end
 -- didn't, which meant mobile players had no way to sprint at all. Several
 -- stages are tuned assuming sprint is available (see the tutorial copy), so
 -- that wasn't just missing polish -- some jumps were likely unbeatable on
--- mobile. Hold-to-sprint via MouseButton1Down/Up, which Roblox also fires
--- for touch taps-and-holds on a GuiButton.
+-- mobile. Hold-to-sprint with a pointer, tap-to-toggle on touch -- see the
+-- input handlers at the bottom of this function for why the two differ.
 local function buildUI()
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "SprintGui"
@@ -121,46 +105,71 @@ local function buildUI()
 	-- rows above PLAY. On a phone that does not fit -- 334pt of height cannot
 	-- take two rail rows plus three stacked action rows, and the top of the stack
 	-- collided with the Emotes button -- so the three share ONE row instead,
-	-- which the wide-but-short phone shape has plenty of width for.
+	-- sized and placed by Responsive.ActionRow to fit the clear strip between the
+	-- movement pad and the jump button.
 	Responsive.Observe(function()
 		local px = Responsive.Px
-		local width, height = px(SPRINT_WIDTH), Responsive.Tap(SPRINT_HEIGHT)
-		local x, row
+		local height = Responsive.Tap(SPRINT_HEIGHT)
+		local width, x, row, rowWidth
 		if Responsive.Tier() == "Phone" then
-			x = Responsive.CenterRow(actionRowWidths(), px(ACTION_GAP))[1]
+			-- First element of the shared phone action row (SPRINT, PLAY, DASH).
+			-- The WIDTH comes from there too, not from SPRINT_WIDTH: the row is
+			-- fitted to the clear strip between the movement pad and the jump
+			-- button, and a button that kept its authored width would push the
+			-- row back over the pad.
+			local actionRow = Responsive.ActionRow()
+			width, x, rowWidth = actionRow.Widths[1], actionRow.Positions[1], actionRow.Total
 			row = 0
 		else
 			local pairWidth = px(PAIR_WIDTH)
+			width, rowWidth = px(SPRINT_WIDTH), pairWidth
 			x = Responsive.ClearCorners(math.round((Responsive.ViewportSize().X - pairWidth) / 2), pairWidth)
 			row = 2
 		end
 		Widgets.Relayout(
 			button,
 			UDim2.fromOffset(width, height),
-			UDim2.fromOffset(
-				x,
-				Responsive.BottomRowY(row, height, Responsive.Tier() == "Phone" and actionRowTotal() or width)
-			)
+			UDim2.fromOffset(x, Responsive.BottomRowY(row, height, rowWidth))
 		)
 	end)
 
-	button.MouseButton1Down:Connect(function()
-		buttonHeld = true
-		setSprinting(true)
-	end)
-	button.MouseButton1Up:Connect(function()
-		buttonHeld = false
-		setSprinting(false)
-	end)
-	-- A touch drag off the button while still holding doesn't reliably fire
-	-- MouseButton1Up on Roblox -- without this, a finger sliding off would
-	-- leave sprint stuck on with no way to cancel it.
-	button.MouseLeave:Connect(function()
-		if buttonHeld then
+	-- HOLD on a mouse, TOGGLE on touch -- and the difference is the other half of
+	-- "I press sprint and I can't move".
+	--
+	-- Hold-to-sprint asks for a finger that stays put for the whole sprint. A
+	-- phone player has two thumbs, and both are already spoken for: the left one
+	-- drives the movement pad, the right one the jump button. The only way to
+	-- keep SPRINT held is to park the steering thumb on it, at which point you
+	-- are sprinting and not steering -- which is what the button felt like even
+	-- after moving it off the pad. A toggle costs one tap and gives the thumb
+	-- straight back.
+	--
+	-- Shift keeps its hold behaviour (see the UserInputService handlers in Init):
+	-- a key held down has no such cost, and changing it would be a regression for
+	-- everyone already used to it.
+	if Responsive.IsTouch() then
+		button.MouseButton1Click:Connect(function()
+			setSprinting(not SprintController.Sprinting)
+		end)
+	else
+		button.MouseButton1Down:Connect(function()
+			buttonHeld = true
+			setSprinting(true)
+		end)
+		button.MouseButton1Up:Connect(function()
 			buttonHeld = false
 			setSprinting(false)
-		end
-	end)
+		end)
+		-- A drag off the button while still holding doesn't reliably fire
+		-- MouseButton1Up on Roblox -- without this, a pointer sliding off would
+		-- leave sprint stuck on with no way to cancel it.
+		button.MouseLeave:Connect(function()
+			if buttonHeld then
+				buttonHeld = false
+				setSprinting(false)
+			end
+		end)
+	end
 end
 
 function SprintController.Init()
@@ -188,7 +197,11 @@ function SprintController.Init()
 	-- still usable) is exactly what made spectating read as broken.
 	MatchStateController.StateChanged:Connect(function(state: string)
 		button.Visible = state ~= "Spectating"
-		if state == "Spectating" and buttonHeld then
+		-- Unconditional, not just when the button is being held: on touch it is a
+		-- toggle, so sprint can be latched ON with nothing holding it -- and
+		-- hiding the button would then leave it latched with no way to switch it
+		-- back off.
+		if state == "Spectating" then
 			buttonHeld = false
 			setSprinting(false)
 		end

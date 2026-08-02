@@ -1,3 +1,4 @@
+local MobileMenu = require(script.Parent.Parent.MobileMenu)
 local Widgets = require(script.Parent.Parent.Widgets)
 local MatchStateController = require(script.Parent.MatchStateController)
 
@@ -14,6 +15,13 @@ local ModalAutoCloseController = {}
 function ModalAutoCloseController.Init()
 	MatchStateController.StateChanged:Connect(function(state: string)
 		if state == "Racing" then
+			-- The drawer FIRST, and not just as a tidy-up: a panel opened from it
+			-- has asked the drawer to come back when it closes
+			-- (MobileMenu.ReopenWhenClosed), and force-closing that panel here
+			-- would otherwise be exactly the trigger -- swapping one full-screen
+			-- obstruction for another at the moment the race starts, which is the
+			-- whole thing this controller exists to prevent.
+			MobileMenu.Close()
 			Widgets.CloseAllModals()
 		end
 	end)

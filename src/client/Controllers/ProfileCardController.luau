@@ -259,15 +259,15 @@ local STAT_ROW_PAD = 8
 -- One icon + label row (Wins/Losses/Win Rate/Ability/Playtime), drawn as a
 -- subtle rounded "chip" (own tinted background, not just bare text on the
 -- panel) so the stat block reads as a grid of cards instead of a loose list.
--- x/width are passed in per-call so the same builder serves both the
+-- size/position are passed in per-call so the same builder serves both the
 -- two-column rows and the full-width Ability row -- built once per row in
 -- buildUI, returns the label so openProfileCard can just set .Text on the
 -- same 5 instances each open, same "build once, mutate on open" shape
 -- nameLabel/rankLabel already used.
-local function buildStatRow(parent: Instance, iconId: string, x: number, y: number, width: number): TextLabel
+local function buildStatRow(parent: Instance, iconId: string, size: UDim2, position: UDim2): TextLabel
 	local row = Instance.new("Frame")
-	row.Size = UDim2.fromOffset(width, STAT_ROW_HEIGHT)
-	row.Position = UDim2.fromOffset(x, y)
+	row.Size = size
+	row.Position = position
 	row.BackgroundColor3 = Theme.Color.PanelLight
 	row.BackgroundTransparency = 0.4
 	row.BorderSizePixel = 0
@@ -312,9 +312,21 @@ local function buildUI()
 	-- panel's total height has to be known at Modal-creation time, so
 	-- everything below it (buttons) shifts automatically if a stage is added
 	-- or removed later instead of needing its offsets hand-adjusted again.
+	-- PANEL_WIDTH is the reference width the VERTICAL rhythm was authored
+	-- against, and the width Responsive.PlacePanel scales from. Nothing
+	-- horizontal is measured off it any more.
+	--
+	-- That was the bug behind "my profile doesn't seem to be in the middle":
+	-- every x here used to be a raw offset derived from 400 -- the avatar at
+	-- (400 - 80) / 2, the chips at a 368-wide content column -- while the panel
+	-- itself is resized by PlacePanel, which floors a phone panel to 72% of the
+	-- viewport (577 of 801). The content stayed a 400-wide block pinned to the
+	-- left of a 577-wide card, i.e. 88pt left of centre, with dead space down
+	-- the right-hand side. Horizontal geometry is now expressed as a SCALE of
+	-- whatever width the panel actually got, so it centres and fills at every
+	-- size instead of only at the one it was drawn on.
 	local PANEL_WIDTH = 400
 	local PAD_X = 16
-	local CONTENT_WIDTH = PANEL_WIDTH - PAD_X * 2
 
 	local AVATAR_SIZE = 80
 	local avatarY = 24
@@ -330,9 +342,10 @@ local function buildUI()
 	-- then Ability alone on a full-width row -- ability names run longer
 	-- than the other values and would be the one row likely to truncate if
 	-- squeezed into half the width like the rest.
+	-- Half the content column each, in scale, with the gap split between them.
 	local colGap = 12
-	local colWidth = (CONTENT_WIDTH - colGap) / 2
-	local col2X = PAD_X + colWidth + colGap
+	local colSize = UDim2.new(0.5, -(PAD_X + colGap / 2), 0, STAT_ROW_HEIGHT)
+	local fullSize = UDim2.new(1, -PAD_X * 2, 0, STAT_ROW_HEIGHT)
 	local rowGap = 8
 
 	local row1Y = dividerY + 14
@@ -353,9 +366,13 @@ local function buildUI()
 	local BEST_TIME_BOTTOM_PAD = 8
 	local BEST_TIME_MAX_ROWS = 5
 	local BEST_TIME_COL_GAP = 10
+	local BEST_TIME_PAD = 8
 	local bestTimeColumns = math.ceil(#Stages / BEST_TIME_MAX_ROWS)
 	local bestTimeRows = math.ceil(#Stages / bestTimeColumns)
-	local bestTimeColWidth = (CONTENT_WIDTH - 16 - BEST_TIME_COL_GAP * (bestTimeColumns - 1)) / bestTimeColumns
+	-- Column width as a scale of the (itself scale-sized) Best Times frame, so
+	-- the columns stretch with it: each is 1/columns of the frame, less its
+	-- share of the frame's own padding and the gaps between columns.
+	local bestTimeColInset = (BEST_TIME_PAD * 2 + BEST_TIME_COL_GAP * (bestTimeColumns - 1)) / bestTimeColumns
 	local bestTimesY = row3Y + STAT_ROW_HEIGHT + 12
 	local bestTimesFrameHeight = BEST_TIME_HEADER_H + (bestTimeRows * BEST_TIME_ROW_H) + BEST_TIME_BOTTOM_PAD
 
@@ -381,7 +398,10 @@ local function buildUI()
 	avatarImage = Instance.new("ImageLabel")
 	avatarImage.Name = "AvatarImage"
 	avatarImage.Size = UDim2.fromOffset(AVATAR_SIZE, AVATAR_SIZE)
-	avatarImage.Position = UDim2.fromOffset((PANEL_WIDTH - AVATAR_SIZE) / 2, avatarY)
+	-- Anchored at its own centre on the 0.5 line, so it centres on whatever
+	-- width the panel actually ended up with rather than on the authored 400.
+	avatarImage.AnchorPoint = Vector2.new(0.5, 0)
+	avatarImage.Position = UDim2.new(0.5, 0, 0, avatarY)
 	avatarImage.BackgroundColor3 = Theme.Color.PanelLight
 	avatarImage.BorderSizePixel = 0
 	avatarImage.Image = ""
@@ -411,14 +431,14 @@ local function buildUI()
 	avatarFallbackIcon.Parent = avatarImage
 	MenuIcons.Populate(avatarFallbackIcon, "Profile", Theme.Color.TextSecondary)
 
-	nameLabel = Widgets.Label("", UDim2.fromOffset(300, 22), UDim2.fromOffset((PANEL_WIDTH - 300) / 2, nameY), {
+	nameLabel = Widgets.Label("", UDim2.new(1, -PAD_X * 2, 0, 22), UDim2.fromOffset(PAD_X, nameY), {
 		TextSize = 16,
 		Align = Enum.TextXAlignment.Center,
 		Bold = true,
 	})
 	nameLabel.Parent = panel
 
-	rankLabel = Widgets.Label("", UDim2.fromOffset(300, 16), UDim2.fromOffset((PANEL_WIDTH - 300) / 2, rankY), {
+	rankLabel = Widgets.Label("", UDim2.new(1, -PAD_X * 2, 0, 16), UDim2.fromOffset(PAD_X, rankY), {
 		TextSize = 12,
 		Align = Enum.TextXAlignment.Center,
 		Color = Theme.Color.TextSecondary,
@@ -427,7 +447,7 @@ local function buildUI()
 
 	local divider = Instance.new("Frame")
 	divider.Name = "Divider"
-	divider.Size = UDim2.fromOffset(CONTENT_WIDTH, 2)
+	divider.Size = UDim2.new(1, -PAD_X * 2, 0, 2)
 	divider.Position = UDim2.fromOffset(PAD_X, dividerY)
 	divider.BackgroundColor3 = Theme.Color.Stroke
 	divider.BackgroundTransparency = 0.5
@@ -438,17 +458,25 @@ local function buildUI()
 	dividerCorner.CornerRadius = UDim.new(1, 0)
 	dividerCorner.Parent = divider
 
-	statRows.Wins = buildStatRow(panel, "Wins", PAD_X, row1Y, colWidth)
-	statRows.Losses = buildStatRow(panel, "Losses", col2X, row1Y, colWidth)
+	local function col1(y: number): UDim2
+		return UDim2.fromOffset(PAD_X, y)
+	end
+	local function col2(y: number): UDim2
+		return UDim2.new(0.5, colGap / 2, 0, y)
+	end
 
-	statRows.WinRate = buildStatRow(panel, "Practice", PAD_X, row2Y, colWidth) -- bullseye glyph reused for win-rate/accuracy
-	statRows.Playtime = buildStatRow(panel, "Playtime", col2X, row2Y, colWidth)
+	statRows.Wins = buildStatRow(panel, "Wins", colSize, col1(row1Y))
+	statRows.Losses = buildStatRow(panel, "Losses", colSize, col2(row1Y))
 
-	statRows.Ability = buildStatRow(panel, "Ability", PAD_X, row3Y, CONTENT_WIDTH)
+	-- bullseye glyph reused for win-rate/accuracy
+	statRows.WinRate = buildStatRow(panel, "Practice", colSize, col1(row2Y))
+	statRows.Playtime = buildStatRow(panel, "Playtime", colSize, col2(row2Y))
+
+	statRows.Ability = buildStatRow(panel, "Ability", fullSize, col1(row3Y))
 
 	local bestTimesFrame = Instance.new("Frame")
 	bestTimesFrame.Name = "BestTimesFrame"
-	bestTimesFrame.Size = UDim2.fromOffset(CONTENT_WIDTH, bestTimesFrameHeight)
+	bestTimesFrame.Size = UDim2.new(1, -PAD_X * 2, 0, bestTimesFrameHeight)
 	bestTimesFrame.Position = UDim2.fromOffset(PAD_X, bestTimesY)
 	bestTimesFrame.BackgroundColor3 = Theme.Color.Panel
 	bestTimesFrame.BorderSizePixel = 0
@@ -458,10 +486,11 @@ local function buildUI()
 	bestTimesCorner.CornerRadius = UDim.new(0, 10)
 	bestTimesCorner.Parent = bestTimesFrame
 
-	local bestTimesHeader = Widgets.Label("BEST TIMES", UDim2.new(1, -16, 0, 16), UDim2.fromOffset(8, 6), {
-		TextSize = 12,
-		Color = Theme.Color.TextMuted,
-	})
+	local bestTimesHeader =
+		Widgets.Label("BEST TIMES", UDim2.new(1, -BEST_TIME_PAD * 2, 0, 16), UDim2.fromOffset(BEST_TIME_PAD, 6), {
+			TextSize = 12,
+			Color = Theme.Color.TextMuted,
+		})
 	bestTimesHeader.Parent = bestTimesFrame
 
 	-- One label per stage (was one shared multi-line label pairing two
@@ -474,9 +503,11 @@ local function buildUI()
 		local row = (i - 1) % bestTimeRows
 		local label = Widgets.Label(
 			("%s: --"):format(stage.Name),
-			UDim2.fromOffset(bestTimeColWidth, BEST_TIME_ROW_H),
-			UDim2.fromOffset(
-				8 + column * (bestTimeColWidth + BEST_TIME_COL_GAP),
+			UDim2.new(1 / bestTimeColumns, -bestTimeColInset, 0, BEST_TIME_ROW_H),
+			UDim2.new(
+				column / bestTimeColumns,
+				BEST_TIME_PAD + column * (BEST_TIME_COL_GAP - bestTimeColInset),
+				0,
 				BEST_TIME_HEADER_H + row * BEST_TIME_ROW_H
 			),
 			{
@@ -490,15 +521,11 @@ local function buildUI()
 		bestTimesLabels[i] = label
 	end
 
-	duelButton = Widgets.Button(
-		"Request 1v1",
-		UDim2.fromOffset(CONTENT_WIDTH, Responsive.Tap(40)),
-		UDim2.fromOffset(PAD_X, duelY),
-		{
+	duelButton =
+		Widgets.Button("Request 1v1", UDim2.new(1, -PAD_X * 2, 0, Responsive.Tap(40)), UDim2.fromOffset(PAD_X, duelY), {
 			Variant = "Primary",
 			TextSize = 15,
-		}
-	)
+		})
 	duelButton.Parent = panel
 	duelButton.MouseButton1Click:Connect(function()
 		if not currentTarget then
@@ -511,7 +538,7 @@ local function buildUI()
 
 	joinPartyButton = Widgets.Button(
 		"Ask to Join Party",
-		UDim2.fromOffset(CONTENT_WIDTH, Responsive.Tap(40)),
+		UDim2.new(1, -PAD_X * 2, 0, Responsive.Tap(40)),
 		UDim2.fromOffset(PAD_X, joinY),
 		{
 			Variant = "Secondary",
@@ -540,7 +567,7 @@ local function buildUI()
 	-- this button only really answers in a live session.
 	friendButton = Widgets.Button(
 		"Add Friend",
-		UDim2.fromOffset(CONTENT_WIDTH, Responsive.Tap(40)),
+		UDim2.new(1, -PAD_X * 2, 0, Responsive.Tap(40)),
 		UDim2.fromOffset(PAD_X, friendY),
 		{
 			Variant = "Secondary",
@@ -582,7 +609,7 @@ local function buildUI()
 	-- profile.
 	selfNoteLabel = Widgets.Label(
 		"This is your profile",
-		UDim2.fromOffset(CONTENT_WIDTH, friendY + 40 - duelY),
+		UDim2.new(1, -PAD_X * 2, 0, friendY + 40 - duelY),
 		UDim2.fromOffset(PAD_X, duelY),
 		{
 			TextSize = 15,
@@ -620,6 +647,8 @@ local function buildUI()
 	)
 	myProfileButton.Parent = hudGui
 	MobileMenu.Adopt(myProfileButton, 4)
+	-- Drilling into the card from the drawer should come back to the drawer.
+	MobileMenu.ReopenWhenClosed(myProfileButton, panel)
 	myProfileButton.MouseButton1Click:Connect(function()
 		if panel.Visible then
 			closePanel()

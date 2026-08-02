@@ -518,7 +518,7 @@ local function buildMainPanel()
 	Widgets.BindRail(toggleButton, 130, 48, 2, "Right", 10)
 	-- Folded into the drawer on phones only: three rail rows plus the
 	-- bottom gameplay cluster do not both fit a 334pt screen.
-	MobileMenu.Adopt(toggleButton, 7, true)
+	MobileMenu.Adopt(toggleButton, 7, { PhoneOnly = true })
 
 	panel, openMainPanel, closeMainPanel = Widgets.Modal(
 		"Gacha",
@@ -526,6 +526,9 @@ local function buildMainPanel()
 		UDim2.new(1, -410, 0, 116),
 		{ DisplayOrder = 30 }
 	)
+
+	-- Drilling into this panel from the drawer should come back to the drawer.
+	MobileMenu.ReopenWhenClosed(toggleButton, panel)
 
 	-- The worst overflow in the HUD: 261pt of this panel was below the bottom
 	-- edge of a phone, which is every pull button on it. The content pane is a

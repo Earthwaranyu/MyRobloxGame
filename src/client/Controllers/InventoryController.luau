@@ -173,7 +173,7 @@ local function buildUI()
 	Widgets.BindRail(toggleButton, 220, 48, 2, "Left", 10)
 	-- Folded into the drawer on phones only: three rail rows plus the
 	-- bottom gameplay cluster do not both fit a 334pt screen.
-	MobileMenu.Adopt(toggleButton, 5, true)
+	MobileMenu.Adopt(toggleButton, 5, { PhoneOnly = true })
 
 	-- Own ScreenGui + backdrop + close-X (see Widgets.Modal) rather than a
 	-- bare Widgets.Panel only closable via this one toggle button.
@@ -185,6 +185,9 @@ local function buildUI()
 			DisplayOrder = 30,
 		}
 	)
+
+	-- Drilling into this panel from the drawer should come back to the drawer.
+	MobileMenu.ReopenWhenClosed(toggleButton, panel)
 
 	-- Centred, so a 480-tall panel on a 375pt viewport loses ~52pt off BOTH ends
 	-- -- the ribbon off the top and the last ability row off the bottom.

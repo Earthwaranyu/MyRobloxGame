@@ -29,23 +29,8 @@ local PlayButtonController = {}
 -- band by Responsive.BottomRowY, so their distance from the bottom is derived
 -- from the heights they actually have rather than hand-set.
 -- The phone action row: SPRINT, PLAY and DASH side by side. All three
--- controllers compute it from the same widths and gap, so none can drift.
-local ACTION_GAP = 10
-local function actionRowWidths(): { number }
-	return {
-		Responsive.Px(150), -- SPRINT (SprintController)
-		Responsive.Px(220), -- PLAY   (PlayButtonController)
-		Responsive.Px(200), -- DASH   (AbilityController)
-	}
-end
-
--- Total width of that row, so BottomRowY can tell whether it fits between the
--- touch controls and may therefore sit at the real bottom of the screen.
-local function actionRowTotal(): number
-	local widths = actionRowWidths()
-	return widths[1] + widths[2] + widths[3] + Responsive.Px(ACTION_GAP) * 2
-end
-
+-- controllers read Responsive.ActionRow, which owns the widths, the gap and the
+-- x positions, so none can drift or wander onto the movement pad.
 local PLAY_WIDTH, PLAY_HEIGHT = 220, 64
 local ROW_WIDTH, ROW_HEIGHT, ROW_GAP = 145, 44, 10
 
@@ -227,14 +212,14 @@ local function buildUI()
 	end)
 
 	-- This whole cluster sits low enough to be inside the touch-control band, and
-	-- the strip between the thumbstick and the jump button is what makes that
-	-- workable -- PLAY is centred and clears both. VS BOTS reaches ~6pt into the
-	-- thumbstick's corner though, which is enough to eat a movement touch, so the
-	-- row is nudged clear as a pair (keeping its own internal spacing) rather
-	-- than each button drifting independently.
+	-- the clear strip between the movement pad and the jump button is what makes
+	-- that workable. Both rows are nudged into that strip as a GROUP (keeping
+	-- their own internal spacing) rather than each button drifting independently
+	-- -- VS BOTS used to reach ~27pt into the movement pad, which is enough to
+	-- swallow the touch that would have started a walk.
 	Responsive.Observe(function()
 		local px = Responsive.Px
-		local playWidth, playHeight = px(PLAY_WIDTH), Responsive.Tap(PLAY_HEIGHT)
+		local playHeight = Responsive.Tap(PLAY_HEIGHT)
 		local rowWidth, rowHeight = px(ROW_WIDTH), Responsive.Tap(ROW_HEIGHT)
 		local gap = px(ROW_GAP)
 		local viewport = Responsive.ViewportSize()
@@ -242,16 +227,20 @@ local function buildUI()
 		-- On a phone PLAY sits between SPRINT and DASH on one row; elsewhere it
 		-- keeps its own centred row with those two stacked above.
 		local onPhone = Responsive.Tier() == "Phone"
-		local playX
+		local playWidth, playX, playRowWidth
 		if onPhone then
-			playX = Responsive.CenterRow(actionRowWidths(), Responsive.Px(ACTION_GAP))[2]
+			-- Second element of the shared phone action row (SPRINT, PLAY, DASH).
+			local actionRow = Responsive.ActionRow()
+			playWidth, playX, playRowWidth = actionRow.Widths[2], actionRow.Positions[2], actionRow.Total
 		else
+			playWidth = px(PLAY_WIDTH)
+			playRowWidth = playWidth
 			playX = Responsive.ClearCorners(math.round((viewport.X - playWidth) / 2), playWidth)
 		end
 		Widgets.Relayout(
 			button,
 			UDim2.fromOffset(playWidth, playHeight),
-			UDim2.fromOffset(playX, Responsive.BottomRowY(0, playHeight, onPhone and actionRowTotal() or playWidth))
+			UDim2.fromOffset(playX, Responsive.BottomRowY(0, playHeight, playRowWidth))
 		)
 
 		-- VS BOTS + PRACTICE sit one row above whatever PLAY is on.

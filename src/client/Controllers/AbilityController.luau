@@ -33,26 +33,9 @@ local AbilityController = {}
 -- agree; PAIR_WIDTH is SPRINT_WIDTH + PAIR_GAP + DASH_WIDTH.
 local DASH_WIDTH, DASH_HEIGHT, DASH_BOTTOM = 200, 44, 224
 
--- The phone action row: SPRINT, PLAY and DASH side by side on one line.
--- PlayButtonController and AbilityController declare the same pair of values, so
--- all three derive identical x positions from Responsive.CenterRow and cannot
--- drift apart.
-local ACTION_GAP = 10
-local function actionRowWidths(): { number }
-	return {
-		Responsive.Px(150), -- SPRINT
-		Responsive.Px(220), -- PLAY
-		Responsive.Px(200), -- DASH
-	}
-end
-
--- Total width of that row, so BottomRowY can tell whether it fits between the
--- touch controls and may therefore sit at the real bottom of the screen.
-local function actionRowTotal(): number
-	local widths = actionRowWidths()
-	return widths[1] + widths[2] + widths[3] + Responsive.Px(ACTION_GAP) * 2
-end
-
+-- The phone action row: SPRINT, PLAY and DASH side by side on one line. All
+-- three controllers read Responsive.ActionRow, which owns the widths, the gap
+-- and the x positions, so none of them can drift or wander onto the movement pad.
 local SPRINT_WIDTH, PAIR_GAP = 150, 10
 local PAIR_WIDTH = SPRINT_WIDTH + PAIR_GAP + DASH_WIDTH
 local DASH_LABEL = "DASH"
@@ -190,31 +173,34 @@ local function buildUI()
 	button.Parent = screenGui
 	button.MouseButton1Click:Connect(tryUseAbility)
 
-	-- Placed off the SAME pair arithmetic SprintController uses, so the two stay
-	-- a centred group at every viewport size -- and so both clear the
-	-- thumbstick's corner together rather than one of them shifting alone.
+	-- Placed off the SAME arithmetic SprintController uses -- the shared action
+	-- row on a phone, the shared pair everywhere else -- so the two stay a group
+	-- at every viewport size and clear the touch controls together rather than
+	-- one of them shifting alone.
 	Responsive.Observe(function()
 		local px = Responsive.Px
-		local width, height = px(DASH_WIDTH), Responsive.Tap(DASH_HEIGHT)
-		local x, row
+		local height = Responsive.Tap(DASH_HEIGHT)
+		local width, x, row, rowWidth
 		if Responsive.Tier() == "Phone" then
 			-- Third element of the shared phone action row (SPRINT, PLAY, DASH).
-			x = Responsive.CenterRow(actionRowWidths(), px(ACTION_GAP))[3]
+			-- Width comes from there too -- the row is fitted to the clear strip
+			-- between the movement pad and the jump button, so a button that kept
+			-- its authored width would push the row back over the pad.
+			local actionRow = Responsive.ActionRow()
+			width, x, rowWidth = actionRow.Widths[3], actionRow.Positions[3], actionRow.Total
 			row = 0
 		else
 			local pairWidth = px(PAIR_WIDTH)
 			local pairX = Responsive.ClearCorners(math.round((Responsive.ViewportSize().X - pairWidth) / 2), pairWidth)
 			-- DASH is the right half of the pair: SPRINT's width plus the gap.
+			width, rowWidth = px(DASH_WIDTH), pairWidth
 			x = pairX + px(SPRINT_WIDTH) + px(PAIR_GAP)
 			row = 2
 		end
 		Widgets.Relayout(
 			button,
 			UDim2.fromOffset(width, height),
-			UDim2.fromOffset(
-				x,
-				Responsive.BottomRowY(row, height, Responsive.Tier() == "Phone" and actionRowTotal() or width)
-			)
+			UDim2.fromOffset(x, Responsive.BottomRowY(row, height, rowWidth))
 		)
 	end)
 

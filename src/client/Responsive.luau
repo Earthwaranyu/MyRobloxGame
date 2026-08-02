@@ -240,6 +240,13 @@ function Responsive.CenterRow(widths: { number }, gap: number): { number }
 	return LayoutMath.CenterRow(view(), widths, gap)
 end
 
+-- The shared SPRINT / PLAY / DASH row on a phone -- see LayoutMath.ActionRow.
+-- All three controllers that own one of those buttons read their width and x
+-- out of this single call.
+function Responsive.ActionRow(): LayoutMath.ActionRow
+	return LayoutMath.ActionRow(view())
+end
+
 -- Sizes and places a panel so the whole of it is on screen, and reports the size
 -- it settled on.
 --

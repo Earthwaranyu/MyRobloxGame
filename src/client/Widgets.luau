@@ -160,11 +160,11 @@ export type ModalOpts = {
 	-- ScreenGui in the game (HUD buttons, other modals) lives at its own
 	-- DisplayOrder -- this is the ONLY thing that reliably controls stacking
 	-- BETWEEN ScreenGuis. (See the postmortem below for why ZIndex can't do
-	-- this job.) Defaults to 25, comfortably above the base HUD (which sits
-	-- at 0-20 across the rest of the game) but below the biggest
-	-- single-moment interrupts like TutorialGui (20)... actually higher, see
-	-- default below -- pass a bigger value for a modal that must sit above
-	-- another modal (e.g. a reveal popup opened from within a shop panel).
+	-- this job.) Defaults to 25, comfortably above the base HUD (which sits at
+	-- 0-15 across the rest of the game). Pass a bigger value for a modal that
+	-- must sit above another modal (e.g. a reveal popup opened from within a
+	-- shop panel). The one thing deliberately ABOVE all of these is TutorialGui
+	-- (40) -- see the note there.
 	DisplayOrder: number?,
 	PanelOpts: PanelOpts?,
 }
@@ -951,14 +951,29 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	-- ClipsDescendants entirely: the strip is inset from both edges by the
 	-- pill's own corner radius (+ a few px margin) so it naturally sits
 	-- within the rounded silhouette without ever needing to be clipped to it.
-	local buttonHeightPx = size.Y.Offset
-	local bevelInset = buttonHeightPx / 2 + 3
+	--
+	-- The inset IS the pill's corner radius plus a small margin, and
+	-- Theme.Corner.Button is UDim.new(1, 0) -- so the radius is half the button's
+	-- rendered height. Deriving that from size.Y.Offset only works for a button
+	-- sized in OFFSET. A button sized in SCALE (UDim2.fromScale) reports 0 there,
+	-- which collapsed the inset to 3 and drew a near-full-width bar straight
+	-- across the pill's rounded bottom corners -- the stray horizontal line that
+	-- showed up under every Equip/Buy/Unequip button in the shop, inventory and
+	-- gacha rows, all of which size their action buttons as a fraction of the row.
+	--
+	-- AbsoluteSize is the only thing that knows how tall those actually are, so
+	-- the inset follows it. The offset-derived value is just the seed for the
+	-- frames before the button is parented and laid out (AbsoluteSize is 0 until
+	-- then); every later correction, including after Widgets.Relayout, comes
+	-- through the signal.
+	local bevelInset = math.max(3, size.Y.Offset / 2 + 3)
+	local bevelDepth = BEVEL_DEPTH
 
 	local bevelStrip = Instance.new("Frame")
 	bevelStrip.Name = "BevelStrip"
 	bevelStrip.AnchorPoint = Vector2.new(0.5, 1)
 	bevelStrip.Position = UDim2.fromScale(0.5, 1)
-	bevelStrip.Size = UDim2.new(1, -bevelInset * 2, 0, BEVEL_DEPTH)
+	bevelStrip.Size = UDim2.new(1, -bevelInset * 2, 0, bevelDepth)
 	bevelStrip.BackgroundColor3 = style.Shadow
 	bevelStrip.BorderSizePixel = 0
 	bevelStrip.Parent = button
@@ -966,6 +981,15 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 	local bevelCorner = Instance.new("UICorner")
 	bevelCorner.CornerRadius = UDim.new(0, 3)
 	bevelCorner.Parent = bevelStrip
+
+	button:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		local renderedHeight = button.AbsoluteSize.Y
+		if renderedHeight <= 0 then
+			return
+		end
+		bevelInset = renderedHeight / 2 + 3
+		bevelStrip.Size = UDim2.new(1, -bevelInset * 2, 0, bevelDepth)
+	end)
 
 	local scale = Instance.new("UIScale")
 	scale.Scale = 1
@@ -1043,7 +1067,12 @@ function Widgets.Button(text: string, size: UDim2, position: UDim2, opts: Button
 
 	-- The bevel is the button's visible thickness, so collapsing it while held is
 	-- what makes a press read as travel rather than as the button shrinking.
+	-- Reads the CURRENT inset rather than the one captured at construction: the
+	-- AbsoluteSize hook above rewrites it whenever the button's rendered height
+	-- changes, and a press that tweened back to a stale inset would snap the
+	-- strip to the wrong width on the way down.
 	local function setBevel(depth: number, info: TweenInfo)
+		bevelDepth = depth
 		TweenService:Create(bevelStrip, info, {
 			Size = UDim2.new(1, -bevelInset * 2, 0, depth),
 		}):Play()
@@ -1204,6 +1233,19 @@ function Widgets.ModalContentTop(pad: number): number
 	return math.max(pad, Responsive.Tap(34) + pad * 2)
 end
 
+-- The width a modal's top-right corner must give up so header content does not
+-- run under the close ✕.
+--
+-- The horizontal counterpart of ModalContentTop, for the panels that put a
+-- header BESIDE the ✕ rather than starting their content below it. The button is
+-- anchored (1, 0) at x = -10 and is Tap(34) wide -- which on touch is 44, not
+-- 34 -- so a header sized against the panel's full width runs straight under it.
+-- Measured on a phone: the shop's points readout rendered as "1363 p" with the
+-- ✕ sitting on the rest of it.
+function Widgets.ModalCloseInset(): number
+	return Responsive.Tap(34) + 16
+end
+
 -- Reference geometry for the accept/decline toasts below.
 local TOAST_WIDTH = 360
 local TOAST_HEIGHT = 130
@@ -1302,15 +1344,11 @@ function Widgets.Relayout(button: TextButton, size: UDim2, position: UDim2)
 		position.Y.Offset + size.Y.Offset / 2
 	)
 
-	-- The strip is inset by the pill's corner radius so it sits inside the
-	-- rounded silhouette without being clipped (Widgets.Button explains why it
-	-- can't just be clipped) -- and that radius is half the button's height, so
-	-- a height change invalidates it.
-	local bevelStrip = button:FindFirstChild("BevelStrip")
-	if bevelStrip and bevelStrip:IsA("Frame") then
-		local bevelInset = size.Y.Offset / 2 + 3
-		bevelStrip.Size = UDim2.new(1, -bevelInset * 2, 0, bevelStrip.Size.Y.Offset)
-	end
+	-- The bevel strip is deliberately NOT touched here. Its inset is the pill's
+	-- corner radius, i.e. half the button's RENDERED height, and Widgets.Button
+	-- keeps it in step with AbsoluteSize -- which covers this resize as well as
+	-- the scale-sized buttons a size.Y.Offset never described in the first place.
+	-- Recomputing it here too would just fight that, one frame earlier.
 
 	-- The label was fitted to the size the button was BUILT at. Without this a
 	-- button that shrank keeps oversized text and truncates it to "PRA..." --

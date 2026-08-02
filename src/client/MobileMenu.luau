@@ -47,6 +47,18 @@ local sheet: ScrollingFrame? = nil
 local backdrop: TextButton? = nil
 local open = false
 
+-- The item whose tap dismissed the drawer, if that is why it is shut -- see
+-- MobileMenu.ReopenWhenClosed. nil whenever nothing is pending.
+local dismissedBy: TextButton? = nil
+
+export type AdoptOpts = {
+	-- Only fold this button away on a PHONE, not on every touch device.
+	PhoneOnly: boolean?,
+	-- Leave the drawer open when this button is tapped. For an item that acts IN
+	-- PLACE rather than opening something -- see the click handler in Adopt.
+	KeepOpen: boolean?,
+}
+
 type Entry = { Button: TextButton, Order: number, PhoneOnly: boolean, Home: Instance }
 local entries: { Entry } = {}
 
@@ -177,6 +189,17 @@ local function setOpen(nowOpen: boolean)
 	end
 end
 
+-- Forgets any pending "come back when that panel closes" arrangement.
+--
+-- Anything that dismisses the drawer for a reason OTHER than drilling into one
+-- of its own items has to call this, or the drawer springs back at the worst
+-- possible moment -- see ModalAutoCloseController, which force-closes every
+-- panel the instant a queued race starts, precisely so the player can see the
+-- race they are now in.
+local function forgetPendingReopen()
+	dismissedBy = nil
+end
+
 -- Built lazily on the first Adopt rather than in an Init, so this module has no
 -- ordering requirement against the controllers that feed it -- Loader.LoadAll
 -- makes no promise about which runs first.
@@ -210,6 +233,9 @@ local function ensureBuilt()
 	catcher.ZIndex = 1
 	catcher.Parent = screenGui
 	catcher.MouseButton1Click:Connect(function()
+		-- Tapping outside is "I am done with the menu", not "I am drilling into
+		-- an item", so nothing should bring it back.
+		forgetPendingReopen()
 		setOpen(false)
 	end)
 
@@ -270,6 +296,7 @@ local function ensureBuilt()
 		bar.Parent = toggle
 	end
 	toggle.MouseButton1Click:Connect(function()
+		forgetPendingReopen()
 		setOpen(not open)
 	end)
 
@@ -282,19 +309,21 @@ end
 -- callers collectively rather than by whichever controller happens to load
 -- first -- Loader.LoadAll gives no ordering guarantee, and a drawer whose
 -- contents shuffle between sessions is its own small bug.
-function MobileMenu.Adopt(button: TextButton, order: number, phoneOnly: boolean?)
+function MobileMenu.Adopt(button: TextButton, order: number, opts: AdoptOpts?)
 	if not Responsive.IsTouch() then
 		return
 	end
 
-	-- `phoneOnly` is recorded, not acted on: the tier is unreliable this early
+	opts = opts or {}
+
+	-- `PhoneOnly` is recorded, not acted on: the tier is unreliable this early
 	-- (see layout, which re-decides every time the viewport changes).
 
 	ensureBuilt()
 	table.insert(entries, {
 		Button = button,
 		Order = order,
-		PhoneOnly = phoneOnly == true,
+		PhoneOnly = (opts :: AdoptOpts).PhoneOnly == true,
 		Home = button.Parent :: Instance,
 	})
 	liftAbove(button, SHEET_ZINDEX)
@@ -303,9 +332,26 @@ function MobileMenu.Adopt(button: TextButton, order: number, phoneOnly: boolean?
 	-- what a drawer is expected to do. Connected here rather than asked of every
 	-- caller, since a caller that forgot would leave the sheet covering the very
 	-- panel it just opened.
-	button.MouseButton1Click:Connect(function()
-		setOpen(false)
-	end)
+	--
+	-- KeepOpen is the exception, and it exists because that reasoning only holds
+	-- for an item that OPENS something. SOUND mutes in place: the whole result of
+	-- the tap is the button relabelling itself MUTED, which the player never got
+	-- to see because the drawer it lives in vanished at the same moment -- and
+	-- unmuting then meant reopening the drawer to press the same button again.
+	-- Every other adopted item (Settings, Inventory, Party, Gacha, My Profile,
+	-- Invite Friends) puts a panel or a native dialog on screen, so dismissing
+	-- the drawer for those is still right.
+	if not (opts :: AdoptOpts).KeepOpen then
+		button.MouseButton1Click:Connect(function()
+			-- Recorded here, where whether the drawer was actually OPEN is still
+			-- known, rather than in ReopenWhenClosed. A PhoneOnly item is released
+			-- back to the HUD rail on a tablet (see layout), where it is tapped
+			-- with no drawer involved at all -- and a reopen armed by that tap
+			-- would summon a menu the player never opened.
+			dismissedBy = if open then button else nil
+			setOpen(false)
+		end)
+	end
 
 	layout()
 end
@@ -321,7 +367,40 @@ function MobileMenu.IsAdopted(button: TextButton): boolean
 	return false
 end
 
+-- Makes the drawer come back once `panel` is dismissed.
+--
+-- Without this the drawer was a one-way door: tapping Gacha closed the menu and
+-- opened the panel, and closing the panel dropped you all the way out to the
+-- bare HUD -- so browsing two of the drawer's items meant reopening the drawer
+-- in between. That is not how a menu behaves anywhere else; drilling in and
+-- coming back should land you where you drilled in FROM.
+--
+-- Separate from Adopt rather than an AdoptOpts field because of construction
+-- order: most controllers adopt their toggle button before they build the panel
+-- it opens (SettingsController and InventoryController both do), so the panel
+-- does not exist yet at Adopt time. Calling this is optional -- Invite Friends
+-- opens a native Roblox prompt with no panel to watch, and SOUND never closes
+-- the drawer in the first place.
+function MobileMenu.ReopenWhenClosed(button: TextButton, panel: GuiObject)
+	if not Responsive.IsTouch() then
+		return
+	end
+
+	-- Gated on WHICH item dismissed the drawer, not merely on this panel closing:
+	-- the same panel can be opened by routes that have nothing to do with the
+	-- drawer (the profile card opens on a double-click out in the world), and
+	-- those must not summon a menu the player never asked for.
+	panel:GetPropertyChangedSignal("Visible"):Connect(function()
+		if panel.Visible or dismissedBy ~= button then
+			return
+		end
+		dismissedBy = nil
+		setOpen(true)
+	end)
+end
+
 function MobileMenu.Close()
+	forgetPendingReopen()
 	setOpen(false)
 end
 

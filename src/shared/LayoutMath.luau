@@ -75,13 +75,55 @@ local function jumpButtonSize(view: View): number
 	return if minAxis <= LayoutMath.SmallScreenAxis then LayoutMath.JumpButtonSmall else LayoutMath.JumpButtonLarge
 end
 
--- How far in from each bottom edge those controls reach. The strip BETWEEN them
--- is CLEAR -- that is the single most useful thing the documentation says, and
--- the thing the old model got wrong: it banned a full-width band across the
--- bottom, so the action row was pushed up and roughly a third of a phone screen
--- went unused. Only the two corners are actually spoken for.
+-- How far in from the bottom-RIGHT edge the jump button reaches.
 function LayoutMath.CornerWidth(view: View): number
 	return math.round(jumpButtonSize(view) * 1.5)
+end
+
+-- The movement control does NOT live in a corner the way the jump button does.
+--
+-- This is the correction behind the "I press SPRINT and then I can't move"
+-- report, and it is the opposite of what the model here used to assume. The
+-- default control scheme is the DynamicThumbstick, which has no fixed on-screen
+-- position at all: it draws itself wherever inside a large capture frame your
+-- thumb first lands. Read straight off the running client's own
+-- PlayerModule.ControlModule.DynamicThumbstick:
+--
+--   landscape: Size = UDim2.new(0.4, inset, 2/3, inset), Position = (0, -inset, 1/3, 0)
+--   portrait:  Size = UDim2.new(1, inset, 0.4, inset),   Position = (0, -inset, 0.6, 0)
+--
+-- So in landscape the whole LEFT 40% of the width and the bottom TWO THIRDS of
+-- the height is movement, not just a 105pt corner. Any GuiButton the game draws
+-- inside that region sits on top of the capture frame and sinks the touch that
+-- would have started a drag -- the thumbstick never appears and the player
+-- simply cannot walk while a finger is there. Measured against the phone
+-- layout: SPRINT landed at x 189-297 of an 801-wide screen and VS BOTS at
+-- 293-397, both squarely inside the movement region.
+LayoutMath.MoveAreaWidthShare = 0.4
+LayoutMath.MoveAreaHeightShare = 2 / 3
+
+function LayoutMath.MoveAreaWidth(view: View): number
+	if not view.Touch then
+		return 0
+	end
+	-- Portrait puts the pad across the FULL width, so nothing at the bottom of
+	-- the screen can clear it sideways; callers get the whole width back and
+	-- fall through to stacking above the band instead.
+	if view.Height > view.Width then
+		return view.Width
+	end
+	return math.round(view.Width * LayoutMath.MoveAreaWidthShare)
+end
+
+-- The horizontal span along the bottom of the screen that neither touch control
+-- claims: right of the movement pad, left of the jump button. This is the only
+-- part of the bottom edge the game may put a button in.
+function LayoutMath.ClearStrip(view: View): (number, number)
+	if not view.Touch then
+		local margin = LayoutMath.ScreenMargin
+		return margin, view.Width - margin
+	end
+	return LayoutMath.MoveAreaWidth(view), view.Width - LayoutMath.CornerWidth(view)
 end
 
 -- A panel clamped smaller than this is not worth showing.
@@ -163,22 +205,80 @@ function LayoutMath.CenterRow(view: View, widths: { number }, gap: number): { nu
 	return positions
 end
 
+-- The phone action row -- SPRINT, PLAY, DASH -- as one piece of geometry.
+LayoutMath.ActionRowGap = 10
+LayoutMath.ActionRowRefWidths = { 150, 220, 200 }
+
+export type ActionRow = { Widths: { number }, Positions: { number }, Total: number }
+
+-- Widths AND x positions for that row, fitted into the clear strip.
+--
+-- One function rather than three copies: SprintController, PlayButtonController
+-- and AbilityController own one button each, and each used to declare its own
+-- copy of the widths list, agreeing only by inspection.
+--
+-- The row is centred on the CLEAR STRIP, not on the screen. Centring it on the
+-- screen is what put SPRINT on top of the movement pad (see MoveAreaWidth). At
+-- the reference widths the row is 424 wide against a 376-wide strip on an
+-- 801x334 phone, so the buttons give up width proportionally rather than the
+-- row spilling back over the pad -- a slightly narrower SPRINT is a cost worth
+-- paying for being able to walk while pressing it.
+function LayoutMath.ActionRow(view: View): ActionRow
+	local gap = LayoutMath.Px(view, LayoutMath.ActionRowGap)
+	local widths = {}
+	local content = 0
+	for _, reference in LayoutMath.ActionRowRefWidths do
+		local width = LayoutMath.Px(view, reference)
+		table.insert(widths, width)
+		content += width
+	end
+	local gaps = gap * (#widths - 1)
+
+	local left, right = LayoutMath.ClearStrip(view)
+	local available = right - left - gaps
+	if available > 0 and content > available then
+		-- Proportional, so the row keeps its own internal balance (PLAY stays the
+		-- widest) instead of one button absorbing the whole shortfall.
+		local factor = available / content
+		content = 0
+		for index, width in widths do
+			widths[index] = math.max(1, math.floor(width * factor))
+			content += widths[index]
+		end
+	end
+
+	local total = content + gaps
+	local x = math.round(left + (right - left - total) / 2)
+	local positions = {}
+	for _, width in widths do
+		table.insert(positions, x)
+		x += width + gap
+	end
+
+	return { Widths = widths, Positions = positions, Total = total }
+end
+
 -- y of the nth row up from the bottom (0 = bottom-most), for the PLAY / VS BOTS
 -- / SPRINT cluster.
 --
 -- `rowWidth` decides how far down the row may go, and this is the correction
--- that reclaimed roughly a third of a phone screen. The touch controls occupy
--- the bottom CORNERS, not a full-width strip: a row narrow enough to sit between
--- them can run all the way to the bottom margin, and only a row wide enough to
--- reach into a corner has to stay above them. The previous model kept everything
--- above the band unconditionally, which pushed the whole cluster up and left the
--- bottom of the display empty.
+-- that reclaimed roughly a third of a phone screen. The touch controls do not
+-- occupy a full-width strip: a row narrow enough to sit in the clear span
+-- between the movement pad and the jump button can run all the way to the bottom
+-- margin, and only a row too wide for that has to stay above them. The previous
+-- model kept everything above the band unconditionally, which pushed the whole
+-- cluster up and left the bottom of the display empty.
+--
+-- Measured against the CLEAR STRIP rather than "width minus both corners" --
+-- the left-hand keep-out is the movement pad's 40%, not the jump button's
+-- 105pt, and a row sized against the wrong one gets permission to sit where it
+-- eats movement touches (see MoveAreaWidth).
 function LayoutMath.BottomRowY(view: View, indexFromBottom: number, rowHeight: number, rowWidth: number?): number
 	local gap = LayoutMath.Px(view, LayoutMath.RailGap)
 	local margin = LayoutMath.ScreenMargin
 
-	local clearStrip = view.Width - LayoutMath.CornerWidth(view) * 2
-	local fitsBetweenControls = rowWidth ~= nil and view.Touch and rowWidth <= clearStrip
+	local left, right = LayoutMath.ClearStrip(view)
+	local fitsBetweenControls = rowWidth ~= nil and view.Touch and rowWidth <= right - left
 	local floorY = if fitsBetweenControls
 		then view.Height - margin
 		else view.Height - LayoutMath.TouchBand(view) - margin
@@ -308,25 +408,32 @@ function LayoutMath.ClampX(view: View, x: number, width: number): number
 	return math.round(math.clamp(x, margin, rightmost))
 end
 
--- Nudges a box out of whichever bottom corner it overlaps, for a control low
--- enough to be inside the touch-control band.
+-- Nudges a box into the clear strip, for a control low enough to be inside the
+-- touch-control band.
+--
+-- Deliberately unconditional on touch even though it takes no y: everything
+-- that calls this is part of the bottom cluster, and the movement pad's capture
+-- frame covers the bottom two thirds of the screen, so "low enough to matter"
+-- is true for all of them.
 function LayoutMath.ClearCorners(view: View, x: number, width: number): number
 	if not view.Touch then
 		return x
 	end
-	local corner = LayoutMath.CornerWidth(view)
-	local left = corner
-	local right = view.Width - corner
+	local left, right = LayoutMath.ClearStrip(view)
 	if x < left then
 		x = left
 	end
 	if x + width > right then
 		x = right - width
 	end
-	-- A box wider than the clear strip cannot be moved out of both corners;
-	-- centring is the least-bad outcome and at least keeps it symmetric.
+	-- A box wider than the clear strip cannot be moved out of both keep-outs.
+	-- Centre it on the SCREEN rather than on the strip: the strip is off-centre
+	-- (the movement pad is much wider than the jump button), so centring an
+	-- over-wide box on it would push the box's right edge past the edge of the
+	-- display -- overlapping a control is survivable, being drawn off-screen is
+	-- not.
 	if x < left then
-		x = (left + right - width) / 2
+		x = (view.Width - width) / 2
 	end
 	return math.round(x)
 end

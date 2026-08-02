@@ -5,6 +5,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
+local MobileMenu = require(script.Parent.Parent.MobileMenu)
 local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
@@ -42,11 +43,35 @@ local CLOSE_WIDTH, CLOSE_HEIGHT, CLOSE_TEXT = 260, 52, 18
 -- on the other.
 local ROWS = {
 	{ Icon = "🏁", Title = "Race to win", Body = "Tap PLAY to race real players, or VS BOTS to practice solo." },
-	{ Icon = "🏃", Title = "Hold SHIFT to sprint", TouchTitle = "Tap SPRINT to run", Body = "You'll need it to clear the harder jumps." },
-	{ Icon = "💨", Title = "Press Q to dash", TouchTitle = "Tap DASH for a burst", Body = "A short burst of speed on a cooldown -- save it for a tricky jump." },
-	{ Icon = "🏆", Title = "Elo & Points", Body = "Win real races for Elo and rank up. Points buy trails in the Shop." },
-	{ Icon = "😀", Title = "Emotes", Body = "Press 1-8 anytime to show one off, even mid-race.", TouchBody = "Open Emotes and tap one to show it off, even mid-race." },
-	{ Icon = "🚪", Title = "Need to bail?", Body = "Press Backspace anytime to leave a match.", TouchBody = "Tap Leave Match at the top of the screen to bail out." },
+	{
+		Icon = "🏃",
+		Title = "Hold SHIFT to sprint",
+		TouchTitle = "Tap SPRINT to run",
+		Body = "You'll need it to clear the harder jumps.",
+	},
+	{
+		Icon = "💨",
+		Title = "Press Q to dash",
+		TouchTitle = "Tap DASH for a burst",
+		Body = "A short burst of speed on a cooldown -- save it for a tricky jump.",
+	},
+	{
+		Icon = "🏆",
+		Title = "Elo & Points",
+		Body = "Win real races for Elo and rank up. Points buy trails in the Shop.",
+	},
+	{
+		Icon = "😀",
+		Title = "Emotes",
+		Body = "Press 1-8 anytime to show one off, even mid-race.",
+		TouchBody = "Open Emotes and tap one to show it off, even mid-race.",
+	},
+	{
+		Icon = "🚪",
+		Title = "Need to bail?",
+		Body = "Press Backspace anytime to leave a match.",
+		TouchBody = "Tap Leave Match at the top of the screen to bail out.",
+	},
 }
 
 local function rowTitle(row): string
@@ -92,18 +117,30 @@ local function buildUI()
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "TutorialGui"
 	screenGui.ResetOnSpawn = false
-	screenGui.DisplayOrder = 20
+	-- Above every modal (Widgets.Modal defaults to 25, most panels use 30, the
+	-- gacha reveal 32) and above the mobile drawer (25).
+	--
+	-- This used to be 20, i.e. UNDER all of them, which is why "How to Play"
+	-- looked broken: the button lives inside the Settings modal at 30, so the
+	-- tutorial opened correctly and was drawn behind the very panel that opened
+	-- it, dimmed by that panel's own backdrop. Nothing in the game needs to
+	-- cover the tutorial -- it is the one panel you open specifically to read.
+	screenGui.DisplayOrder = 40
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
-	panel = Widgets.Panel(UDim2.fromOffset(PANEL_WIDTH, PANEL_HEIGHT), UDim2.new(0.5, -PANEL_WIDTH / 2, 0.5, -PANEL_HEIGHT / 2))
+	panel = Widgets.Panel(
+		UDim2.fromOffset(PANEL_WIDTH, PANEL_HEIGHT),
+		UDim2.new(0.5, -PANEL_WIDTH / 2, 0.5, -PANEL_HEIGHT / 2)
+	)
 	panel.Parent = screenGui
 
-	local title = Widgets.Label("WELCOME TO THE RACE!", UDim2.new(1, -PAD * 2, 0, TITLE_HEIGHT), UDim2.fromOffset(PAD, PAD), {
-		Font = Theme.Font.Display,
-		TextSize = TITLE_TEXT,
-		Align = Enum.TextXAlignment.Center,
-		Color = Theme.Color.Warning,
-	})
+	local title =
+		Widgets.Label("WELCOME TO THE RACE!", UDim2.new(1, -PAD * 2, 0, TITLE_HEIGHT), UDim2.fromOffset(PAD, PAD), {
+			Font = Theme.Font.Display,
+			TextSize = TITLE_TEXT,
+			Align = Enum.TextXAlignment.Center,
+			Color = Theme.Color.Warning,
+		})
 	title.Parent = panel
 
 	-- A ScrollingFrame, where this used to be a plain Frame with a fixed 360pt
@@ -141,11 +178,12 @@ local function buildUI()
 	local closeButton = Widgets.Button(
 		"GOT IT, LET'S GO!",
 		UDim2.fromOffset(CLOSE_WIDTH, CLOSE_HEIGHT),
-		UDim2.new(0.5, -CLOSE_WIDTH / 2, 1, -(CLOSE_HEIGHT + PAD))
-	, {
-		Variant = "Success",
-		TextSize = CLOSE_TEXT,
-	})
+		UDim2.new(0.5, -CLOSE_WIDTH / 2, 1, -(CLOSE_HEIGHT + PAD)),
+		{
+			Variant = "Success",
+			TextSize = CLOSE_TEXT,
+		}
+	)
 	closeButton.Parent = panel
 	closeButton.MouseButton1Click:Connect(function()
 		Widgets.Close(panel)
@@ -195,7 +233,22 @@ local function buildUI()
 	Responsive.Observe(layoutPanel)
 end
 
+-- The tutorial takes the whole screen, so it clears the mobile drawer on the way
+-- in -- here rather than at the call site, so every route to it gets the same
+-- clean read (Settings -> How to Play today, the server's first-join
+-- ShowTutorial, and anything added later).
+--
+-- The drawer is the specific thing that has to be shut, not just hidden behind
+-- this panel: SettingsController reaches here by closing its own panel first,
+-- and a panel opened FROM the drawer asks the drawer to come back when it
+-- closes (MobileMenu.ReopenWhenClosed). Without this the tutorial arrived with
+-- the menu re-opened around it, half of it poking out either side.
+--
+-- Ordering matters and works out: MobileMenu.Close clears that pending reopen
+-- NOW, while Widgets.Close only flips the settings panel's Visible a tween
+-- later -- so by the time that fires there is nothing left to trigger.
 function TutorialController.Show()
+	MobileMenu.Close()
 	Sounds.Play("Purchase")
 	Widgets.Open(panel)
 end

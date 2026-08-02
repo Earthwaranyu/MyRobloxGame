@@ -626,10 +626,10 @@ do
 		("%d"):format(LayoutMath.CornerWidth(tablet))
 	)
 
-	-- The correction that reclaimed a third of the phone screen: the controls own
-	-- the bottom CORNERS, so a row narrow enough to pass between them reaches the
-	-- real bottom instead of being stranded above a full-width band.
-	local narrow = LayoutMath.BottomRowY(EMULATED_PHONE, 0, 44, 400)
+	-- The correction that reclaimed a third of the phone screen: the controls do
+	-- not own a full-width band, so a row narrow enough to pass through the clear
+	-- strip reaches the real bottom instead of being stranded above one.
+	local narrow = LayoutMath.BottomRowY(EMULATED_PHONE, 0, 44, 300)
 	local wide = LayoutMath.BottomRowY(EMULATED_PHONE, 0, 44, 780)
 	check(
 		"a row fitting between the controls reaches the bottom",
@@ -691,27 +691,77 @@ do
 		("%d"):format(LayoutMath.FitHeight(DESKTOP, 520, 116))
 	)
 
-	-- ClearCorners keeps low-sitting controls out of the thumbstick and jump
-	-- button. The corner width now comes from Roblox's documented jump-button
-	-- geometry rather than a flat constant, so it depends on the viewport.
+	-- ClearCorners keeps low-sitting controls out of the movement pad and the
+	-- jump button. Both keep-outs come from the real control geometry rather than
+	-- flat constants, so both depend on the viewport -- and they are ASYMMETRIC:
+	-- the pad claims the left 40% of the width, the jump button only 1.5 button
+	-- widths of the right.
 	local corner = LayoutMath.CornerWidth(PHONE)
-	check("a control in the left corner is pushed clear", LayoutMath.ClearCorners(PHONE, 10, 145) >= corner)
+	local pad = LayoutMath.MoveAreaWidth(PHONE)
+	check("the movement pad is wider than the jump corner", pad > corner, ("pad %d vs corner %d"):format(pad, corner))
+	check("a control over the movement pad is pushed clear", LayoutMath.ClearCorners(PHONE, 10, 145) >= pad)
 	check(
 		"a control in the right corner is pushed clear",
 		LayoutMath.ClearCorners(PHONE, 600, 145) + 145 <= PHONE.Width - corner
 	)
-	check("a centred control is left alone", LayoutMath.ClearCorners(PHONE, 260, 145) == 260)
+	-- Screen-centred is NOT clear on a phone: 260 is inside the pad, which is the
+	-- bug that made SPRINT eat movement touches.
+	check(
+		"a screen-centred control is still pushed off the pad",
+		LayoutMath.ClearCorners(PHONE, 260, 145) == pad,
+		("x=%d vs pad %d"):format(LayoutMath.ClearCorners(PHONE, 260, 145), pad)
+	)
+	check("a control already in the clear strip is left alone", LayoutMath.ClearCorners(PHONE, pad + 5, 145) == pad + 5)
 	check("desktop is never nudged", LayoutMath.ClearCorners(DESKTOP, 0, 145) == 0)
 
-	-- A control wider than the clear strip can't escape both corners. It must
-	-- still come back centred rather than jammed against one side or, worse,
-	-- pushed to a negative coordinate by two fighting clamps.
+	-- A control wider than the clear strip can't escape both keep-outs. It must
+	-- still come back centred ON THE SCREEN rather than jammed against one side,
+	-- pushed to a negative coordinate by two fighting clamps, or (centred on the
+	-- off-centre strip instead) shoved past the right edge of the display.
 	local wide = LayoutMath.ClearCorners(PHONE, 0, 600)
 	check(
 		"an over-wide control centres instead of oscillating",
 		math.abs(wide - (PHONE.Width - 600) / 2) < 1,
 		("x=%d"):format(wide)
 	)
+	check("an over-wide control still fits on screen", wide >= 0 and wide + 600 <= PHONE.Width, ("x=%d"):format(wide))
+
+	-- The whole point of the pad keep-out: the action row must not sit on top of
+	-- the movement control, at any of the sizes a phone actually reports.
+	for _, view in
+		{
+			{ Width = 801, Height = 334, Touch = true },
+			{ Width = 667, Height = 375, Touch = true },
+			{ Width = 960, Height = 450, Touch = true },
+		}
+	do
+		local row = LayoutMath.ActionRow(view)
+		local left, right = LayoutMath.ClearStrip(view)
+		local last = row.Positions[#row.Positions] + row.Widths[#row.Widths]
+		check(
+			("the action row clears the movement pad at %dx%d"):format(view.Width, view.Height),
+			row.Positions[1] >= left,
+			("starts at %d, pad ends at %d"):format(row.Positions[1], left)
+		)
+		check(
+			("the action row clears the jump button at %dx%d"):format(view.Width, view.Height),
+			last <= right,
+			("ends at %d, jump starts at %d"):format(last, right)
+		)
+		check(
+			("the action row keeps its order at %dx%d"):format(view.Width, view.Height),
+			row.Positions[1] < row.Positions[2] and row.Positions[2] < row.Positions[3]
+		)
+		check(
+			("the action row keeps PLAY the widest at %dx%d"):format(view.Width, view.Height),
+			row.Widths[2] > row.Widths[1] and row.Widths[2] > row.Widths[3],
+			("%d / %d / %d"):format(row.Widths[1], row.Widths[2], row.Widths[3])
+		)
+		check(
+			("the action row may sit at the very bottom at %dx%d"):format(view.Width, view.Height),
+			LayoutMath.BottomRowY(view, 0, 44, row.Total) > LayoutMath.BottomRowY(view, 0, 44, view.Width)
+		)
+	end
 end
 
 print("\n-- void slab coverage --")
