@@ -6,6 +6,7 @@ local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 local RankTiers = require(Shared.RankTiers)
 
+local Localization = require(script.Parent.Parent.Localization)
 local Responsive = require(script.Parent.Parent.Responsive)
 local Theme = require(script.Parent.Parent.Theme)
 local Widgets = require(script.Parent.Parent.Widgets)
@@ -153,8 +154,16 @@ local function show(data: {
 		Sounds.Play("Victory")
 
 		if data.WinStreak and data.WinStreak >= 2 then
+			-- Localized HERE rather than left to the outer line.
+			--
+			-- The streak line is built by nesting one formatted string inside
+			-- another, and a value substituted into {2} is carried through as a
+			-- captured parameter -- it is never itself looked up. So " (+15 pts)"
+			-- reached the screen untranslated in every language while its own
+			-- table entry sat unused. Translating the fragment before it is nested
+			-- is what closes that.
 			local bonusText = if data.StreakBonus and data.StreakBonus > 0
-				then (" (+%d pts)"):format(data.StreakBonus)
+				then Localization.Text((" (+%d pts)"):format(data.StreakBonus))
 				else ""
 			streakLabel.Text = ("🔥 %d WIN STREAK%s"):format(data.WinStreak, bonusText)
 		end

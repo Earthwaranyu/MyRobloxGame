@@ -1,176 +1,176 @@
 Key,Source,Context,Example,th-th,es-es,pt-br,fr-fr,de-de,id-id
-,  -- NEW BEST!,,GhostController.luau:195,  -- สถิติใหม่!,,,,,
-, (+{1} pts),,RaceOutcomeController.luau:162, (+{1} คะแนน),,,,,
-,+300 pts together!,,InviteFriendsController.luau:30,+300 คะแนนเมื่อเล่นด้วยกัน!,,,,,
-,+{1} pts,,RaceOutcomeController.luau:202,+{1} คะแนน,,,,,
-,1 racer still going,,SpectateController.luau:160 (singular branch),เหลือผู้เล่นอีก 1 คน,,,,,
-,2ND PLACE,,RaceOutcomeController.luau:184 (ordinal placement),อันดับที่ 2,,,,,
-,3RD PLACE,,RaceOutcomeController.luau:184 (ordinal placement),อันดับที่ 3,,,,,
-,4TH PLACE,,RaceOutcomeController.luau:184 (ordinal placement),อันดับที่ 4,,,,,
-,5TH PLACE,,RaceOutcomeController.luau:184 (ordinal placement),อันดับที่ 5,,,,,
-,6TH PLACE,,RaceOutcomeController.luau:184 (ordinal placement),อันดับที่ 6,,,,,
-,7TH PLACE,,RaceOutcomeController.luau:184 (ordinal placement),อันดับที่ 7,,,,,
-,8TH PLACE,,RaceOutcomeController.luau:184 (ordinal placement),อันดับที่ 8,,,,,
-,A short burst of speed on a cooldown -- save it for a tricky jump.,,runtime scrape,เร่งความเร็วสั้น ๆ มีคูลดาวน์ -- เก็บไว้ใช้ตอนกระโดดยาก ๆ,,,,,
-,ABILITY GACHA,,GachaController.luau:557,กาชาสกิล,,,,,
-,ABILITY PULL,,GachaController.luau:822,สุ่มสกิล,,,,,
-,Ability: {1},,ProfileCardController.luau:227,สกิล: {1},,,,,
-,Accept,,PartyController.luau:291,ตกลง,,,,,
-,Add Friend,,runtime scrape,เพิ่มเพื่อน,,,,,
-,Any size,,runtime scrape,กี่คนก็ได้,,,,,
-,Ask to Join Party,,runtime scrape,ขอเข้าปาร์ตี้,,,,,
-,Asked to join {1}'s party!,,ProfileCardController.luau:554,ส่งคำขอเข้าปาร์ตี้ของ {1} แล้ว!,,,,,
-,BEST TIMES,,ProfileCardController.luau:490,เวลาที่ดีที่สุด,,,,,
-,Big race,,runtime scrape,แข่งใหญ่,,,,,
-,Blink (Rare),,runtime scrape,Blink (หายาก),,,,,
-,Buy,,ShopController,ซื้อ,,,,,
-,CANCEL,,PlayButtonController.luau:88,ยกเลิก,,,,,
-,CANCEL (BACKSPACE),,PlayButtonController.luau:86,ยกเลิก (BACKSPACE),,,,,
-,CHOOSE YOUR RACE,,runtime scrape,เลือกโหมดแข่ง,,,,,
-,Continue,,runtime scrape,ต่อไป,,,,,
-,Couldn't send a friend request right now.,,ProfileCardController.luau:602,ส่งคำขอเป็นเพื่อนไม่สำเร็จ,,,,,
-,CUSTOM RACE SIZE,,QueueStationController.luau:66,กำหนดจำนวนผู้เล่น,,,,,
-,DAILY REWARD,,DailyRewardController.luau:33,รางวัลรายวัน,,,,,
-,Dash is never in the pool -- it's free for everyone.,,runtime scrape,Dash ไม่อยู่ในกาชา -- ทุกคนได้ฟรี,,,,,
-,Day {1} streak  •  +{2} points,,DailyRewardController.luau:49,ต่อเนื่องวันที่ {1}  •  +{2} คะแนน,,,,,
-,Decline,,PartyController.luau:302,ปฏิเสธ,,,,,
-,DEFEAT,,RaceOutcomeController.luau:167,แพ้,,,,,
-,Double-click for details,,ProfileCardController.luau:781,ดับเบิลคลิกเพื่อดูข้อมูล,,,,,
-,DROP RATES,,GachaController.luau:732,อัตราการออก,,,,,
-,Duel,,runtime scrape,ตัวต่อตัว,,,,,
-,Duel request sent to {1}!,,ProfileCardController.luau:535,ส่งคำท้า 1v1 ให้ {1} แล้ว!,,,,,
-,Elo & Points,,runtime scrape,Elo และคะแนน,,,,,
-,Emotes,,EmoteController.luau:156,อีโมท,,,,,
-,EMOTES,,runtime scrape,อีโมท,,,,,
-,Equip,,ShopController,ใส่,,,,,
-,Equipped,,ShopController,ใส่อยู่,,,,,
-,FASTEST,,PlayModePickerController.luau:349,เร็วที่สุด,,,,,
-,FINISH,,runtime scrape,เส้นชัย,,,,,
-,FINISHED,,RaceOutcomeController.luau:184,จบการแข่ง,,,,,
-,First race complete  •  +{1} points,,ReferralRewardController.luau:87,จบการแข่งครั้งแรก  •  +{1} คะแนน,,,,,
-,FRIEND BROUGHT IN!,,ReferralRewardController.luau:83,ชวนเพื่อนสำเร็จ!,,,,,
-,Friend request sent to {1}!,,ProfileCardController.luau:601,ส่งคำขอเป็นเพื่อนให้ {1} แล้ว!,,,,,
-,Friends,,runtime scrape,เพื่อน,,,,,
-,Full grid,,runtime scrape,เต็มสนาม,,,,,
-,Gacha,,runtime scrape,กาชา,,,,,
-,GET POINTS,,ShopController.luau:382,รับคะแนน,,,,,
-,GHOST (your best),,GhostController.luau:84,โกสต์ (สถิติของคุณ),,,,,
-,Global,,runtime scrape,ทั้งหมด,,,,,
-,GO!,,QueueStatusController.luau:190,ไป!,,,,,
-,"GOT IT, LET'S GO!",,runtime scrape,เข้าใจแล้ว ไปกันเลย!,,,,,
-,How many racers? ({1}-{2}),,QueueStationController.luau:74,ผู้เล่นกี่คน? ({1}-{2}),,,,,
-,How to Play,,runtime scrape,วิธีเล่น,,,,,
-,INVENTORY,,InventoryController.luau:207,กระเป๋า,,,,,
-,Inventory,,runtime scrape,กระเป๋า,,,,,
-,Invite,,PartyController.luau:76,เชิญ,,,,,
-,Invite Friends,,InviteFriendsController.luau:38,ชวนเพื่อน,,,,,
-,INVITE PLAYERS IN THIS SERVER,,PartyController.luau:242,เชิญผู้เล่นในเซิร์ฟเวอร์นี้,,,,,
-,JOIN QUEUE,,runtime scrape,เข้าคิว,,,,,
-,LEADERBOARD,,LeaderboardController.luau:180,อันดับ,,,,,
-,Leaderboard,,runtime scrape,อันดับ,,,,,
-,Leave Match,,runtime scrape,ออกจากการแข่ง,,,,,
-,Leave Party,,runtime scrape,ออกจากปาร์ตี้,,,,,
-,Loading...,,ProfileCardController.luau:167,กำลังโหลด...,,,,,
-,Losses: {1},,ProfileCardController.luau:225,แพ้: {1},,,,,
-,METEOR DASH,,runtime scrape,METEOR DASH,,,,,
-,Meteor Dash (Legendary),,runtime scrape,Meteor Dash (ตำนาน),,,,,
-,Music volume,,runtime scrape,เสียงเพลง,,,,,
-,MUTED,,SettingsController.luau:381,ปิดเสียง,,,,,
-,My Profile,,runtime scrape,โปรไฟล์ของฉัน,,,,,
-,Need to bail?,,runtime scrape,อยากออกกลางคัน?,,,,,
-,New: {1},,GachaController.luau:359,ใหม่: {1},,,,,
-,NEXT WAVE  --,,WaveClockController.luau:76,รอบถัดไป  --,,,,,
-,NEXT WAVE  {1}:{2},,WaveClockController.luau:85,รอบถัดไป  {1}:{2},,,,,
-,NO ONE ELSE IS QUEUING,,QueueStatusController.luau:358,ยังไม่มีใครอยู่ในคิว,,,,,
-,No one else to invite right now.,,PartyController.luau:112,ตอนนี้ไม่มีใครให้เชิญ,,,,,
-,No times recorded yet.,,LeaderboardController.luau:125,ยังไม่มีสถิติ,,,,,
-,None of your friends have a time here yet.,,LeaderboardController.luau:125,เพื่อนของคุณยังไม่มีสถิติในด่านนี้,,,,,
-,OFF,,SettingsController.luau:221,ปิด,,,,,
-,ON,,SettingsController.luau:343,เปิด,,,,,
-,OOPS! Back to checkpoint,,FallRecoveryController.luau:29,อุ๊ย! กลับไปจุดเซฟ,,,,,
-,"Open Emotes and tap one to show it off, even mid-race.",,runtime scrape,เปิดอีโมทแล้วแตะเพื่อแสดง ใช้ได้แม้ตอนแข่ง,,,,,
-,Owned,,ShopController,มีแล้ว,,,,,
-,PARTY,,PartyController.luau:215,ปาร์ตี้,,,,,
-,Party,,runtime scrape,ปาร์ตี้,,,,,
-,PLAY,,PlayButtonController.luau:177,เล่น,,,,,
-,PLAY WITH BOTS,,runtime scrape,เล่นกับบอท,,,,,
-,Playing solo -- invite someone below!,,PartyController.luau:123,เล่นคนเดียวอยู่ -- ชวนเพื่อนด้านล่างได้เลย!,,,,,
-,Playtime: {1},,ProfileCardController.luau:228,เวลาเล่น: {1},,,,,
-,Position: -,,RaceHudController.luau:133,อันดับ: -,,,,,
-,Position: {1}/{2},,RaceHudController.luau:155,อันดับ: {1}/{2},,,,,
-,PRACTICE,,PlayButtonController.luau:202,ฝึกซ้อม,,,,,
-,PRACTICE COMPLETE,,GhostController.luau:218,ฝึกซ้อมเสร็จสิ้น,,,,,
-,Press 1-8 anytime,,EmoteController.luau:184 (desktop branch),กด 1-8 ได้ตลอด,,,,,
-,"Press 1-8 anytime to show one off, even mid-race.",,TutorialController ROWS,กด 1-8 ได้ตลอดเพื่อแสดงอีโมท แม้ตอนแข่ง,,,,,
-,PROFILE,,ProfileCardController.luau:391,โปรไฟล์,,,,,
-,PULL {1} OF {2},,GachaController.luau:307,สุ่มครั้งที่ {1} จาก {2},,,,,
-,QUICK PLAY,,runtime scrape,เล่นเลย,,,,,
-,R$ Buy,,ShopController.luau:119,ซื้อด้วย R$,,,,,
-,Race to win,,runtime scrape,แข่งให้ชนะ,,,,,
-,RANK UP  {1} -> {2},,RaceOutcomeController.luau:128,เลื่อนขั้น  {1} -> {2},,,,,
-,Request 1v1,,ProfileCardController.luau:525,ท้า 1v1,,,,,
-,SELECTING MAP,,MapRevealController.luau:151,กำลังสุ่มด่าน,,,,,
-,Sent!,,PartyController.luau:83,ส่งแล้ว!,,,,,
-,Settings,,SettingsController.luau:270,ตั้งค่า,,,,,
-,SETTINGS,,runtime scrape,ตั้งค่า,,,,,
-,SFX volume,,runtime scrape,เสียงเอฟเฟกต์,,,,,
-,Shop,,runtime scrape,ร้านค้า,,,,,
-,Skip gacha pull animation,,runtime scrape,ข้ามอนิเมชันกาชา,,,,,
-,Sky Hop (Common),,runtime scrape,Sky Hop (ทั่วไป),,,,,
-,Small pack,,runtime scrape,กลุ่มเล็ก,,,,,
-,SOUND,,SettingsController.luau:396,เสียง,,,,,
-,SPECTATING,,SpectateController.luau:191,กำลังชม,,,,,
-,SPRINT,,runtime scrape,วิ่ง,,,,,
-,START,,runtime scrape,เริ่ม,,,,,
-,Stop Watching,,QuitMatchController.luau:58,หยุดชม,,,,,
-,Surge (Epic),,runtime scrape,Surge (มหากาพย์),,,,,
-,Tap an emote to play it,,runtime scrape,แตะอีโมทเพื่อใช้งาน,,,,,
-,Tap DASH for a burst,,runtime scrape,แตะ DASH เพื่อพุ่ง,,,,,
-,Tap Leave Match at the top of the screen to bail out.,,runtime scrape,แตะ ออกจากการแข่ง ด้านบนจอเพื่อออก,,,,,
-,"Tap PLAY to race real players, or VS BOTS to practice solo.",,runtime scrape,แตะ เล่น เพื่อแข่งกับผู้เล่นจริง หรือ สู้กับบอท เพื่อฝึกคนเดียว,,,,,
-,Tap SPRINT to run,,runtime scrape,แตะ วิ่ง เพื่อเร่งความเร็ว,,,,,
-,This is your profile,,runtime scrape,นี่คือโปรไฟล์ของคุณ,,,,,
-,Time: {1}:{2},,GhostController.luau:194,เวลา: {1}:{2},,,,,
-,TRAIL SHOP,,ShopController.luau:249,ร้านเทรล,,,,,
-,Unequip,,ShopController,ถอด,,,,,
-,VICTORY!,,RaceOutcomeController.luau:156,ชนะ!,,,,,
-,VS BOTS,,PlayButtonController.luau:190,สู้กับบอท,,,,,
-,WAITING FOR PLAYERS,,QueueStatusController.luau:168,กำลังรอผู้เล่น,,,,,
-,Watching the finish...,,SpectateController.luau:198,กำลังชมจนจบ...,,,,,
-,WELCOME BONUS,,ReferralRewardController.luau:86,โบนัสต้อนรับ,,,,,
-,WELCOME TO THE RACE!,,TutorialController.luau:138,ยินดีต้อนรับสู่การแข่ง!,,,,,
-,Win Rate: {1}%,,ProfileCardController.luau:226,อัตราชนะ: {1}%,,,,,
-,Win real races for Elo and rank up. Points buy trails in the Shop.,,runtime scrape,ชนะการแข่งจริงเพื่อรับ Elo และเลื่อนขั้น ใช้คะแนนซื้อเทรลในร้านค้า,,,,,
-,Wind effect while sprinting,,runtime scrape,เอฟเฟกต์ลมขณะวิ่ง,,,,,
-,Wins: {1},,ProfileCardController.luau:224,ชนะ: {1},,,,,
-,You'll need it to clear the harder jumps.,,runtime scrape,จำเป็นสำหรับกระโดดข้ามจุดยาก ๆ,,,,,
-,YOUR PARTY: ,,PartyController.luau:126,ปาร์ตี้ของคุณ: ,,,,,
-,YOUR PARTY: {1},,PartyController.luau:126,ปาร์ตี้ของคุณ: {1},,,,,
-,{1}  {2} elo  •  {3} pts,,StatsPillController.luau:44,{1}  {2} elo  •  {3} คะแนน,,,,,
-,{1}  ·  {2} elo,,ProfileCardController.luau:215,{1}  ·  {2} elo,,,,,
-,{1}  ·  {2}% pull odds,,InventoryController.luau:79,{1}  ·  โอกาสออก {2}%,,,,,
-,{1}  •  {2} elo,,ShopController.luau:190,{1}  •  {2} elo,,,,,
-,{1} (Backspace),,QuitMatchController.luau:62,{1} (Backspace),,,,,
-,{1} / {2} waiting,,PlayModePickerController.luau:134,รออยู่ {1} / {2},,,,,
-,{1} challenged you to a 1v1!,,ProfileCardController.luau:244,{1} ท้าคุณแข่ง 1v1!,,,,,
-,{1} duplicate(s) refunded {2} points,,GachaController.luau:362,ซ้ำ {1} ชิ้น คืนให้ {2} คะแนน,,,,,
-,{1} invited you to a party!,,PartyController.luau:138,{1} ชวนคุณเข้าปาร์ตี้!,,,,,
-,{1} is busy,,PlayButtonController.luau:308,{1} ไม่ว่าง,,,,,
-,{1} left the duel.,,ProfileCardController.luau:960,{1} ออกจากการดวลแล้ว,,,,,
-,{1} of {2} racers,,RaceOutcomeController.luau:211,อันดับ {1} จาก {2} คน,,,,,
+,  -- NEW BEST!,,GhostController.luau:195,  -- สถิติใหม่!,  -- ¡NUEVO RÉCORD!,  -- NOVO RECORDE!,  -- NOUVEAU RECORD !,  -- NEUER REKORD!,  -- REKOR BARU!
+, (+{1} pts),,RaceOutcomeController.luau:162, (+{1} คะแนน), (+{1} pts), (+{1} pts), (+{1} pts), (+{1} Pkt.), (+{1} poin)
+,+300 pts together!,,InviteFriendsController.luau:30,+300 คะแนนเมื่อเล่นด้วยกัน!,¡+300 pts juntos!,+300 pts juntos!,+300 pts ensemble !,+300 Pkt. zusammen!,+300 poin bersama!
+,+{1} pts,,RaceOutcomeController.luau:202,+{1} คะแนน,+{1} pts,+{1} pts,+{1} pts,+{1} Pkt.,+{1} poin
+,1 racer still going,,SpectateController.luau:160 (singular branch),เหลือผู้เล่นอีก 1 คน,Queda 1 corredor,Resta 1 corredor,Il reste 1 coureur,Noch 1 Läufer,Tersisa 1 pelari
+,2ND PLACE,,RaceOutcomeController.luau:184 (ordinal placement),อันดับที่ 2,2.º PUESTO,2.º LUGAR,2E PLACE,2. PLATZ,PERINGKAT 2
+,3RD PLACE,,RaceOutcomeController.luau:184 (ordinal placement),อันดับที่ 3,3.º PUESTO,3.º LUGAR,3E PLACE,3. PLATZ,PERINGKAT 3
+,4TH PLACE,,RaceOutcomeController.luau:184 (ordinal placement),อันดับที่ 4,4.º PUESTO,4.º LUGAR,4E PLACE,4. PLATZ,PERINGKAT 4
+,5TH PLACE,,RaceOutcomeController.luau:184 (ordinal placement),อันดับที่ 5,5.º PUESTO,5.º LUGAR,5E PLACE,5. PLATZ,PERINGKAT 5
+,6TH PLACE,,RaceOutcomeController.luau:184 (ordinal placement),อันดับที่ 6,6.º PUESTO,6.º LUGAR,6E PLACE,6. PLATZ,PERINGKAT 6
+,7TH PLACE,,RaceOutcomeController.luau:184 (ordinal placement),อันดับที่ 7,7.º PUESTO,7.º LUGAR,7E PLACE,7. PLATZ,PERINGKAT 7
+,8TH PLACE,,RaceOutcomeController.luau:184 (ordinal placement),อันดับที่ 8,8.º PUESTO,8.º LUGAR,8E PLACE,8. PLATZ,PERINGKAT 8
+,A short burst of speed on a cooldown -- save it for a tricky jump.,,runtime scrape,เร่งความเร็วสั้น ๆ มีคูลดาวน์ -- เก็บไว้ใช้ตอนกระโดดยาก ๆ,Un impulso breve de velocidad con recarga: guárdalo para un salto difícil.,Um impulso curto de velocidade com recarga: guarde para um salto difícil.,Une accélération brève avec recharge : garde-la pour un saut difficile.,Kurzer Geschwindigkeitsschub mit Abklingzeit – heb ihn für einen schweren Sprung auf.,Dorongan kecepatan singkat dengan jeda -- simpan untuk lompatan sulit.
+,ABILITY GACHA,,GachaController.luau:557,กาชาสกิล,GACHA DE HABILIDADES,GACHA DE HABILIDADES,GACHA DE CAPACITÉS,FÄHIGKEITEN-GACHA,GACHA KEMAMPUAN
+,ABILITY PULL,,GachaController.luau:822,สุ่มสกิล,TIRADA DE HABILIDAD,SORTEIO DE HABILIDADE,TIRAGE DE CAPACITÉ,FÄHIGKEITSZUG,TARIKAN KEMAMPUAN
+,Ability: {1},,ProfileCardController.luau:227,สกิล: {1},Habilidad: {1},Habilidade: {1},Capacité : {1},Fähigkeit: {1},Kemampuan: {1}
+,Accept,,PartyController.luau:291,ตกลง,Aceptar,Aceitar,Accepter,Annehmen,Terima
+,Add Friend,,runtime scrape,เพิ่มเพื่อน,Añadir amigo,Adicionar amigo,Ajouter en ami,Freund hinzufügen,Tambah teman
+,Any size,,runtime scrape,กี่คนก็ได้,Cualquier tamaño,Qualquer tamanho,Toute taille,Beliebige Größe,Ukuran bebas
+,Ask to Join Party,,runtime scrape,ขอเข้าปาร์ตี้,Pedir unirse al grupo,Pedir para entrar no grupo,Demander à rejoindre,Beitritt anfragen,Minta gabung grup
+,Asked to join {1}'s party!,,ProfileCardController.luau:554,ส่งคำขอเข้าปาร์ตี้ของ {1} แล้ว!,¡Pediste unirte al grupo de {1}!,Pedido enviado para entrar no grupo de {1}!,Demande envoyée pour rejoindre le groupe de {1} !,Beitritt zu {1}s Gruppe angefragt!,Permintaan gabung grup {1} terkirim!
+,BEST TIMES,,ProfileCardController.luau:490,เวลาที่ดีที่สุด,MEJORES TIEMPOS,MELHORES TEMPOS,MEILLEURS TEMPS,BESTZEITEN,WAKTU TERBAIK
+,Big race,,runtime scrape,แข่งใหญ่,Carrera grande,Corrida grande,Grande course,Großes Rennen,Balapan besar
+,Blink (Rare),,runtime scrape,Blink (หายาก),Blink (Raro),Blink (Raro),Blink (Rare),Blink (Selten),Blink (Langka)
+,Buy,,ShopController,ซื้อ,Comprar,Comprar,Acheter,Kaufen,Beli
+,CANCEL,,PlayButtonController.luau:88,ยกเลิก,CANCELAR,CANCELAR,ANNULER,ABBRECHEN,BATAL
+,CANCEL (BACKSPACE),,PlayButtonController.luau:86,ยกเลิก (BACKSPACE),CANCELAR (BACKSPACE),CANCELAR (BACKSPACE),ANNULER (RETOUR),ABBRECHEN (RÜCKTASTE),BATAL (BACKSPACE)
+,CHOOSE YOUR RACE,,runtime scrape,เลือกโหมดแข่ง,ELIGE TU CARRERA,ESCOLHA SUA CORRIDA,CHOISIS TA COURSE,WÄHLE DEIN RENNEN,PILIH BALAPANMU
+,Continue,,runtime scrape,ต่อไป,Continuar,Continuar,Continuer,Weiter,Lanjut
+,Couldn't send a friend request right now.,,ProfileCardController.luau:602,ส่งคำขอเป็นเพื่อนไม่สำเร็จ,No se pudo enviar la solicitud de amistad.,Não foi possível enviar o pedido de amizade.,Impossible d'envoyer la demande d'ami.,Freundschaftsanfrage konnte nicht gesendet werden.,Permintaan pertemanan gagal dikirim.
+,CUSTOM RACE SIZE,,QueueStationController.luau:66,กำหนดจำนวนผู้เล่น,TAMAÑO PERSONALIZADO,TAMANHO PERSONALIZADO,TAILLE PERSONNALISÉE,EIGENE RENNGRÖSSE,UKURAN BALAPAN KUSTOM
+,DAILY REWARD,,DailyRewardController.luau:33,รางวัลรายวัน,RECOMPENSA DIARIA,RECOMPENSA DIÁRIA,RÉCOMPENSE DU JOUR,TAGESBELOHNUNG,HADIAH HARIAN
+,Dash is never in the pool -- it's free for everyone.,,runtime scrape,Dash ไม่อยู่ในกาชา -- ทุกคนได้ฟรี,Dash nunca está en el gacha: es gratis para todos.,Dash nunca está no gacha: é grátis para todos.,Dash n'est jamais dans le gacha : il est gratuit pour tous.,Dash ist nie im Gacha – er ist für alle gratis.,Dash tidak pernah ada di gacha -- gratis untuk semua.
+,Day {1} streak  •  +{2} points,,DailyRewardController.luau:49,ต่อเนื่องวันที่ {1}  •  +{2} คะแนน,Racha de {1} días  •  +{2} puntos,Sequência de {1} dias  •  +{2} pontos,Série de {1} jours  •  +{2} points,{1} Tage in Folge  •  +{2} Punkte,Beruntun {1} hari  •  +{2} poin
+,Decline,,PartyController.luau:302,ปฏิเสธ,Rechazar,Recusar,Refuser,Ablehnen,Tolak
+,DEFEAT,,RaceOutcomeController.luau:167,แพ้,DERROTA,DERROTA,DÉFAITE,NIEDERLAGE,KALAH
+,Double-click for details,,ProfileCardController.luau:781,ดับเบิลคลิกเพื่อดูข้อมูล,Doble clic para ver detalles,Clique duas vezes para ver detalhes,Double-clic pour les détails,Doppelklick für Details,Klik dua kali untuk detail
+,DROP RATES,,GachaController.luau:732,อัตราการออก,PROBABILIDADES,CHANCES,TAUX D'OBTENTION,DROPCHANCEN,PELUANG
+,Duel,,runtime scrape,ตัวต่อตัว,Duelo,Duelo,Duel,Duell,Duel
+,Duel request sent to {1}!,,ProfileCardController.luau:535,ส่งคำท้า 1v1 ให้ {1} แล้ว!,¡Reto 1v1 enviado a {1}!,Desafio 1v1 enviado para {1}!,Défi 1c1 envoyé à {1} !,1v1-Herausforderung an {1} gesendet!,Tantangan 1v1 dikirim ke {1}!
+,Elo & Points,,runtime scrape,Elo และคะแนน,Elo y puntos,Elo e pontos,Elo et points,Elo und Punkte,Elo & poin
+,Emotes,,EmoteController.luau:156,อีโมท,Emotes,Emotes,Emotes,Emotes,Emote
+,EMOTES,,runtime scrape,อีโมท,EMOTES,EMOTES,EMOTES,EMOTES,EMOTE
+,Equip,,ShopController,ใส่,Equipar,Equipar,Équiper,Anlegen,Pakai
+,Equipped,,ShopController,ใส่อยู่,Equipado,Equipado,Équipé,Angelegt,Terpakai
+,FASTEST,,PlayModePickerController.luau:349,เร็วที่สุด,MÁS RÁPIDO,MAIS RÁPIDO,LE PLUS RAPIDE,AM SCHNELLSTEN,TERCEPAT
+,FINISH,,runtime scrape,เส้นชัย,META,CHEGADA,ARRIVÉE,ZIEL,GARIS AKHIR
+,FINISHED,,RaceOutcomeController.luau:184,จบการแข่ง,TERMINADO,CONCLUÍDO,TERMINÉ,BEENDET,SELESAI
+,First race complete  •  +{1} points,,ReferralRewardController.luau:87,จบการแข่งครั้งแรก  •  +{1} คะแนน,Primera carrera completada  •  +{1} puntos,Primeira corrida concluída  •  +{1} pontos,Première course terminée  •  +{1} points,Erstes Rennen beendet  •  +{1} Punkte,Balapan pertama selesai  •  +{1} poin
+,FRIEND BROUGHT IN!,,ReferralRewardController.luau:83,ชวนเพื่อนสำเร็จ!,¡AMIGO INVITADO!,AMIGO TROUXE!,AMI INVITÉ !,FREUND GEWORBEN!,TEMAN DIAJAK!
+,Friend request sent to {1}!,,ProfileCardController.luau:601,ส่งคำขอเป็นเพื่อนให้ {1} แล้ว!,¡Solicitud de amistad enviada a {1}!,Pedido de amizade enviado para {1}!,Demande d'ami envoyée à {1} !,Freundschaftsanfrage an {1} gesendet!,Permintaan pertemanan dikirim ke {1}!
+,Friends,,runtime scrape,เพื่อน,Amigos,Amigos,Amis,Freunde,Teman
+,Full grid,,runtime scrape,เต็มสนาม,Parrilla completa,Grid completo,Grille complète,Volles Feld,Grid penuh
+,Gacha,,runtime scrape,กาชา,Gacha,Gacha,Gacha,Gacha,Gacha
+,GET POINTS,,ShopController.luau:382,รับคะแนน,CONSEGUIR PUNTOS,OBTER PONTOS,OBTENIR DES POINTS,PUNKTE HOLEN,DAPAT POIN
+,GHOST (your best),,GhostController.luau:84,โกสต์ (สถิติของคุณ),FANTASMA (tu mejor marca),FANTASMA (seu recorde),FANTÔME (ton record),GEIST (dein Rekord),GHOST (rekormu)
+,Global,,runtime scrape,ทั้งหมด,Global,Global,Global,Global,Global
+,GO!,,QueueStatusController.luau:190,ไป!,¡YA!,JÁ!,PARTEZ !,LOS!,MULAI!
+,"GOT IT, LET'S GO!",,runtime scrape,เข้าใจแล้ว ไปกันเลย!,"¡ENTENDIDO, VAMOS!","ENTENDI, VAMOS!","COMPRIS, C'EST PARTI !","ALLES KLAR, LOS!","OKE, AYO!"
+,How many racers? ({1}-{2}),,QueueStationController.luau:74,ผู้เล่นกี่คน? ({1}-{2}),¿Cuántos corredores? ({1}-{2}),Quantos corredores? ({1}-{2}),Combien de coureurs ? ({1}-{2}),Wie viele Läufer? ({1}-{2}),Berapa pelari? ({1}-{2})
+,How to Play,,runtime scrape,วิธีเล่น,Cómo jugar,Como jogar,Comment jouer,Spielanleitung,Cara main
+,INVENTORY,,InventoryController.luau:207,กระเป๋า,INVENTARIO,INVENTÁRIO,INVENTAIRE,INVENTAR,INVENTARIS
+,Inventory,,runtime scrape,กระเป๋า,Inventario,Inventário,Inventaire,Inventar,Inventaris
+,Invite,,PartyController.luau:76,เชิญ,Invitar,Convidar,Inviter,Einladen,Undang
+,Invite Friends,,InviteFriendsController.luau:38,ชวนเพื่อน,Invitar amigos,Convidar amigos,Inviter des amis,Freunde einladen,Undang teman
+,INVITE PLAYERS IN THIS SERVER,,PartyController.luau:242,เชิญผู้เล่นในเซิร์ฟเวอร์นี้,INVITAR JUGADORES DE ESTE SERVIDOR,CONVIDAR JOGADORES DESTE SERVIDOR,INVITER LES JOUEURS DE CE SERVEUR,SPIELER AUF DIESEM SERVER EINLADEN,UNDANG PEMAIN DI SERVER INI
+,JOIN QUEUE,,runtime scrape,เข้าคิว,ENTRAR EN COLA,ENTRAR NA FILA,REJOINDRE LA FILE,WARTESCHLANGE,MASUK ANTREAN
+,LEADERBOARD,,LeaderboardController.luau:180,อันดับ,CLASIFICACIÓN,RANKING,CLASSEMENT,RANGLISTE,PERINGKAT
+,Leaderboard,,runtime scrape,อันดับ,Clasificación,Ranking,Classement,Rangliste,Peringkat
+,Leave Match,,runtime scrape,ออกจากการแข่ง,Salir de la partida,Sair da partida,Quitter la partie,Rennen verlassen,Keluar balapan
+,Leave Party,,runtime scrape,ออกจากปาร์ตี้,Salir del grupo,Sair do grupo,Quitter le groupe,Gruppe verlassen,Keluar grup
+,Loading...,,ProfileCardController.luau:167,กำลังโหลด...,Cargando...,Carregando...,Chargement...,Lädt...,Memuat...
+,Losses: {1},,ProfileCardController.luau:225,แพ้: {1},Derrotas: {1},Derrotas: {1},Défaites : {1},Niederlagen: {1},Kalah: {1}
+,METEOR DASH,,runtime scrape,METEOR DASH,METEOR DASH,METEOR DASH,METEOR DASH,METEOR DASH,METEOR DASH
+,Meteor Dash (Legendary),,runtime scrape,Meteor Dash (ตำนาน),Meteor Dash (Legendario),Meteor Dash (Lendário),Meteor Dash (Légendaire),Meteor Dash (Legendär),Meteor Dash (Legendaris)
+,Music volume,,runtime scrape,เสียงเพลง,Volumen de música,Volume da música,Volume musique,Musiklautstärke,Volume musik
+,MUTED,,SettingsController.luau:381,ปิดเสียง,SILENCIADO,MUDO,MUET,STUMM,BISU
+,My Profile,,runtime scrape,โปรไฟล์ของฉัน,Mi perfil,Meu perfil,Mon profil,Mein Profil,Profilku
+,Need to bail?,,runtime scrape,อยากออกกลางคัน?,¿Quieres salir?,Quer sair?,Envie de partir ?,Aussteigen?,Mau keluar?
+,New: {1},,GachaController.luau:359,ใหม่: {1},Nuevo: {1},Novo: {1},Nouveau : {1},Neu: {1},Baru: {1}
+,NEXT WAVE  --,,WaveClockController.luau:76,รอบถัดไป  --,SIGUIENTE RONDA  --,PRÓXIMA RODADA  --,PROCHAINE VAGUE  --,NÄCHSTE RUNDE  --,RONDE BERIKUT  --
+,NEXT WAVE  {1}:{2},,WaveClockController.luau:85,รอบถัดไป  {1}:{2},SIGUIENTE RONDA  {1}:{2},PRÓXIMA RODADA  {1}:{2},PROCHAINE VAGUE  {1}:{2},NÄCHSTE RUNDE  {1}:{2},RONDE BERIKUT  {1}:{2}
+,NO ONE ELSE IS QUEUING,,QueueStatusController.luau:358,ยังไม่มีใครอยู่ในคิว,NADIE MÁS EN COLA,NINGUÉM MAIS NA FILA,PERSONNE D'AUTRE EN FILE,NIEMAND SONST WARTET,TIDAK ADA YANG MENGANTRE
+,No one else to invite right now.,,PartyController.luau:112,ตอนนี้ไม่มีใครให้เชิญ,No hay nadie más a quien invitar.,Não há mais ninguém para convidar.,Personne d'autre à inviter.,Niemand sonst zum Einladen.,Tidak ada lagi yang bisa diundang.
+,No times recorded yet.,,LeaderboardController.luau:125,ยังไม่มีสถิติ,Aún no hay tiempos registrados.,Ainda não há tempos registrados.,Aucun temps enregistré.,Noch keine Zeiten.,Belum ada catatan waktu.
+,None of your friends have a time here yet.,,LeaderboardController.luau:125,เพื่อนของคุณยังไม่มีสถิติในด่านนี้,Ninguno de tus amigos tiene tiempo aquí.,Nenhum amigo seu tem tempo aqui ainda.,Aucun de tes amis n'a de temps ici.,Keiner deiner Freunde hat hier eine Zeit.,Belum ada temanmu yang punya waktu di sini.
+,OFF,,SettingsController.luau:221,ปิด,NO,NÃO,NON,AUS,MATI
+,ON,,SettingsController.luau:343,เปิด,SÍ,SIM,OUI,AN,NYALA
+,OOPS! Back to checkpoint,,FallRecoveryController.luau:29,อุ๊ย! กลับไปจุดเซฟ,¡UPS! Vuelta al control,OPA! De volta ao checkpoint,OUPS ! Retour au point de contrôle,HOPPLA! Zurück zum Checkpoint,UPS! Kembali ke checkpoint
+,"Open Emotes and tap one to show it off, even mid-race.",,runtime scrape,เปิดอีโมทแล้วแตะเพื่อแสดง ใช้ได้แม้ตอนแข่ง,"Abre Emotes y toca uno para mostrarlo, incluso en carrera.","Abra Emotes e toque em um para exibir, mesmo na corrida.","Ouvre Emotes et touche-en un pour le montrer, même en course.",Öffne Emotes und tippe eins an – auch mitten im Rennen.,"Buka Emote lalu ketuk untuk memakainya, bahkan saat balapan."
+,Owned,,ShopController,มีแล้ว,En posesión,Adquirido,Possédé,Im Besitz,Dimiliki
+,PARTY,,PartyController.luau:215,ปาร์ตี้,GRUPO,GRUPO,GROUPE,GRUPPE,GRUP
+,Party,,runtime scrape,ปาร์ตี้,Grupo,Grupo,Groupe,Gruppe,Grup
+,PLAY,,PlayButtonController.luau:177,เล่น,JUGAR,JOGAR,JOUER,SPIELEN,MAIN
+,PLAY WITH BOTS,,runtime scrape,เล่นกับบอท,JUGAR CON BOTS,JOGAR COM BOTS,JOUER CONTRE DES BOTS,GEGEN BOTS SPIELEN,MAIN LAWAN BOT
+,Playing solo -- invite someone below!,,PartyController.luau:123,เล่นคนเดียวอยู่ -- ชวนเพื่อนด้านล่างได้เลย!,Juegas solo: ¡invita a alguien abajo!,Jogando sozinho: convide alguém abaixo!,Tu joues seul : invite quelqu'un ci-dessous !,Du spielst allein – lade unten jemanden ein!,Main sendiri -- undang seseorang di bawah!
+,Playtime: {1},,ProfileCardController.luau:228,เวลาเล่น: {1},Tiempo jugado: {1},Tempo de jogo: {1},Temps de jeu : {1},Spielzeit: {1},Waktu main: {1}
+,Position: -,,RaceHudController.luau:133,อันดับ: -,Posición: -,Posição: -,Position : -,Position: -,Posisi: -
+,Position: {1}/{2},,RaceHudController.luau:155,อันดับ: {1}/{2},Posición: {1}/{2},Posição: {1}/{2},Position : {1}/{2},Position: {1}/{2},Posisi: {1}/{2}
+,PRACTICE,,PlayButtonController.luau:202,ฝึกซ้อม,PRÁCTICA,TREINO,ENTRAÎNEMENT,ÜBUNG,LATIHAN
+,PRACTICE COMPLETE,,GhostController.luau:218,ฝึกซ้อมเสร็จสิ้น,PRÁCTICA COMPLETADA,TREINO CONCLUÍDO,ENTRAÎNEMENT TERMINÉ,ÜBUNG ABGESCHLOSSEN,LATIHAN SELESAI
+,Press 1-8 anytime,,EmoteController.luau:184 (desktop branch),กด 1-8 ได้ตลอด,Pulsa 1-8 cuando quieras,Pressione 1-8 quando quiser,Appuie sur 1-8 à tout moment,Drücke jederzeit 1-8,Tekan 1-8 kapan saja
+,"Press 1-8 anytime to show one off, even mid-race.",,TutorialController ROWS,กด 1-8 ได้ตลอดเพื่อแสดงอีโมท แม้ตอนแข่ง,"Pulsa 1-8 cuando quieras para mostrar uno, incluso en carrera.","Pressione 1-8 quando quiser para exibir um, mesmo na corrida.","Appuie sur 1-8 à tout moment pour en montrer un, même en course.","Drücke jederzeit 1-8, um eins zu zeigen – auch im Rennen.","Tekan 1-8 kapan saja untuk memakainya, bahkan saat balapan."
+,PROFILE,,ProfileCardController.luau:391,โปรไฟล์,PERFIL,PERFIL,PROFIL,PROFIL,PROFIL
+,PULL {1} OF {2},,GachaController.luau:307,สุ่มครั้งที่ {1} จาก {2},TIRADA {1} DE {2},SORTEIO {1} DE {2},TIRAGE {1} SUR {2},ZUG {1} VON {2},TARIKAN {1} DARI {2}
+,QUICK PLAY,,runtime scrape,เล่นเลย,PARTIDA RÁPIDA,PARTIDA RÁPIDA,PARTIE RAPIDE,SCHNELLES SPIEL,MAIN CEPAT
+,R$ Buy,,ShopController.luau:119,ซื้อด้วย R$,Comprar R$,Comprar R$,Acheter R$,Mit R$ kaufen,Beli R$
+,Race to win,,runtime scrape,แข่งให้ชนะ,Corre para ganar,Corra para vencer,Cours pour gagner,Renne um den Sieg,Balap untuk menang
+,RANK UP  {1} -> {2},,RaceOutcomeController.luau:128,เลื่อนขั้น  {1} -> {2},SUBES DE RANGO  {1} -> {2},SUBIU DE RANQUE  {1} -> {2},MONTÉE DE RANG  {1} -> {2},RANGAUFSTIEG  {1} -> {2},NAIK PERINGKAT  {1} -> {2}
+,Request 1v1,,ProfileCardController.luau:525,ท้า 1v1,Retar a 1v1,Desafiar 1v1,Défier en 1c1,1v1 fordern,Tantang 1v1
+,SELECTING MAP,,MapRevealController.luau:151,กำลังสุ่มด่าน,ELIGIENDO MAPA,ESCOLHENDO MAPA,SÉLECTION DE LA CARTE,KARTE WIRD GEWÄHLT,MEMILIH PETA
+,Sent!,,PartyController.luau:83,ส่งแล้ว!,¡Enviado!,Enviado!,Envoyé !,Gesendet!,Terkirim!
+,Settings,,SettingsController.luau:270,ตั้งค่า,Ajustes,Ajustes,Réglages,Einstellungen,Pengaturan
+,SETTINGS,,runtime scrape,ตั้งค่า,AJUSTES,AJUSTES,RÉGLAGES,EINSTELLUNGEN,PENGATURAN
+,SFX volume,,runtime scrape,เสียงเอฟเฟกต์,Volumen de efectos,Volume dos efeitos,Volume effets,Effektlautstärke,Volume efek
+,Shop,,runtime scrape,ร้านค้า,Tienda,Loja,Boutique,Shop,Toko
+,Skip gacha pull animation,,runtime scrape,ข้ามอนิเมชันกาชา,Saltar animación del gacha,Pular animação do gacha,Passer l'animation du gacha,Gacha-Animation überspringen,Lewati animasi gacha
+,Sky Hop (Common),,runtime scrape,Sky Hop (ทั่วไป),Sky Hop (Común),Sky Hop (Comum),Sky Hop (Commun),Sky Hop (Gewöhnlich),Sky Hop (Umum)
+,Small pack,,runtime scrape,กลุ่มเล็ก,Grupo pequeño,Grupo pequeno,Petit groupe,Kleine Gruppe,Grup kecil
+,SOUND,,SettingsController.luau:396,เสียง,SONIDO,SOM,SON,TON,SUARA
+,SPECTATING,,SpectateController.luau:191,กำลังชม,ESPECTANDO,ASSISTINDO,SPECTATEUR,ZUSCHAUEN,MENONTON
+,SPRINT,,runtime scrape,วิ่ง,CORRER,CORRER,SPRINT,SPRINT,LARI
+,START,,runtime scrape,เริ่ม,INICIO,INÍCIO,DÉPART,START,MULAI
+,Stop Watching,,QuitMatchController.luau:58,หยุดชม,Dejar de ver,Parar de assistir,Arrêter de regarder,Zuschauen beenden,Berhenti menonton
+,Surge (Epic),,runtime scrape,Surge (มหากาพย์),Surge (Épico),Surge (Épico),Surge (Épique),Surge (Episch),Surge (Epik)
+,Tap an emote to play it,,runtime scrape,แตะอีโมทเพื่อใช้งาน,Toca un emote para usarlo,Toque em um emote para usar,Touche un emote pour l'utiliser,Tippe ein Emote an,Ketuk emote untuk memakainya
+,Tap DASH for a burst,,runtime scrape,แตะ DASH เพื่อพุ่ง,Toca DASH para impulsarte,Toque em DASH para acelerar,Touche DASH pour foncer,Tippe DASH für einen Schub,Ketuk DASH untuk melesat
+,Tap Leave Match at the top of the screen to bail out.,,runtime scrape,แตะ ออกจากการแข่ง ด้านบนจอเพื่อออก,Toca Salir de la partida arriba para abandonar.,Toque em Sair da partida no topo da tela para sair.,Touche Quitter la partie en haut de l'écran pour partir.,"Tippe oben auf Rennen verlassen, um auszusteigen.",Ketuk Keluar balapan di atas layar untuk keluar.
+,"Tap PLAY to race real players, or VS BOTS to practice solo.",,runtime scrape,แตะ เล่น เพื่อแข่งกับผู้เล่นจริง หรือ สู้กับบอท เพื่อฝึกคนเดียว,"Toca JUGAR para competir con jugadores reales, o VS BOTS para practicar solo.","Toque em JOGAR para correr com jogadores reais, ou VS BOTS para treinar sozinho.","Touche JOUER pour affronter de vrais joueurs, ou VS BOTS pour t'entraîner seul.",Tippe SPIELEN für echte Gegner oder VS BOTS zum Üben.,"Ketuk MAIN untuk melawan pemain asli, atau VS BOTS untuk latihan sendiri."
+,Tap SPRINT to run,,runtime scrape,แตะ วิ่ง เพื่อเร่งความเร็ว,Toca CORRER para acelerar,Toque em CORRER para acelerar,Touche SPRINT pour accélérer,Tippe SPRINT zum Rennen,Ketuk LARI untuk berlari
+,This is your profile,,runtime scrape,นี่คือโปรไฟล์ของคุณ,Este es tu perfil,Este é o seu perfil,Voici ton profil,Das ist dein Profil,Ini profilmu
+,Time: {1}:{2},,GhostController.luau:194,เวลา: {1}:{2},Tiempo: {1}:{2},Tempo: {1}:{2},Temps : {1}:{2},Zeit: {1}:{2},Waktu: {1}:{2}
+,TRAIL SHOP,,ShopController.luau:249,ร้านเทรล,TIENDA DE ESTELAS,LOJA DE RASTROS,BOUTIQUE DE TRAÎNÉES,SPUREN-SHOP,TOKO JEJAK
+,Unequip,,ShopController,ถอด,Quitar,Remover,Retirer,Ablegen,Lepas
+,VICTORY!,,RaceOutcomeController.luau:156,ชนะ!,¡VICTORIA!,VITÓRIA!,VICTOIRE !,SIEG!,MENANG!
+,VS BOTS,,PlayButtonController.luau:190,สู้กับบอท,VS BOTS,VS BOTS,VS BOTS,VS BOTS,VS BOT
+,WAITING FOR PLAYERS,,QueueStatusController.luau:168,กำลังรอผู้เล่น,ESPERANDO JUGADORES,AGUARDANDO JOGADORES,EN ATTENTE DE JOUEURS,WARTE AUF SPIELER,MENUNGGU PEMAIN
+,Watching the finish...,,SpectateController.luau:198,กำลังชมจนจบ...,Viendo la meta...,Assistindo à chegada...,Tu regardes l'arrivée...,Du siehst dem Ziel zu...,Menonton garis akhir...
+,WELCOME BONUS,,ReferralRewardController.luau:86,โบนัสต้อนรับ,BONO DE BIENVENIDA,BÔNUS DE BOAS-VINDAS,BONUS DE BIENVENUE,WILLKOMMENSBONUS,BONUS SELAMAT DATANG
+,WELCOME TO THE RACE!,,TutorialController.luau:138,ยินดีต้อนรับสู่การแข่ง!,¡BIENVENIDO A LA CARRERA!,BEM-VINDO À CORRIDA!,BIENVENUE DANS LA COURSE !,WILLKOMMEN BEIM RENNEN!,SELAMAT DATANG DI BALAPAN!
+,Win Rate: {1}%,,ProfileCardController.luau:226,อัตราชนะ: {1}%,Victorias: {1}%,Vitórias: {1}%,Victoires : {1}%,Siegquote: {1}%,Rasio menang: {1}%
+,Win real races for Elo and rank up. Points buy trails in the Shop.,,runtime scrape,ชนะการแข่งจริงเพื่อรับ Elo และเลื่อนขั้น ใช้คะแนนซื้อเทรลในร้านค้า,Gana carreras reales para subir Elo y de rango. Los puntos compran estelas en la Tienda.,Vença corridas reais para ganhar Elo e subir de ranque. Pontos compram rastros na Loja.,Gagne de vraies courses pour de l'Elo et monter en rang. Les points achètent des traînées dans la Boutique.,Gewinne echte Rennen für Elo und steige auf. Punkte kaufen Spuren im Shop.,Menangkan balapan asli untuk Elo dan naik peringkat. Poin membeli jejak di Toko.
+,Wind effect while sprinting,,runtime scrape,เอฟเฟกต์ลมขณะวิ่ง,Efecto de viento al correr,Efeito de vento ao correr,Effet de vent en sprint,Windeffekt beim Sprinten,Efek angin saat berlari
+,Wins: {1},,ProfileCardController.luau:224,ชนะ: {1},Victorias: {1},Vitórias: {1},Victoires : {1},Siege: {1},Menang: {1}
+,You'll need it to clear the harder jumps.,,runtime scrape,จำเป็นสำหรับกระโดดข้ามจุดยาก ๆ,Lo necesitarás para los saltos más difíciles.,Você vai precisar nos saltos mais difíceis.,Tu en auras besoin pour les sauts difficiles.,Den brauchst du für die schweren Sprünge.,Kamu butuh ini untuk lompatan yang sulit.
+,YOUR PARTY: ,,PartyController.luau:126,ปาร์ตี้ของคุณ: ,TU GRUPO: ,SEU GRUPO: ,TON GROUPE : ,DEINE GRUPPE: ,GRUPMU: 
+,YOUR PARTY: {1},,PartyController.luau:126,ปาร์ตี้ของคุณ: {1},TU GRUPO: {1},SEU GRUPO: {1},TON GROUPE : {1},DEINE GRUPPE: {1},GRUPMU: {1}
+,{1}  {2} elo  •  {3} pts,,StatsPillController.luau:44,{1}  {2} elo  •  {3} คะแนน,{1}  {2} elo  •  {3} pts,{1}  {2} elo  •  {3} pts,{1}  {2} elo  •  {3} pts,{1}  {2} Elo  •  {3} Pkt.,{1}  {2} elo  •  {3} poin
+,{1}  ·  {2} elo,,ProfileCardController.luau:215,{1}  ·  {2} elo,{1}  ·  {2} elo,{1}  ·  {2} elo,{1}  ·  {2} elo,{1}  ·  {2} Elo,{1}  ·  {2} elo
+,{1}  ·  {2}% pull odds,,InventoryController.luau:79,{1}  ·  โอกาสออก {2}%,{1}  ·  {2}% de probabilidad,{1}  ·  {2}% de chance,{1}  ·  {2}% de chance,{1}  ·  {2}% Chance,{1}  ·  peluang {2}%
+,{1}  •  {2} elo,,ShopController.luau:190,{1}  •  {2} elo,{1}  •  {2} elo,{1}  •  {2} elo,{1}  •  {2} elo,{1}  •  {2} Elo,{1}  •  {2} elo
+,{1} (Backspace),,QuitMatchController.luau:62,{1} (Backspace),{1} (Backspace),{1} (Backspace),{1} (Retour),{1} (Rücktaste),{1} (Backspace)
+,{1} / {2} waiting,,PlayModePickerController.luau:134,รออยู่ {1} / {2},{1} / {2} esperando,{1} / {2} aguardando,{1} / {2} en attente,{1} / {2} warten,{1} / {2} menunggu
+,{1} challenged you to a 1v1!,,ProfileCardController.luau:244,{1} ท้าคุณแข่ง 1v1!,¡{1} te ha retado a un 1v1!,{1} desafiou você para um 1v1!,{1} t'a défié en 1c1 !,{1} hat dich zu einem 1v1 herausgefordert!,{1} menantangmu 1v1!
+,{1} duplicate(s) refunded {2} points,,GachaController.luau:362,ซ้ำ {1} ชิ้น คืนให้ {2} คะแนน,{1} duplicado(s) devolvieron {2} puntos,{1} duplicata(s) devolveram {2} pontos,{1} doublon(s) remboursé(s) {2} points,{1} Duplikat(e) erstatteten {2} Punkte,{1} duplikat dikembalikan {2} poin
+,{1} invited you to a party!,,PartyController.luau:138,{1} ชวนคุณเข้าปาร์ตี้!,¡{1} te ha invitado a un grupo!,{1} convidou você para um grupo!,{1} t'a invité dans un groupe !,{1} hat dich in eine Gruppe eingeladen!,{1} mengundangmu ke grup!
+,{1} is busy,,PlayButtonController.luau:308,{1} ไม่ว่าง,{1} está ocupado,{1} está ocupado,{1} est occupé,{1} ist beschäftigt,{1} sedang sibuk
+,{1} left the duel.,,ProfileCardController.luau:960,{1} ออกจากการดวลแล้ว,{1} abandonó el duelo.,{1} saiu do duelo.,{1} a quitté le duel.,{1} hat das Duell verlassen.,{1} meninggalkan duel.
+,{1} of {2} racers,,RaceOutcomeController.luau:211,อันดับ {1} จาก {2} คน,{1} de {2} corredores,{1} de {2} corredores,{1} sur {2} coureurs,{1} von {2} Läufern,{1} dari {2} pelari
 ,{1} PLACE,,RaceOutcomeController.luau:184,,,,,,
-,{1} points,,GachaController.luau:445,{1} คะแนน,,,,,
-,{1} raced with you  •  +{2} points,,ReferralRewardController.luau:84,{1} แข่งกับคุณ  •  +{2} คะแนน,,,,,
-,{1} racers still going,,SpectateController.luau:160,เหลือผู้เล่นอีก {1} คน,,,,,
-,{1} waiting,,PlayModePickerController.luau:131,รออยู่ {1} คน,,,,,
-,{1} wants to join your party!,,PartyController.luau:156,{1} ขอเข้าปาร์ตี้ของคุณ!,,,,,
-,{1} · R$,,ShopController.luau:392,{1} · R$,,,,,
-,{1}%  ·  {2}% w/ Lucky,,GachaController.luau:484,{1}%  ·  {2}% เมื่อมี Lucky,,,,,
-,{1}{2} Elo,,RaceOutcomeController.luau:199,{1}{2} Elo,,,,,
-,🍀 Get Lucky — Better Odds,,GachaController.luau:431,🍀 ซื้อ Lucky — เพิ่มโอกาส,,,,,
-,🍀 Lucky Active — Better Odds,,GachaController.luau:424,🍀 Lucky ทำงานอยู่ — โอกาสดีขึ้น,,,,,
-,👑 Get VIP — 2x Points Everywhere,,ShopController.luau:174,👑 ซื้อ VIP — คะแนน 2 เท่าทุกที่,,,,,
-,👑 VIP Active — 2x Points Everywhere,,ShopController.luau:166,👑 VIP ทำงานอยู่ — คะแนน 2 เท่าทุกที่,,,,,
-,🔒 Locked,,InventoryController.luau:117,🔒 ล็อกอยู่,,,,,
-,🔓 Unlock Skip Animation,,GachaController.luau:704,🔓 ปลดล็อกข้ามอนิเมชัน,,,,,
-,🔥 {1} WIN STREAK{2},,RaceOutcomeController.luau:164,🔥 ชนะติดต่อกัน {1} ครั้ง{2},,,,,
+,{1} points,,GachaController.luau:445,{1} คะแนน,{1} puntos,{1} pontos,{1} points,{1} Punkte,{1} poin
+,{1} raced with you  •  +{2} points,,ReferralRewardController.luau:84,{1} แข่งกับคุณ  •  +{2} คะแนน,{1} corrió contigo  •  +{2} puntos,{1} correu com você  •  +{2} pontos,{1} a couru avec toi  •  +{2} points,{1} ist mit dir gelaufen  •  +{2} Punkte,{1} balapan denganmu  •  +{2} poin
+,{1} racers still going,,SpectateController.luau:160,เหลือผู้เล่นอีก {1} คน,Quedan {1} corredores,Restam {1} corredores,Il reste {1} coureurs,Noch {1} Läufer,Tersisa {1} pelari
+,{1} waiting,,PlayModePickerController.luau:131,รออยู่ {1} คน,{1} esperando,{1} aguardando,{1} en attente,{1} warten,{1} menunggu
+,{1} wants to join your party!,,PartyController.luau:156,{1} ขอเข้าปาร์ตี้ของคุณ!,¡{1} quiere unirse a tu grupo!,{1} quer entrar no seu grupo!,{1} veut rejoindre ton groupe !,{1} möchte deiner Gruppe beitreten!,{1} ingin gabung grupmu!
+,{1} · R$,,ShopController.luau:392,{1} · R$,{1} · R$,{1} · R$,{1} · R$,{1} · R$,{1} · R$
+,{1}%  ·  {2}% w/ Lucky,,GachaController.luau:484,{1}%  ·  {2}% เมื่อมี Lucky,{1}%  ·  {2}% con Lucky,{1}%  ·  {2}% com Lucky,{1}%  ·  {2}% avec Lucky,{1}%  ·  {2}% mit Lucky,{1}%  ·  {2}% dengan Lucky
+,{1}{2} Elo,,RaceOutcomeController.luau:199,{1}{2} Elo,{1}{2} Elo,{1}{2} Elo,{1}{2} Elo,{1}{2} Elo,{1}{2} Elo
+,🍀 Get Lucky — Better Odds,,GachaController.luau:431,🍀 ซื้อ Lucky — เพิ่มโอกาส,🍀 Consigue Lucky — Mejores probabilidades,🍀 Comprar Lucky — Mais chances,🍀 Obtenir Lucky — Meilleures chances,🍀 Lucky holen — Bessere Chancen,🍀 Beli Lucky — Peluang lebih baik
+,🍀 Lucky Active — Better Odds,,GachaController.luau:424,🍀 Lucky ทำงานอยู่ — โอกาสดีขึ้น,🍀 Lucky activo — Mejores probabilidades,🍀 Lucky ativo — Mais chances,🍀 Lucky actif — Meilleures chances,🍀 Lucky aktiv — Bessere Chancen,🍀 Lucky aktif — Peluang lebih baik
+,👑 Get VIP — 2x Points Everywhere,,ShopController.luau:174,👑 ซื้อ VIP — คะแนน 2 เท่าทุกที่,👑 Consigue VIP — Puntos x2 en todo,👑 Comprar VIP — Pontos x2 em tudo,👑 Obtenir VIP — Points x2 partout,👑 VIP holen — Überall doppelte Punkte,👑 Beli VIP — Poin 2x di mana saja
+,👑 VIP Active — 2x Points Everywhere,,ShopController.luau:166,👑 VIP ทำงานอยู่ — คะแนน 2 เท่าทุกที่,👑 VIP activo — Puntos x2 en todo,👑 VIP ativo — Pontos x2 em tudo,👑 VIP actif — Points x2 partout,👑 VIP aktiv — Überall doppelte Punkte,👑 VIP aktif — Poin 2x di mana saja
+,🔒 Locked,,InventoryController.luau:117,🔒 ล็อกอยู่,🔒 Bloqueado,🔒 Bloqueado,🔒 Verrouillé,🔒 Gesperrt,🔒 Terkunci
+,🔓 Unlock Skip Animation,,GachaController.luau:704,🔓 ปลดล็อกข้ามอนิเมชัน,🔓 Desbloquear saltar animación,🔓 Desbloquear pular animação,🔓 Débloquer passer l'animation,🔓 Animation überspringen freischalten,🔓 Buka lewati animasi
+,🔥 {1} WIN STREAK{2},,RaceOutcomeController.luau:164,🔥 ชนะติดต่อกัน {1} ครั้ง{2},🔥 RACHA DE {1} VICTORIAS{2},🔥 SEQUÊNCIA DE {1} VITÓRIAS{2},🔥 SÉRIE DE {1} VICTOIRES{2},🔥 {1} SIEGE IN FOLGE{2},🔥 {1} KEMENANGAN BERUNTUN{2}
