@@ -25,6 +25,7 @@ local Players = game:GetService("Players")
 local Localization = {}
 
 local translator: Translator? = nil
+local fallbackTranslator: Translator? = nil
 
 -- The SOURCE string every localized object was last given.
 --
@@ -38,16 +39,15 @@ local translator: Translator? = nil
 -- rule Widgets' own per-button registries follow.
 local sources: { [Instance]: string } = setmetatable({}, { __mode = "k" }) :: any
 
+-- Forward-declared: the exact-locale translator is tried first, then the
+-- region-less one (see the fallback note in Init).
+local translateWith: (Instance, string, Translator?) -> string?
+
 local function translate(object: Instance, source: string): string
-	if not translator then
-		return source
-	end
 	-- Translate throws on a malformed entry rather than returning the source, and
-	-- a localization fault must never take a HUD label down with it.
-	local ok, result = pcall(function()
-		return (translator :: Translator):Translate(object, source)
-	end)
-	return if ok and typeof(result) == "string" and result ~= "" then result else source
+	-- a localization fault must never take a HUD label down with it -- pcall lives
+	-- in translateWith.
+	return translateWith(object, source, translator) or translateWith(object, source, fallbackTranslator) or source
 end
 
 -- Sets `object.Text` to the localized form of `source`, and remembers the pairing
@@ -93,8 +93,43 @@ function Localization.Bind(object: TextLabel | TextButton)
 	end)
 end
 
+-- A second translator for the player's LANGUAGE, ignoring the region.
+--
+-- Locale matching in a LocalizationTable is EXACT, not a fallback -- measured: a
+-- value stored under "th" is invisible to a "th-th" translator, and the reverse.
+-- Roblox reports full codes (this machine reports en-us), so the table is keyed
+-- that way, but a table filled with short codes -- by hand, by an export, by a
+-- future contributor -- would silently resolve to English everywhere with
+-- nothing in the log to say why.
+--
+-- So the region-less translator is kept as a backstop and consulted only when
+-- the exact one has nothing. Costs one extra resolve at startup.
+function translateWith(object: Instance, source: string, using: Translator?): string?
+	if not using then
+		return nil
+	end
+	local ok, result = pcall(function()
+		return using:Translate(object, source)
+	end)
+	if ok and typeof(result) == "string" and result ~= "" and result ~= source then
+		return result
+	end
+	return nil
+end
+
 function Localization.Init()
 	task.spawn(function()
+		local locale = LocalizationService.RobloxLocaleId
+		local language = tostring(locale):match("^(%a+)")
+		if language and language ~= locale then
+			local okShort, short = pcall(function()
+				return LocalizationService:GetTranslatorForLocaleAsync(language)
+			end)
+			if okShort then
+				fallbackTranslator = short
+			end
+		end
+
 		local ok, result = pcall(function()
 			return LocalizationService:GetTranslatorForPlayerAsync(Players.LocalPlayer)
 		end)
