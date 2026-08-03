@@ -100,6 +100,24 @@ local function translate(stageFolder: Instance, offset: Vector3, skip: BasePart?
 	end
 end
 
+-- The green wall across the start of Stage1-4.
+--
+-- It was a touch-to-queue gate: walk into it in the lobby era and you joined a
+-- race (StageService binds onStartTouched to the "StartLine" tag). Now that
+-- every stage is a sealed room a player is teleported into, nobody can reach
+-- one on foot, so the gate is unreachable functionality -- and it renders as a
+-- head-height green slab straight across the first jump.
+--
+-- Removed at REQUIRE time, before StageService's Init runs bindAll("StartLine"),
+-- so no handler is ever bound to a part that is about to disappear.
+local function removeStartGate(stageFolder: Instance)
+	for _, part in stageFolder:GetDescendants() do
+		if part:IsA("BasePart") and part.Name == "StartLine" then
+			part:Destroy()
+		end
+	end
+end
+
 local function place(stageFolder: Instance, column: number, row: number)
 	local void = findVoid(stageFolder)
 	if not void then
@@ -143,6 +161,7 @@ local function placeAll()
 		local slot = SLOTS[stage.Id]
 		local stageFolder = stagesFolder:FindFirstChild(stage.Id)
 		if slot and stageFolder then
+			removeStartGate(stageFolder)
 			place(stageFolder, slot[1], slot[2])
 		end
 	end

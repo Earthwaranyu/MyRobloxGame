@@ -348,14 +348,6 @@ local function buildCounter(
 	)
 end
 
--- A wall-mounted screen with a bezel and a faintly glowing panel.
-local function buildScreen(parent: Folder, cf: CFrame, w: number, h: number)
-	decor(parent, Vector3.new(w + 4, h + 4, 3), cf, Color3.fromRGB(34, 32, 34), Enum.Material.SmoothPlastic)
-	local panel =
-		decor(parent, Vector3.new(w, h, 1), cf * CFrame.new(0, 0, 1.2), Color3.fromRGB(38, 46, 62), Enum.Material.Neon)
-	panel.Transparency = 0.15
-end
-
 -- A framed picture.
 local function buildFrame(parent: Folder, cf: CFrame, size: number, accent: Color3)
 	decor(parent, Vector3.new(size, size * 1.25, 2.5), cf, Color3.fromRGB(86, 62, 42), Enum.Material.Wood)
@@ -418,7 +410,6 @@ local function furnish(
 	courseMax: Vector3,
 	theme: RoomTheme
 )
-	local rng = Random.new(math.floor(room.minX * 5 + room.minZ * 11))
 	local width, depth = room.maxX - room.minX, room.maxZ - room.minZ
 	local alongX = width >= depth
 	local runLength = if alongX then width else depth
@@ -476,12 +467,10 @@ local function furnish(
 			if index == 1 then
 				buildCounter(parent, CFrame.new(x, floorY, z), math.min(180, width * 0.3), 46, 40, theme)
 			elseif index == 2 then
-				buildScreen(
-					parent,
-					CFrame.new(x, floorY + height * 0.5, z) * CFrame.Angles(0, rng:NextNumber() * 2 * math.pi, 0),
-					96,
-					56
-				)
+				-- Was a wall-mounted screen. It read as a flat black box stuck to
+				-- the wall rather than a television, so the corner takes a plant
+				-- instead -- the one prop in the set that did read correctly.
+				buildPlant(parent, x, floorY, z, 3.1)
 			elseif index == 3 then
 				buildPlant(parent, x, floorY, z, 2.6)
 			else

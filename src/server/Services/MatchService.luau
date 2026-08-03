@@ -1651,6 +1651,14 @@ local function finishBotMatch(player: Player, botMatch: { stageId: string, bot: 
 	playerBusy[userId] = nil
 	lastCheckpoint[userId] = nil
 	LobbyService.SetPlayerState(player, "Lobby")
+	-- ...and actually put them there. Setting the STATE alone left a finished
+	-- racer standing on the course they had just completed, which the ranked and
+	-- duel paths never did (they teleport, see settleWin). Solo modes were the
+	-- two that only did half of it.
+	local lobbyCFrame = getLobbySpawnCFrame()
+	if lobbyCFrame then
+		teleportToStageSpawn(player, lobbyCFrame)
+	end
 	BotService.DespawnBot(botMatch.bot)
 
 	local pointsAwarded = 0
@@ -1674,6 +1682,14 @@ local function finishPracticeMatch(player: Player, match: { stageId: string, sta
 	playerBusy[userId] = nil
 	lastCheckpoint[userId] = nil
 	LobbyService.SetPlayerState(player, "Lobby")
+	-- ...and actually put them there. Setting the STATE alone left a finished
+	-- racer standing on the course they had just completed, which the ranked and
+	-- duel paths never did (they teleport, see settleWin). Solo modes were the
+	-- two that only did half of it.
+	local lobbyCFrame = getLobbySpawnCFrame()
+	if lobbyCFrame then
+		teleportToStageSpawn(player, lobbyCFrame)
+	end
 
 	local elapsed = os.clock() - match.startTime
 	LeaderboardService.SubmitTime(player, match.stageId, elapsed)
