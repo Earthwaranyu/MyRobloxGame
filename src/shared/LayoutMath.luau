@@ -273,6 +273,19 @@ function LayoutMath.ActionRow(view: View): ActionRow
 	return { Widths = widths, Positions = positions, Total = total }
 end
 
+-- Authored heights of the bottom cluster's rows, bottom-up: PLAY, then the
+-- VS BOTS / PRACTICE pair, then the SPRINT / ability pair.
+--
+-- Single source of truth because BottomRowY has to know how tall the rows
+-- BELOW a given row are, and those rows belong to three different controllers
+-- (PlayButtonController, SprintController, AbilityController). A row that
+-- guessed at its neighbours' heights is exactly how the cluster ended up
+-- overlapping -- see the arithmetic in BottomRowY.
+--
+-- A controller changing its own button's height has to change it here too;
+-- the HUD-wide overlap check in tests/hud_sweep.luau is what catches it if not.
+LayoutMath.BottomRowHeights = { 64, 44, 44 }
+
 -- y of the nth row up from the bottom (0 = bottom-most), for the PLAY / VS BOTS
 -- / SPRINT cluster.
 --
@@ -307,7 +320,26 @@ function LayoutMath.BottomRowY(view: View, indexFromBottom: number, rowHeight: n
 		floorY = math.min(floorY, LayoutMath.MoveAreaTop(view))
 	end
 
-	return math.round(floorY - (indexFromBottom + 1) * rowHeight - indexFromBottom * gap)
+	-- Every row BELOW this one is measured at its real height, not at this
+	-- caller's.
+	--
+	-- The old form was `(indexFromBottom + 1) * rowHeight`, which silently
+	-- assumed the whole stack is uniform. It isn't: PLAY is 64pt and every row
+	-- above it is 44pt, so the two 44pt rows each reserved 44pt for the 64pt
+	-- button underneath and sat 20pt too low. Measured at 1285x747: VS BOTS and
+	-- PRACTICE both cut 12pt into PLAY.
+	--
+	-- This is the same failure RailY was rewritten to fix, in the other
+	-- direction -- a position derived from an ASSUMED row height rather than the
+	-- height rows actually have. The heights live in BottomRowHeights so the
+	-- three controllers that own these buttons cannot disagree about them, the
+	-- same way ActionRow already owns the phone row's widths.
+	local stacked = rowHeight
+	for below = 0, indexFromBottom - 1 do
+		stacked += LayoutMath.Tap(view, LayoutMath.BottomRowHeights[below + 1] or LayoutMath.MinTouchTarget)
+	end
+
+	return math.round(floorY - stacked - indexFromBottom * gap)
 end
 
 LayoutMath.PhoneMaxWidth = 800

@@ -4,6 +4,7 @@ local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
+local Countdown = require(Shared.Countdown)
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
@@ -372,7 +373,10 @@ local function buildUI()
 		end
 
 		container.Visible = true
-		local shownSecond = math.ceil(remaining)
+		-- Shared with WaveClockController's tab, which counts down to this same
+		-- instant -- the two disagreed by a second until both rounded the same
+		-- way. See Shared.Countdown.
+		local shownSecond = Countdown.Seconds(remaining)
 		numberLabel.Text = tostring(shownSecond)
 		if shownSecond ~= lastShownSecond then
 			lastShownSecond = shownSecond

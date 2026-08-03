@@ -7,6 +7,11 @@ local RarityColors: { [string]: Color3 } = {
 	Rare = Color3.fromRGB(84, 160, 255),
 	Epic = Color3.fromRGB(191, 110, 255),
 	Legendary = Color3.fromRGB(255, 176, 59),
+	-- Deliberately a hot rose-red rather than "brighter gold": Mythic sits one
+	-- step above Legendary, and a lighter shade of the same hue reads as a
+	-- variant of it at a glance instead of a tier above it. This is the only
+	-- rarity color that isn't adjacent to any other on the wheel.
+	Mythic = Color3.fromRGB(255, 78, 120),
 }
 
 return RarityColors

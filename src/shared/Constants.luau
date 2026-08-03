@@ -19,6 +19,22 @@ return {
 		KFactor = 32,
 	},
 
+	Gacha = {
+		-- Pulls without a Mythic before the next one is guaranteed.
+		--
+		-- Shared rather than living in GachaService because the client draws
+		-- the pity BAR against it (see GachaController). A second copy on the
+		-- client would let the goal players are shown drift away from the one
+		-- actually enforced -- and of every number in this system, this is the
+		-- one they will be watching.
+		--
+		-- Round on purpose. At Phoenix's 0.1% base rate the expected wait is
+		-- 1000 pulls, so nobody reaches a Mythic by rolling and this threshold
+		-- is the real acquisition path; the bar's whole job is to be readable
+		-- at a glance, and "23 / 100" reads in a way "23 / 90" does not.
+		MythicPityPulls = 100,
+	},
+
 	Leaderboard = {
 		TopCount = 100,
 	},

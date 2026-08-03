@@ -22,6 +22,8 @@ local Stages = require("./Stages")
 local StageLayout = require("./StageLayout")
 local LayoutMath = require("./LayoutMath")
 local Abilities = require("./Abilities")
+local RarityOrder = require("./RarityOrder")
+local Countdown = require("./Countdown")
 local Weather = require("./Weather")
 local ProfileSchema = require("./ProfileSchema")
 
@@ -569,6 +571,124 @@ do
 		LayoutMath.MinSaneViewport < 320,
 		("%d"):format(LayoutMath.MinSaneViewport)
 	)
+end
+
+-- Every stacked HUD row, checked for the one property the stacking arithmetic
+-- exists to provide: rows do not sit on each other.
+--
+-- Both halves of this were broken at once and neither was caught, because
+-- nothing asserted stacking anywhere -- tests/hud_sweep.luau only compares
+-- controls INSIDE a named panel, and each of these rows lives in its own
+-- top-level ScreenGui. Measured at 1285x747 on a real client: My Profile
+-- through Inventory by 170x32, and both VS BOTS and PRACTICE 12pt into PLAY.
+print("\n-- HUD row stacking --")
+do
+	-- The shapes hud_sweep sweeps: landscape phone, short wide phone, two
+	-- tablets, two desktops, and both portrait sizes.
+	local SHAPES = {
+		{ Width = 1920, Height = 1080, Touch = false },
+		{ Width = 1285, Height = 747, Touch = false },
+		{ Width = 1280, Height = 720, Touch = false },
+		{ Width = 801, Height = 334, Touch = true },
+		{ Width = 667, Height = 375, Touch = true },
+		{ Width = 706, Height = 579, Touch = true },
+		{ Width = 375, Height = 667, Touch = true },
+		{ Width = 320, Height = 568, Touch = true },
+	}
+
+	for _, view in SHAPES do
+		local tag = ("%dx%d"):format(view.Width, view.Height)
+
+		-- LEFT RAIL: Leaderboard(1), Inventory(2), My Profile(3) all share the
+		-- same x and width, so any pair of adjacent slots overlapping is a
+		-- button that cannot be pressed.
+		local row = LayoutMath.Tap(view, LayoutMath.RailRow)
+		for slot = 0, 3 do
+			local y = LayoutMath.RailY(view, slot)
+			local nextY = LayoutMath.RailY(view, slot + 1)
+			check(
+				("%s: rail slot %d clears slot %d"):format(tag, slot, slot + 1),
+				y + row <= nextY,
+				("%d + %d vs %d"):format(y, row, nextY)
+			)
+		end
+
+		-- BOTTOM CLUSTER: PLAY (64pt) with two 44pt rows above it. Every row is
+		-- given the same width so floorY is identical for all three and the
+		-- stacking arithmetic is the only thing under test.
+		local heights = LayoutMath.BottomRowHeights
+		local belowTop
+		for index = 0, #heights - 1 do
+			local height = LayoutMath.Tap(view, heights[index + 1])
+			local y = LayoutMath.BottomRowY(view, index, height, 220)
+			if belowTop then
+				check(
+					("%s: bottom row %d clears the row under it"):format(tag, index),
+					y + height <= belowTop,
+					("bottom %d vs top %d"):format(y + height, belowTop)
+				)
+			end
+			belowTop = y
+		end
+	end
+
+	-- The regression itself, stated as a number rather than only as a property:
+	-- a 44pt row directly above the 64pt PLAY button has to clear all 64 of it,
+	-- not the 44 it would reserve if it assumed the stack were uniform.
+	local desktop = { Width = 1280, Height = 720, Touch = false }
+	local playHeight = LayoutMath.Tap(desktop, LayoutMath.BottomRowHeights[1])
+	local rowHeight = LayoutMath.Tap(desktop, LayoutMath.BottomRowHeights[2])
+	local playY = LayoutMath.BottomRowY(desktop, 0, playHeight, 220)
+	local rowY = LayoutMath.BottomRowY(desktop, 1, rowHeight, 220)
+	check(
+		"the row above PLAY reserves PLAY's real height",
+		playY - (rowY + rowHeight) == LayoutMath.Px(desktop, LayoutMath.RailGap),
+		("gap %d, expected %d"):format(playY - (rowY + rowHeight), LayoutMath.Px(desktop, LayoutMath.RailGap))
+	)
+	check(
+		"PLAY is genuinely taller than the rows above it",
+		playHeight > rowHeight,
+		("%d vs %d"):format(playHeight, rowHeight)
+	)
+end
+
+-- The wave tab and the queue card count down to the same instant and must show
+-- the same number while doing it. They didn't: one displayed math.floor of the
+-- remaining seconds and the other math.ceil, so at 51.4s left the screen read
+-- "NEXT WAVE 0:51" beside a "52". Both now round through Shared.Countdown, and
+-- these are the assertions that keep them agreeing.
+print("\n-- countdown rounding --")
+do
+	check(
+		"a countdown ceilings rather than floors",
+		Countdown.Seconds(51.4) == 52,
+		("%d"):format(Countdown.Seconds(51.4))
+	)
+	check("an exact second is not bumped up", Countdown.Seconds(30) == 30, ("%d"):format(Countdown.Seconds(30)))
+	check(
+		"a passed deadline reads zero, not negative",
+		Countdown.Seconds(-3) == 0,
+		("%d"):format(Countdown.Seconds(-3))
+	)
+	check("zero formats as a clock", Countdown.Clock(0) == "0:00", Countdown.Clock(0))
+
+	-- Decomposing before rounding is the trap: ceil(59.6) is 60, and minutes
+	-- taken from the raw remainder would print the impossible "0:60".
+	check("ceiling across a minute rolls over", Countdown.Clock(59.6) == "1:00", Countdown.Clock(59.6))
+	check("just under a minute stays in seconds", Countdown.Clock(58.6) == "0:59", Countdown.Clock(58.6))
+
+	-- The property that actually broke: whatever the two cards display, they
+	-- describe the same number of seconds.
+	for _, remaining in { 0.1, 0.5, 1, 7.2, 30.9, 51.4, 58.6, 59.4, 59.6, 60, 61.2, 119.7, 121 } do
+		local bare = Countdown.Seconds(remaining)
+		local minutes, seconds = Countdown.Clock(remaining):match("(%d+):(%d+)")
+		local fromClock = tonumber(minutes) * 60 + tonumber(seconds)
+		check(
+			("%.1fs left: the clock and the bare number agree"):format(remaining),
+			fromClock == bare,
+			("%s vs %d"):format(Countdown.Clock(remaining), bare)
+		)
+	end
 
 	-- Both of these come from measuring the actual device emulator, which
 	-- reported 801x334 -- not from reasoning about what a phone "should" be.
@@ -972,6 +1092,95 @@ do
 		math.abs(StageLayout.LaunchArcHeight(50, 0.2) - (10 + 2500 / (2 * 196.2))) < 1e-9,
 		("%.2f"):format(StageLayout.LaunchArcHeight(50, 0.2))
 	)
+
+	-- Phoenix's landing settle is the newest thing in the game that pushes a
+	-- player upward, and the headroom above is only ~6.7 studs. Nothing about
+	-- the ability's PURPOSE requires height -- it's a rescue, not a launch --
+	-- so a future buff to that settle would be an easy, invisible way to make
+	-- checkpoints sail-over-able again. Held to the same ceiling as everything
+	-- else that launches.
+	local phoenix
+	for _, ability in Abilities do
+		if ability.Id == "Phoenix" then
+			phoenix = ability
+		end
+	end
+	check("Phoenix exists and settles upward", phoenix ~= nil and (phoenix.UpwardBoost or 0) > 0)
+
+	local phoenixPeak = hip + StageLayout.LaunchArcHeight(phoenix.UpwardBoost, phoenix.DurationSeconds)
+	check(
+		"capture volume clears a Phoenix settle",
+		capture > phoenixPeak,
+		("peak %.1f vs volume %.1f"):format(phoenixPeak, capture)
+	)
+	check(
+		"a Phoenix settle stays well under a real launch",
+		phoenixPeak < meteorPeak,
+		("phoenix %.1f < meteor %.1f"):format(phoenixPeak, meteorPeak)
+	)
+end
+
+-- The gacha's odds ARE these weights -- GachaController prints each one
+-- straight onto the odds screen as a percentage, and GachaService rolls
+-- against their running total. Both readings are only true while each column
+-- sums to 100, which is a property nothing enforces at runtime: a tier added
+-- without re-balancing the others would silently make every displayed
+-- percentage a lie while the game carried on working.
+print("\n-- gacha pool --")
+do
+	local base, lucky = 0, 0
+	local poolSize = 0
+	for _, ability in Abilities do
+		if ability.PullWeight then
+			poolSize += 1
+			base += ability.PullWeight
+			lucky += ability.LuckyPullWeight or ability.PullWeight
+		end
+	end
+
+	-- Summed in floating point from values like 58.9 and 0.1, so compared with
+	-- a tolerance rather than for equality.
+	check("base odds sum to 100", math.abs(base - 100) < 1e-9, ("%.4f"):format(base))
+	check("lucky odds sum to 100", math.abs(lucky - 100) < 1e-9, ("%.4f"):format(lucky))
+
+	check("the free ability is not in the pool", poolSize == #Abilities - 1, ("%d of %d"):format(poolSize, #Abilities))
+
+	-- RarityOrder backs the ten-pull floor, the pity check and the reveal
+	-- ordering. A rarity missing from it ranks 0 -- which would sort the best
+	-- pull of a ten-pull FIRST and let it be buried under nine Commons.
+	for _, ability in Abilities do
+		check(
+			("%s's rarity (%s) has a rank"):format(ability.Id, ability.Rarity),
+			RarityOrder.Rank[ability.Rarity] ~= nil
+		)
+	end
+
+	-- The guarantee is only meaningful if something can actually satisfy it.
+	local floorCount, mythicCount = 0, 0
+	for _, ability in Abilities do
+		if ability.PullWeight then
+			if RarityOrder.Of(ability.Rarity) >= RarityOrder.TenPullFloor then
+				floorCount += 1
+			end
+			if RarityOrder.Of(ability.Rarity) >= RarityOrder.Rank.Mythic then
+				mythicCount += 1
+			end
+		end
+	end
+	check("something in the pool can satisfy the ten-pull floor", floorCount > 0, ("%d abilities"):format(floorCount))
+	check("something in the pool can satisfy the pity", mythicCount > 0, ("%d abilities"):format(mythicCount))
+
+	-- Phoenix is the rarest thing in the game; if any tier ever outranks it
+	-- without being rarer, the ladder has stopped meaning anything.
+	for _, ability in Abilities do
+		if ability.PullWeight and ability.Id ~= "Phoenix" then
+			check(
+				("Phoenix is rarer than %s"):format(ability.Id),
+				(ability.PullWeight :: number) > 0.1,
+				("%s at %s%%"):format(ability.Id, tostring(ability.PullWeight))
+			)
+		end
+	end
 end
 
 print("\n-- endpoint convention --")

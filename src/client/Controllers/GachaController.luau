@@ -4,8 +4,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local Abilities = require(Shared.Abilities)
+local Constants = require(Shared.Constants)
 local Net = require(Shared.Net)
 local RarityColors = require(Shared.RarityColors)
+local RarityOrder = require(Shared.RarityOrder)
 local RemoteNames = require(Shared.RemoteNames)
 
 local AbilityIcons = require(script.Parent.Parent.AbilityIcons)
@@ -54,9 +56,29 @@ end
 local ODDS_HEADING_H = 20
 local ODDS_SUBTITLE_H = 18
 
--- Top of the drop-rates block: below the skip-gacha row (row 3).
+-- The pity block: a header line, the bar itself, and a caption under it.
+--
+-- Sits directly under the pull buttons and ABOVE the drop rates, because it
+-- answers a different question than the odds do. Odds tell a player what one
+-- pull is worth; the pity bar tells them what the pulls they have ALREADY made
+-- are worth -- which is the number that decides whether they pull again now or
+-- come back later. Roblox's odds-disclosure requirement is about the former, so
+-- nothing here displaces it: the rates still sit in view of the buttons.
+local PITY_LABEL_H = 18
+local PITY_TRACK_H = 14
+local PITY_CAPTION_H = 16
+
+local function pityTop(): number
+	return gachaRowY(3) + GACHA_ROW_GAP + Responsive.Tap(32) + Responsive.Px(14)
+end
+
+local function pityBlockHeight(): number
+	return PITY_LABEL_H + PITY_TRACK_H + PITY_CAPTION_H + Responsive.Px(8)
+end
+
+-- Top of the drop-rates block: below the pity block.
 local function oddsTop(): number
-	return gachaRowY(3) + GACHA_ROW_GAP + Responsive.Tap(32) + Responsive.Px(12)
+	return pityTop() + pityBlockHeight() + Responsive.Px(10)
 end
 
 -- Reference geometry. Both heights are maximums -- Responsive.PlacePanel clamps
@@ -73,16 +95,19 @@ local RARITY_COLOR = RarityColors
 -- beat that separates a premium gacha reveal from a flat one: a reel/flip
 -- that reveals randomly (or worst-first) wastes the one moment the player
 -- is most primed to feel something.
-local RARITY_RANK = { Common = 1, Rare = 2, Epic = 3, Legendary = 4 }
+-- Ranking now lives in Shared/RarityOrder, alongside the ten-pull floor and
+-- the pity counter that read the same numbers server-side -- see that module
+-- for why a private copy here was a hazard.
+local RARITY_RANK = RarityOrder.Rank
 
 -- How strong the landing flash (see flashRarity) is per rarity -- 0 means
 -- "no flash", scaling up so a Legendary pull visibly hits harder than a
 -- Common one instead of every pull getting identical treatment.
-local RARITY_FLASH_STRENGTH = { Common = 0, Rare = 0.15, Epic = 0.35, Legendary = 0.55 }
+local RARITY_FLASH_STRENGTH = { Common = 0, Rare = 0.15, Epic = 0.35, Legendary = 0.55, Mythic = 0.8 }
 -- Extra beat held on higher rarities so the reveal doesn't just blur past
 -- them at the same pace as a Common -- the "sound/light lands, then a beat
 -- before moving on" pacing the research called out.
-local RARITY_HOLD_SECONDS = { Common = 0, Rare = 0.1, Epic = 0.35, Legendary = 0.7 }
+local RARITY_HOLD_SECONDS = { Common = 0, Rare = 0.1, Epic = 0.35, Legendary = 0.7, Mythic = 1.2 }
 
 local CARD_WIDTH = 150
 local CARD_HEIGHT = 190
@@ -101,6 +126,42 @@ local panel: CanvasGroup
 local openMainPanel: () -> ()
 local closeMainPanel: () -> ()
 local pointsLabel: TextLabel
+
+-- Pity bar state. `pityCount` is mirrored from the server rather than counted
+-- locally: the client never sees a pull it didn't ask for, but it also must not
+-- become the authority on a number the server enforces -- it arrives with the
+-- profile on open and rides along with every pull result.
+local pityCount = 0
+local ownsAllMythics = false
+-- Which Mythics the player holds, keyed by ability id. Only Mythic ids are
+-- ever put in here; it exists purely to answer ownsEveryMythic().
+local ownedMythics: { [string]: boolean } = {}
+local pityFill: Frame
+local pityCountLabel: TextLabel
+local pityCaptionLabel: TextLabel
+local refreshPityBar: () -> ()
+
+-- Every Mythic in the pool, so the bar can tell "still chasing" apart from
+-- "already collected". With a one-item Mythic tier the distinction matters
+-- more than it looks: once Phoenix is owned, hitting the guarantee awards a
+-- DUPLICATE (a 50-point refund, see GachaService.grantPull), so a bar still
+-- promising "guaranteed Mythic" would be promising something the player
+-- already has. Built from the same PullWeight gate the server's pool uses.
+local MYTHIC_IDS: { string } = {}
+for _, info in Abilities do
+	if info.PullWeight and RarityOrder.Of(info.Rarity) >= RarityOrder.Rank.Mythic then
+		table.insert(MYTHIC_IDS, info.Id)
+	end
+end
+
+local function ownsEveryMythic(): boolean
+	for _, id in MYTHIC_IDS do
+		if not ownedMythics[id] then
+			return false
+		end
+	end
+	return #MYTHIC_IDS > 0
+end
 local luckyButton: TextButton
 -- Mirrors ShopController's vipOwned -- Active = false alone was assumed to
 -- be enough to block the click, but the click handler below fired
@@ -373,7 +434,27 @@ local function showSummary(results)
 	setRevealClickOutsideEnabled(true)
 end
 
-local function playReveal(results)
+-- `pullsSinceMythic` is the server's post-pull count, sent alongside the
+-- results (see GachaService.doPulls). Applied immediately rather than after the
+-- reveal finishes: the reveal panel covers the bar while it plays, so by the
+-- time the player can see it again it is already correct, and a mid-reveal
+-- update costs nothing.
+local function playReveal(results, pullsSinceMythic: number?)
+	if pullsSinceMythic then
+		pityCount = pullsSinceMythic
+		-- A Mythic in this batch is now owned, whether it was new or a
+		-- duplicate -- either way the "still chasing" state may have just
+		-- ended, and waiting for the next panel open to notice would leave the
+		-- bar promising a guarantee the player has already collected.
+		for _, result in results do
+			if RarityOrder.Of(result.Rarity) >= RarityOrder.Rank.Mythic then
+				ownedMythics[result.Id] = true
+			end
+		end
+		ownsAllMythics = ownsEveryMythic()
+		refreshPityBar()
+	end
+
 	summaryLabel.Visible = false
 	continueButton.Visible = false
 	progressLabel.Visible = false
@@ -435,6 +516,36 @@ local function refreshMonetizationButtons()
 	end
 end
 
+function refreshPityBar()
+	if not pityFill then
+		return
+	end
+
+	local goal = Constants.Gacha.MythicPityPulls
+	local count = math.clamp(pityCount, 0, goal)
+	pityFill.Size = UDim2.fromScale(count / goal, 1)
+	pityCountLabel.Text = ("%d / %d"):format(count, goal)
+
+	if ownsAllMythics then
+		-- Nothing left to chase: say so rather than counting toward a guarantee
+		-- that would pay out a duplicate.
+		pityCaptionLabel.Text = "Every Mythic collected — pulls now count toward duplicates."
+		pityCountLabel.TextColor3 = Theme.Color.TextSecondary
+		return
+	end
+
+	pityCountLabel.TextColor3 = RarityColors.Mythic
+	local remaining = goal - count
+	if remaining <= 0 then
+		pityCaptionLabel.Text = "Your next pull is a guaranteed Mythic."
+	else
+		pityCaptionLabel.Text = ("%d %s until a guaranteed Mythic."):format(
+			remaining,
+			if remaining == 1 then "pull" else "pulls"
+		)
+	end
+end
+
 function GachaController.Refresh()
 	local profile = Net.GetRemoteFunction(RemoteNames.GetProfile):InvokeServer()
 	if not profile then
@@ -444,7 +555,28 @@ function GachaController.Refresh()
 	skipAnimationEnabled = profile.SkipGachaAnimationEnabled or false
 	pointsLabel.Text = ("%d points"):format(profile.Points)
 
+	pityCount = profile.PullsSinceMythic or 0
+	table.clear(ownedMythics)
+	for _, id in profile.OwnedAbilities or {} do
+		ownedMythics[id] = true
+	end
+	ownsAllMythics = ownsEveryMythic()
+	refreshPityBar()
+
 	refreshMonetizationButtons()
+end
+
+-- Odds are whole numbers for every tier except Mythic, which sits at 0.1%
+-- (0.6% with Lucky). The old "%d%%" here truncated both of those to a flat
+-- "0%" -- an odds screen stating that the rarest item in the game is
+-- impossible to obtain, which is worse than showing nothing at all. Whole
+-- numbers still print without a pointless ".0" tail, so nothing about the
+-- existing four rows changes.
+local function formatOdds(weight: number): string
+	if weight == math.floor(weight) then
+		return ("%d"):format(weight)
+	end
+	return ("%.1f"):format(weight)
 end
 
 local function buildOddsRow(info: Abilities.AbilityInfo, layoutOrder: number): Frame
@@ -481,7 +613,7 @@ local function buildOddsRow(info: Abilities.AbilityInfo, layoutOrder: number): F
 	local baseOdds = info.PullWeight or 0
 	local luckyOdds = info.LuckyPullWeight or baseOdds
 	local oddsLabel = Widgets.Label(
-		("%d%%  ·  %d%% w/ Lucky"):format(baseOdds, luckyOdds),
+		("%s%%  ·  %s%% w/ Lucky"):format(formatOdds(baseOdds), formatOdds(luckyOdds)),
 		UDim2.new(0.45, -10, 1, 0),
 		UDim2.new(0.55, 0, 0, 0),
 		{
@@ -711,6 +843,73 @@ local function buildMainPanel()
 		end)
 	end
 	refreshSkipPurchaseRow()
+
+	-- THE PITY BAR.
+	--
+	-- Genshin famously does NOT show this, and its players built a cottage
+	-- industry of third-party trackers to count it by hand -- the request to
+	-- surface it in-game is one of that community's most-upvoted ever. The
+	-- reason to show it is the oldest rule in interface design (visibility of
+	-- system status), and the reason it is worth the panel space is narrower:
+	-- a counter a player can watch climb turns a run of bad pulls from a series
+	-- of dead ends into progress toward something, which is the difference
+	-- between "this is rigged" and "I'm 60 in".
+	--
+	-- Shown as a COUNT (23 / 100) rather than a percentage, and with the
+	-- remaining pulls spelled out underneath. A percentage is the thing players
+	-- cannot act on -- "77 more pulls" is a decision, "23%" is trivia.
+	--
+	-- Deliberately NO "soft pity" hot zone marked on the track, which is the
+	-- one flourish the research kept showing: those mark where the rate ramps
+	-- up, and this game has no ramp. Drawing a zone that doesn't exist would be
+	-- the exact trust problem the bar is here to solve.
+	local pityHeader =
+		Widgets.Label("MYTHIC PITY", UDim2.new(0.5, 0, 0, PITY_LABEL_H), UDim2.fromOffset(0, pityTop()), {
+			TextSize = 13,
+			Color = Theme.Color.TextPrimary,
+			Align = Enum.TextXAlignment.Left,
+		})
+	pityHeader.Parent = content
+
+	pityCountLabel = Widgets.Label(
+		"",
+		UDim2.new(0.5, 0, 0, PITY_LABEL_H),
+		UDim2.new(0.5, 0, 0, pityTop()),
+		{ TextSize = 13, Color = RarityColors.Mythic, Align = Enum.TextXAlignment.Right }
+	)
+	pityCountLabel.Parent = content
+
+	local pityTrack = Instance.new("Frame")
+	pityTrack.Name = "PityTrack"
+	pityTrack.Size = UDim2.new(1, 0, 0, PITY_TRACK_H)
+	pityTrack.Position = UDim2.fromOffset(0, pityTop() + PITY_LABEL_H)
+	pityTrack.BackgroundColor3 = Theme.Color.PanelLight
+	pityTrack.BorderSizePixel = 0
+	pityTrack.Parent = content
+
+	local trackCorner = Instance.new("UICorner")
+	trackCorner.CornerRadius = UDim.new(0, PITY_TRACK_H // 2)
+	trackCorner.Parent = pityTrack
+
+	pityFill = Instance.new("Frame")
+	pityFill.Name = "PityFill"
+	pityFill.Size = UDim2.fromScale(0, 1)
+	pityFill.BackgroundColor3 = RarityColors.Mythic
+	pityFill.BorderSizePixel = 0
+	pityFill.Parent = pityTrack
+
+	local fillCorner = Instance.new("UICorner")
+	fillCorner.CornerRadius = UDim.new(0, PITY_TRACK_H // 2)
+	fillCorner.Parent = pityFill
+
+	pityCaptionLabel = Widgets.Label(
+		"",
+		UDim2.new(1, 0, 0, PITY_CAPTION_H),
+		UDim2.fromOffset(0, pityTop() + PITY_LABEL_H + PITY_TRACK_H + Responsive.Px(4)),
+		{ TextSize = 12, Color = Theme.Color.TextSecondary, Align = Enum.TextXAlignment.Left, Bold = false }
+	)
+	pityCaptionLabel.Parent = content
+	refreshPityBar()
 
 	-- Roblox's Randomized Virtual Items policy requires exact drop-rate odds
 	-- (summing to 100%) to be shown BEFORE a paid randomized pull. On their own

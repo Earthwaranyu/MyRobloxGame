@@ -114,6 +114,24 @@ BUILDERS.Meteor = function(parent, s, color)
 	end
 end
 
+-- Phoenix: a rising bird -- head, a wide "V" of wings sweeping up and out,
+-- and a flame tail fading downward beneath it.
+--
+-- The wings are deliberately the inverse sweep of Sky Hop's "^" arrowhead and
+-- much wider than it: those are the two icons most at risk of reading alike,
+-- since both are fundamentally "something pointing up". The head dot and the
+-- fading tail are what settle it -- Sky Hop is a bare narrow arrow, this has a
+-- silhouette. The tail fades DOWNWARD (unlike Meteor's diagonal trail) because
+-- what's being drawn is something climbing away from where it fell.
+BUILDERS.Phoenix = function(parent, s, color)
+	dot(parent, s, 7, 20, 12, color)
+	bar(parent, s, 16, 4, 11, 18, 35, color)
+	bar(parent, s, 16, 4, 29, 18, -35, color)
+	dot(parent, s, 7, 20, 24, color, 0.15)
+	dot(parent, s, 5, 20, 31, color, 0.45)
+	dot(parent, s, 3.5, 20, 36, color, 0.7)
+end
+
 -- Clears `container` and draws `id`'s glyph into it at the given pixel size
 -- and color. Cheap enough to call on every cooldown-tick redraw (a handful
 -- of small Frames), so callers that need the icon to re-tint alongside

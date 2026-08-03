@@ -1,5 +1,6 @@
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -47,7 +48,22 @@ local BLINK_CLEARANCE = 3 -- Blink stops this many studs short of whatever its r
 -- fixed 1s sampling to land anywhere relative to the burst.
 local ABILITY_SPEED_GRACE_SECONDS = 1.2
 
+-- How often the ground sampler records where a Phoenix owner last stood.
+--
+-- This is a granularity/staleness trade, not a performance one. Sampling
+-- slower would recover players to somewhere they left several studs back;
+-- sampling faster would recover them to the very lip of the platform they
+-- just fell off, which is the worst possible place to be put down. 0.2s at
+-- the 24 studs/s sprint works out to ~5 studs behind the edge -- comfortably
+-- ON the platform, which is the whole point of the generous variant.
+local GROUND_SAMPLE_INTERVAL = 0.2
+
 local lastAbilityUseTime: { [number]: number } = {}
+-- Where each Phoenix owner last stood on solid ground. Only populated for
+-- players who actually have a Recover-kind ability equipped -- at Mythic
+-- odds that is almost nobody, so the sampler below costs effectively nothing
+-- on a normal server.
+local lastGroundedCFrame: { [number]: CFrame } = {}
 local abilityEquippedRemote: RemoteEvent
 
 local function getAbilityById(id: string): Abilities.AbilityInfo?
@@ -172,6 +188,69 @@ local function applyBlinkEffect(character: Model, root: BasePart, direction: Vec
 	playAbilitySound(root, info.Kind)
 end
 
+-- Phoenix: the only ability that moves a racer BACKWARD, and the only one
+-- that refuses to fire from the ground.
+--
+-- Warps to the last CFrame the sampler saw this player standing on, keeping
+-- their facing (the recorded CFrame carries rotation, so they come back
+-- pointed the way they were running rather than spun around mid-recovery).
+-- Uses Blink's CFrame-write rather than a velocity push for the same reason
+-- Blink does: there is no travel, so nothing for collision to resolve against.
+--
+-- The upward kick afterward is a landing settle, NOT a launch. Arriving with
+-- the fall's downward velocity still on the assembly would drive the player
+-- straight back through the platform they were just rescued onto, so the
+-- velocity is zeroed and a brief BodyVelocity pops them clear -- which
+-- doubles as the visual beat that sells the rescue. Sized at ~3.5 studs of
+-- arc, far under the checkpoint capture ceiling that Meteor and the bounce
+-- pads crowd against (see StageLayout.Checkpoint and tests/spec.luau).
+local function applyPhoenixEffect(root: BasePart, recovery: CFrame, info: Abilities.AbilityInfo)
+	root.CFrame = recovery
+	root.AssemblyLinearVelocity = Vector3.zero
+
+	local bodyVelocity = Instance.new("BodyVelocity")
+	bodyVelocity.MaxForce = Vector3.new(0, 1e5, 0)
+	bodyVelocity.Velocity = Vector3.new(0, info.UpwardBoost or 0, 0)
+	bodyVelocity.Parent = root
+	Debris:AddItem(bodyVelocity, info.DurationSeconds or 0.15)
+
+	playAbilitySound(root, info.Kind)
+end
+
+-- Records where Recover-kind owners are standing, on a timer rather than off
+-- Humanoid.StateChanged.
+--
+-- StateChanged looks like the tidier hook but gives the wrong ANSWER: it
+-- fires on landing, so a player who lands at the start of a long platform and
+-- then runs off the far end would be recovered all the way back to where they
+-- landed. Sampling gives the position they actually fell from.
+local function sampleGroundedPositions()
+	for _, player in Players:GetPlayers() do
+		local info = getEquippedAbility(player)
+		if info.Kind ~= "Recover" then
+			-- Not carrying Phoenix: drop anything stale so switching away
+			-- from it can't leave a recovery point behind to be used later.
+			lastGroundedCFrame[player.UserId] = nil
+			continue
+		end
+
+		local character = player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if not humanoid or not root then
+			continue
+		end
+
+		-- FloorMaterial is Air exactly when there's nothing underfoot, which
+		-- is the same test the fire-time guard uses -- so "somewhere Phoenix
+		-- could have recorded" and "somewhere Phoenix refuses to fire" are
+		-- guaranteed to be the same set of places.
+		if humanoid.FloorMaterial ~= Enum.Material.Air then
+			lastGroundedCFrame[player.UserId] = root.CFrame
+		end
+	end
+end
+
 local function onRequestAbility(player: Player)
 	local userId = player.UserId
 	local info = getEquippedAbility(player)
@@ -197,6 +276,33 @@ local function onRequestAbility(player: Player)
 	if info.Kind == "Hop" then
 		lastAbilityUseTime[userId] = now
 		applyHopEffect(root, info)
+		return
+	end
+
+	if info.Kind == "Recover" then
+		-- Both guards deliberately return WITHOUT setting lastAbilityUseTime:
+		-- pressing Phoenix while safely on the ground, or before the sampler
+		-- has ever seen you stand anywhere, does nothing at all rather than
+		-- burning a 20-second cooldown on a no-op. A mis-timed press that
+		-- eats the longest cooldown in the game is exactly how a rescue
+		-- ability earns a reputation for not working.
+		if humanoid.FloorMaterial ~= Enum.Material.Air then
+			return
+		end
+		local recovery = lastGroundedCFrame[userId]
+		if not recovery then
+			return
+		end
+
+		lastAbilityUseTime[userId] = now
+		-- A recovery covers the whole distance of the fall in one frame.
+		-- MatchService's watchdog measures studs travelled per second and
+		-- doesn't care which DIRECTION they were travelled in, so without
+		-- this the rescue reads as a teleport-hack and snaps the player back
+		-- to their checkpoint -- undoing the exact thing they just spent a
+		-- Mythic ability to avoid.
+		MovementService.GrantSpeedCheckGrace(player, ABILITY_SPEED_GRACE_SECONDS)
+		applyPhoenixEffect(root, recovery, info)
 		return
 	end
 
@@ -256,6 +362,13 @@ end
 -- position/checkpoints, just extended to this too.
 function AbilityService.ResetCooldown(player: Player)
 	lastAbilityUseTime[player.UserId] = nil
+	-- Also the one place a stale recovery point gets dropped. The sampler
+	-- refreshes within a fifth of a second of a race starting anyway, but
+	-- until it does, a Phoenix owner who raced Stage 1 and then queued into
+	-- Stage 3 would be holding a recovery point on a different course --
+	-- firing it would warp them across the map. Same "clean slate at race
+	-- start" contract the cooldown reset above already has with MatchService.
+	lastGroundedCFrame[player.UserId] = nil
 end
 
 function AbilityService.Init()
@@ -271,6 +384,21 @@ function AbilityService.Init()
 
 	Players.PlayerRemoving:Connect(function(player: Player)
 		lastAbilityUseTime[player.UserId] = nil
+		lastGroundedCFrame[player.UserId] = nil
+	end)
+
+	-- One shared accumulator rather than a per-player loop or a connection per
+	-- character: the sampler has to survive respawns, and both alternatives
+	-- mean connections to tear down on every CharacterAdded. This has nothing
+	-- to clean up, and skips the whole body on the vast majority of frames.
+	local sinceLastSample = 0
+	RunService.Heartbeat:Connect(function(deltaTime: number)
+		sinceLastSample += deltaTime
+		if sinceLastSample < GROUND_SAMPLE_INTERVAL then
+			return
+		end
+		sinceLastSample = 0
+		sampleGroundedPositions()
 	end)
 end
 

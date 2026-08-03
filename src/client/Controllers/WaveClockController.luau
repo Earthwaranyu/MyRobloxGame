@@ -4,6 +4,7 @@ local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
+local Countdown = require(Shared.Countdown)
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 
@@ -82,13 +83,19 @@ local function refresh()
 	local remaining = math.max(0, departsAt - os.clock())
 	-- Reads "0:42" rather than "42" so it can't be mistaken for the race
 	-- countdown, which is a bare number.
-	label.Text = ("NEXT WAVE  %d:%02d"):format(math.floor(remaining / 60), math.floor(remaining % 60))
+	--
+	-- Rounded through Shared.Countdown, which is also what QueueStatusController's
+	-- card uses -- the two count down to the same instant and used to disagree by
+	-- a second because this one floored while that one ceilinged. See that module.
+	label.Text = "NEXT WAVE  " .. Countdown.Clock(remaining)
 	setUrgent(remaining <= URGENT_SECONDS)
 
 	-- One pop per second, and only while urgent: a banner that bounced every
 	-- second for the full minute would be wallpaper by the time it mattered,
-	-- and motion in the corner of your eye is the whole mechanism here.
-	local shownSecond = math.ceil(remaining)
+	-- and motion in the corner of your eye is the whole mechanism here. Reads
+	-- the same rounded second the label shows, so the pop lands ON the tick
+	-- rather than a second out of step with the text beside it.
+	local shownSecond = Countdown.Seconds(remaining)
 	if shownSecond ~= lastShownSecond then
 		lastShownSecond = shownSecond
 		if urgent then

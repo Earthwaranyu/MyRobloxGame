@@ -639,14 +639,21 @@ local function buildUI()
 	hudGui.ResetOnSpawn = false
 	hudGui.Parent = player:WaitForChild("PlayerGui")
 
-	-- Left rail, 4th slot -- which on a 375pt phone starts at y=172 and runs to
-	-- 220, dipping 35pt into the band the movement thumbstick occupies. There is
-	-- no free slot above it (stats pill, leaderboard, inventory), so it folds
-	-- into the drawer with the other secondary buttons.
+	-- Left rail, 4th slot (index 3) -- below Leaderboard (0), Inventory (2).
+	--
+	-- The y here used to be a hand-written Responsive.Px(172) instead of a rail
+	-- slot, and it was the ONE rail button in the game placed that way. That is
+	-- exactly the bug LayoutMath.RailY's comment was written about: Px() scales
+	-- a position while Tap() holds the row height at the touch minimum, so the
+	-- gap closes as the viewport shrinks but the row above does not. Measured at
+	-- 1285x747 it put this button at y=135 with a 38pt height, straight through
+	-- Inventory's slot at y=119 -- a 170x32 overlap that hid Inventory entirely.
+	-- Deriving the y from the same slot arithmetic every other rail button uses
+	-- makes the two agree by construction rather than by coincidence at one size.
 	local myProfileButton = Widgets.Button(
 		"My Profile",
 		UDim2.fromOffset(Responsive.Px(220), Responsive.Tap(48)),
-		UDim2.fromOffset(Responsive.Px(10), Responsive.Px(172)),
+		UDim2.fromOffset(Responsive.Px(10), Responsive.RailY(3)),
 		{
 			Icon = function(holder, color)
 				MenuIcons.Populate(holder, "Profile", color)
@@ -654,6 +661,10 @@ local function buildUI()
 		}
 	)
 	myProfileButton.Parent = hudGui
+	Widgets.BindRail(myProfileButton, 220, 48, 3, "Left", 10)
+	-- Slot 3 on a phone runs into the band the movement thumbstick occupies, and
+	-- there is no free slot above it (stats pill, leaderboard, inventory), so it
+	-- folds into the drawer with the other secondary buttons.
 	MobileMenu.Adopt(myProfileButton, 4)
 	-- Drilling into the card from the drawer should come back to the drawer.
 	MobileMenu.ReopenWhenClosed(myProfileButton, panel)

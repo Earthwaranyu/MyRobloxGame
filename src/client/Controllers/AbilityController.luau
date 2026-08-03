@@ -92,8 +92,8 @@ end
 -- something Legendary does. This was the concrete fix for "Meteor Dash feels
 -- the same as normal Dash" -- same BodyVelocity shape, but a Legendary
 -- activation should visibly announce itself more than the free baseline.
-local RARITY_FLASH_INTENSITY = { Common = 0.18, Rare = 0.26, Epic = 0.36, Legendary = 0.5 }
-local RARITY_FLASH_DURATION = { Common = 0.3, Rare = 0.32, Epic = 0.38, Legendary = 0.48 }
+local RARITY_FLASH_INTENSITY = { Common = 0.18, Rare = 0.26, Epic = 0.36, Legendary = 0.5, Mythic = 0.62 }
+local RARITY_FLASH_DURATION = { Common = 0.3, Rare = 0.32, Epic = 0.38, Legendary = 0.48, Mythic = 0.55 }
 
 -- Quick full-screen color flash, purely a client-side "that just happened"
 -- cue -- deliberately not touching camera.FieldOfView, since RunBobController
@@ -113,8 +113,31 @@ local function playFlash()
 	}):Play()
 end
 
+-- Phoenix (Kind == "Recover") is the one ability that legitimately does
+-- nothing on some presses -- AbilityService refuses to fire it from solid
+-- ground, and deliberately doesn't burn its cooldown when it refuses.
+--
+-- Mirroring that refusal here is purely cosmetic (the server is still the
+-- authority, and a hacked client that skipped this check would just get
+-- turned down there), but without it every ground press would start a
+-- 20-second client-side cooldown and play the rarity flash for an effect
+-- that never happened. That is precisely the "flash but I didn't move"
+-- report handleEquip's comment in AbilityService was written about; the fix
+-- is the same one, applied before the mistake can be made twice.
+local function abilityWouldFire(): boolean
+	if currentAbility.Kind ~= "Recover" then
+		return true
+	end
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	return humanoid ~= nil and humanoid.FloorMaterial == Enum.Material.Air
+end
+
 local function tryUseAbility()
 	if os.clock() < readyAt then
+		return
+	end
+	if not abilityWouldFire() then
 		return
 	end
 	readyAt = os.clock() + currentAbility.CooldownSeconds

@@ -43,6 +43,18 @@ ProfileSchema.Default = {
 	-- the ids in this list (enforced by AbilityService.handleEquip).
 	OwnedAbilities = { "Dash" },
 	EquippedAbility = "Dash",
+	-- Gacha pity counter (see GachaService). Counts pulls since the last
+	-- Mythic and resets to 0 on one, whether that Mythic was rolled or
+	-- granted by the pity itself.
+	--
+	-- Durable on the profile rather than held in memory for the session,
+	-- because at a 0.1% base rate a per-session counter would reset long
+	-- before it ever mattered -- the guarantee would then be unreachable in
+	-- practice, which is the same as not having one. Existing saves come back
+	-- from ProfileSchema.New with 0, so everyone who played before Phoenix
+	-- starts their count from the update rather than being credited for
+	-- history the game never recorded.
+	PullsSinceMythic = 0,
 	-- Guards non-idempotent Robux grants (gacha pulls, points bundles --
 	-- see GachaService.GrantRobuxPull and PurchaseService's point-bundle
 	-- branch) against MarketplaceService replaying the same receipt twice.
