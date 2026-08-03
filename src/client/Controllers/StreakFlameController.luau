@@ -44,9 +44,12 @@ local TIERS = {
 local BADGE_WIDTH = 84
 local BADGE_HEIGHT = 52
 local FLAME_SIZE = 34
--- Sits directly above the rank plate, which is at StudsOffset y = 2.6 with a
--- 40px height. Clear of it, and still under the player's own nameplate space.
-local STUDS_OFFSET_Y = 4.0
+-- Was 4.0 -- directly above the rank plate -- until the emote bubble took that
+-- slot (see EmoteDisplayController, which explains why it gets the closer one).
+-- 5.4 clears a 56px bubble sitting at 4.0 the same way 4.0 cleared the 40px
+-- rank plate at 2.6. Sharing a height with the bubble would draw a streaking
+-- player's flame and their emote directly on top of each other.
+local STUDS_OFFSET_Y = 5.4
 
 local EMBER_INTERVAL = 0.28
 local EMBER_RISE = 22
@@ -177,7 +180,13 @@ end
 
 local function spawnEmber(flame: Flame)
 	local palette = TIERS[flame.tier]
-	local ember = blob(flame.emberHolder, math.random(3, 5), BADGE_WIDTH / 2 - 16 + math.random(-6, 6), BADGE_HEIGHT - 22, palette.Core)
+	local ember = blob(
+		flame.emberHolder,
+		math.random(3, 5),
+		BADGE_WIDTH / 2 - 16 + math.random(-6, 6),
+		BADGE_HEIGHT - 22,
+		palette.Core
+	)
 	ember.ZIndex = 0
 
 	-- Hand-stepped rather than tweened: TweenService would need two tweens plus
