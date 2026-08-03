@@ -530,6 +530,16 @@ end
 local frozenPlayers: { [number]: boolean } = {}
 
 local function applyFreeze(player: Player, frozen: boolean)
+	-- Speed FIRST, and outside the pcall the anchor needs.
+	--
+	-- These are two independent halves of one freeze: the anchor stops the
+	-- character, the zeroed WalkSpeed stops the client's controller trying to
+	-- move it (and stops a Shift press during the countdown re-granting sprint
+	-- speed against an anchored root). Running it first means a stale/missing
+	-- character -- the case the pcall below exists for -- still gets its speed
+	-- held, instead of the whole freeze being abandoned partway.
+	MovementService.SetFrozen(player, frozen)
+
 	pcall(function()
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
@@ -792,9 +802,7 @@ function startSession(target: number, stageId: string?, roster: { Player }?)
 	-- out instead, see buildStartGrid.
 	local spawnPart = getStageSpawnPart(stageId)
 	local spawnCFrame = getStageSpawnCFrame(stageId)
-	local grid = if spawnPart and spawnCFrame
-		then buildStartGrid(spawnCFrame, spawnPart.Size, #queued)
-		else nil
+	local grid = if spawnPart and spawnCFrame then buildStartGrid(spawnCFrame, spawnPart.Size, #queued) else nil
 
 	local participants: { [number]: Player } = {}
 	local gridIndex = 0
@@ -1135,82 +1143,85 @@ function MatchService.StartBotMatch(player: Player)
 	queueStatusRemote:FireClient(player, Constants.Match.SoloRevealSeconds)
 	mapSelectedRemote:FireClient(player, stageId)
 
-	task.delay(Constants.Match.SoloRevealSeconds + Constants.Match.MapRevealSeconds + Constants.Match.MapRevealHoldSeconds, function()
-		if not player.Parent or playerRaceStage[userId] ~= stageId then
-			return -- quit or disconnected during the reveal
-		end
-
-		local spawnCFrame = getStageSpawnCFrame(stageId)
-		if spawnCFrame then
-			teleportToStageSpawn(player, spawnCFrame)
-			lastCheckpoint[userId] = spawnCFrame
-		end
-		queueStatusRemote:FireClient(player, nil)
-		preRaceCountdownRemote:FireClient(player, Constants.Match.CountdownSeconds)
-		setFrozen(player, true)
-
-		task.delay(Constants.Match.CountdownSeconds, function()
+	task.delay(
+		Constants.Match.SoloRevealSeconds + Constants.Match.MapRevealSeconds + Constants.Match.MapRevealHoldSeconds,
+		function()
 			if not player.Parent or playerRaceStage[userId] ~= stageId then
-				-- Quit mid-countdown already unfroze via QuitMatch, but this is
-				-- cheap and covers any other path that could reach here.
-				setFrozen(player, false)
-				return
+				return -- quit or disconnected during the reveal
 			end
 
-			-- Same anti-headstart snap-back as a real race (see beginRace).
+			local spawnCFrame = getStageSpawnCFrame(stageId)
 			if spawnCFrame then
 				teleportToStageSpawn(player, spawnCFrame)
 				lastCheckpoint[userId] = spawnCFrame
 			end
-			setFrozen(player, false)
-			LobbyService.SetPlayerState(player, "Racing")
-			AbilityService.ResetCooldown(player)
-			MovementService.ClearSpeedOverride(player)
-			racePositionRemote:FireClient(player, 1, 2)
+			queueStatusRemote:FireClient(player, nil)
+			preRaceCountdownRemote:FireClient(player, Constants.Match.CountdownSeconds)
+			setFrozen(player, true)
 
-			local bot = BotService.SpawnBot(stageId)
-			if not bot then
-				-- Stage geometry missing its waypoints; bail out cleanly rather
-				-- than strand the player mid-race with no opponent.
-				playerRaceStage[userId] = nil
-				playerBusy[userId] = nil
-				lastCheckpoint[userId] = nil
-				LobbyService.SetPlayerState(player, "Lobby")
-				return
-			end
-			botMatches[userId] = { stageId = stageId, bot = bot }
-
-			BotService.RunBot(bot, stageId, function()
-				-- Bot reached the finish first. If this fires after the player
-				-- already finished/quit, botMatches[userId] won't match this
-				-- bot anymore (DespawnBot already ran), so it's a no-op.
-				local match = botMatches[userId]
-				if not match or match.bot ~= bot then
+			task.delay(Constants.Match.CountdownSeconds, function()
+				if not player.Parent or playerRaceStage[userId] ~= stageId then
+					-- Quit mid-countdown already unfroze via QuitMatch, but this is
+					-- cheap and covers any other path that could reach here.
+					setFrozen(player, false)
 					return
 				end
-				botMatches[userId] = nil
-				playerRaceStage[userId] = nil
-				playerBusy[userId] = nil
-				lastCheckpoint[userId] = nil
-				LobbyService.SetPlayerState(player, "Lobby")
-				BotService.DespawnBot(bot)
-				raceOutcomeRemote:FireClient(player, { Won = false, Placement = 2, Total = 2 })
-			end)
 
-			task.delay(Constants.Match.MaxDurationSeconds, function()
-				local match = botMatches[userId]
-				if not match or match.bot ~= bot then
+				-- Same anti-headstart snap-back as a real race (see beginRace).
+				if spawnCFrame then
+					teleportToStageSpawn(player, spawnCFrame)
+					lastCheckpoint[userId] = spawnCFrame
+				end
+				setFrozen(player, false)
+				LobbyService.SetPlayerState(player, "Racing")
+				AbilityService.ResetCooldown(player)
+				MovementService.ClearSpeedOverride(player)
+				racePositionRemote:FireClient(player, 1, 2)
+
+				local bot = BotService.SpawnBot(stageId)
+				if not bot then
+					-- Stage geometry missing its waypoints; bail out cleanly rather
+					-- than strand the player mid-race with no opponent.
+					playerRaceStage[userId] = nil
+					playerBusy[userId] = nil
+					lastCheckpoint[userId] = nil
+					LobbyService.SetPlayerState(player, "Lobby")
 					return
 				end
-				botMatches[userId] = nil
-				playerRaceStage[userId] = nil
-				playerBusy[userId] = nil
-				lastCheckpoint[userId] = nil
-				LobbyService.SetPlayerState(player, "Lobby")
-				BotService.DespawnBot(bot)
+				botMatches[userId] = { stageId = stageId, bot = bot }
+
+				BotService.RunBot(bot, stageId, function()
+					-- Bot reached the finish first. If this fires after the player
+					-- already finished/quit, botMatches[userId] won't match this
+					-- bot anymore (DespawnBot already ran), so it's a no-op.
+					local match = botMatches[userId]
+					if not match or match.bot ~= bot then
+						return
+					end
+					botMatches[userId] = nil
+					playerRaceStage[userId] = nil
+					playerBusy[userId] = nil
+					lastCheckpoint[userId] = nil
+					LobbyService.SetPlayerState(player, "Lobby")
+					BotService.DespawnBot(bot)
+					raceOutcomeRemote:FireClient(player, { Won = false, Placement = 2, Total = 2 })
+				end)
+
+				task.delay(Constants.Match.MaxDurationSeconds, function()
+					local match = botMatches[userId]
+					if not match or match.bot ~= bot then
+						return
+					end
+					botMatches[userId] = nil
+					playerRaceStage[userId] = nil
+					playerBusy[userId] = nil
+					lastCheckpoint[userId] = nil
+					LobbyService.SetPlayerState(player, "Lobby")
+					BotService.DespawnBot(bot)
+				end)
 			end)
-		end)
-	end)
+		end
+	)
 end
 
 -- Solo, no opponent at all -- shares the exact map-reveal/countdown pacing
@@ -1232,51 +1243,54 @@ function MatchService.StartPracticeMatch(player: Player)
 	queueStatusRemote:FireClient(player, Constants.Match.SoloRevealSeconds)
 	mapSelectedRemote:FireClient(player, stageId)
 
-	task.delay(Constants.Match.SoloRevealSeconds + Constants.Match.MapRevealSeconds + Constants.Match.MapRevealHoldSeconds, function()
-		if not player.Parent or playerRaceStage[userId] ~= stageId then
-			return
-		end
-
-		local spawnCFrame = getStageSpawnCFrame(stageId)
-		if spawnCFrame then
-			teleportToStageSpawn(player, spawnCFrame)
-			lastCheckpoint[userId] = spawnCFrame
-		end
-		queueStatusRemote:FireClient(player, nil)
-		preRaceCountdownRemote:FireClient(player, Constants.Match.CountdownSeconds)
-		setFrozen(player, true)
-
-		task.delay(Constants.Match.CountdownSeconds, function()
+	task.delay(
+		Constants.Match.SoloRevealSeconds + Constants.Match.MapRevealSeconds + Constants.Match.MapRevealHoldSeconds,
+		function()
 			if not player.Parent or playerRaceStage[userId] ~= stageId then
-				setFrozen(player, false)
 				return
 			end
 
+			local spawnCFrame = getStageSpawnCFrame(stageId)
 			if spawnCFrame then
 				teleportToStageSpawn(player, spawnCFrame)
 				lastCheckpoint[userId] = spawnCFrame
 			end
-			setFrozen(player, false)
-			LobbyService.SetPlayerState(player, "Racing")
-			AbilityService.ResetCooldown(player)
-			MovementService.ClearSpeedOverride(player)
-			racePositionRemote:FireClient(player, 1, 1)
+			queueStatusRemote:FireClient(player, nil)
+			preRaceCountdownRemote:FireClient(player, Constants.Match.CountdownSeconds)
+			setFrozen(player, true)
 
-			practiceMatches[userId] = { stageId = stageId, startTime = os.clock() }
-
-			task.delay(Constants.Match.MaxDurationSeconds, function()
-				local match = practiceMatches[userId]
-				if not match or match.stageId ~= stageId then
+			task.delay(Constants.Match.CountdownSeconds, function()
+				if not player.Parent or playerRaceStage[userId] ~= stageId then
+					setFrozen(player, false)
 					return
 				end
-				practiceMatches[userId] = nil
-				playerRaceStage[userId] = nil
-				playerBusy[userId] = nil
-				lastCheckpoint[userId] = nil
-				LobbyService.SetPlayerState(player, "Lobby")
+
+				if spawnCFrame then
+					teleportToStageSpawn(player, spawnCFrame)
+					lastCheckpoint[userId] = spawnCFrame
+				end
+				setFrozen(player, false)
+				LobbyService.SetPlayerState(player, "Racing")
+				AbilityService.ResetCooldown(player)
+				MovementService.ClearSpeedOverride(player)
+				racePositionRemote:FireClient(player, 1, 1)
+
+				practiceMatches[userId] = { stageId = stageId, startTime = os.clock() }
+
+				task.delay(Constants.Match.MaxDurationSeconds, function()
+					local match = practiceMatches[userId]
+					if not match or match.stageId ~= stageId then
+						return
+					end
+					practiceMatches[userId] = nil
+					playerRaceStage[userId] = nil
+					playerBusy[userId] = nil
+					lastCheckpoint[userId] = nil
+					LobbyService.SetPlayerState(player, "Lobby")
+				end)
 			end)
-		end)
-	end)
+		end
+	)
 end
 
 function MatchService.PlayerReachedCheckpoint(player: Player, stageId: string, checkpointCFrame: CFrame)
@@ -1906,12 +1920,8 @@ local function settleWin(
 		-- Shared.RaceSettlement; applying them to the profile stays here. See
 		-- WinReward for why a fully damped win counts for nothing.
 		local multiplier = if MonetizationService.HasVIP(winner) then MonetizationService.PointsMultiplier else 1
-		local reward = RaceSettlement.WinReward(
-			winnerProfile.WinStreak,
-			raceWeight,
-			Constants.Match.PointsPerWin,
-			multiplier
-		)
+		local reward =
+			RaceSettlement.WinReward(winnerProfile.WinStreak, raceWeight, Constants.Match.PointsPerWin, multiplier)
 
 		if reward.CountsAsWin then
 			winnerProfile.Wins += 1
@@ -2496,83 +2506,86 @@ function MatchService.StartDuelMatch(playerA: Player, playerB: Player)
 		end
 	end
 
-	task.delay(Constants.Match.SoloRevealSeconds + Constants.Match.MapRevealSeconds + Constants.Match.MapRevealHoldSeconds, function()
-		if playerRaceStage[userIdA] ~= stageId or playerRaceStage[userIdB] ~= stageId then
-			releaseBoth()
-			return
-		end
-
-		local spawnCFrame = getStageSpawnCFrame(stageId)
-		if spawnCFrame then
-			teleportToStageSpawn(playerA, spawnCFrame)
-			teleportToStageSpawn(playerB, spawnCFrame)
-			lastCheckpoint[userIdA] = spawnCFrame
-			lastCheckpoint[userIdB] = spawnCFrame
-		end
-		queueStatusRemote:FireClient(playerA, nil)
-		queueStatusRemote:FireClient(playerB, nil)
-		preRaceCountdownRemote:FireClient(playerA, Constants.Match.CountdownSeconds)
-		preRaceCountdownRemote:FireClient(playerB, Constants.Match.CountdownSeconds)
-		setFrozen(playerA, true)
-		setFrozen(playerB, true)
-
-		task.delay(Constants.Match.CountdownSeconds, function()
+	task.delay(
+		Constants.Match.SoloRevealSeconds + Constants.Match.MapRevealSeconds + Constants.Match.MapRevealHoldSeconds,
+		function()
 			if playerRaceStage[userIdA] ~= stageId or playerRaceStage[userIdB] ~= stageId then
 				releaseBoth()
 				return
 			end
 
-			-- Same anti-headstart snap-back as a real race (see beginRace).
+			local spawnCFrame = getStageSpawnCFrame(stageId)
 			if spawnCFrame then
 				teleportToStageSpawn(playerA, spawnCFrame)
 				teleportToStageSpawn(playerB, spawnCFrame)
 				lastCheckpoint[userIdA] = spawnCFrame
 				lastCheckpoint[userIdB] = spawnCFrame
 			end
-			setFrozen(playerA, false)
-			setFrozen(playerB, false)
-			LobbyService.SetPlayerState(playerA, "Racing")
-			LobbyService.SetPlayerState(playerB, "Racing")
-			AbilityService.ResetCooldown(playerA)
-			AbilityService.ResetCooldown(playerB)
-			MovementService.ClearSpeedOverride(playerA)
-			MovementService.ClearSpeedOverride(playerB)
-			racePositionRemote:FireClient(playerA, 1, 2)
-			racePositionRemote:FireClient(playerB, 1, 2)
+			queueStatusRemote:FireClient(playerA, nil)
+			queueStatusRemote:FireClient(playerB, nil)
+			preRaceCountdownRemote:FireClient(playerA, Constants.Match.CountdownSeconds)
+			preRaceCountdownRemote:FireClient(playerB, Constants.Match.CountdownSeconds)
+			setFrozen(playerA, true)
+			setFrozen(playerB, true)
 
-			local match: DuelMatch = {
-				stageId = stageId,
-				players = { [userIdA] = playerA, [userIdB] = playerB },
-				startTime = os.clock(),
-				winner = nil,
-				eloDelta = {},
-			}
-			duelMatches[userIdA] = match
-			duelMatches[userIdB] = match
-
-			task.delay(Constants.Match.MaxDurationSeconds, function()
-				-- Watchdog: if neither side ever finishes (e.g. both AFK), don't
-				-- leave the pair stuck racing forever.
-				if duelMatches[userIdA] ~= match and duelMatches[userIdB] ~= match then
+			task.delay(Constants.Match.CountdownSeconds, function()
+				if playerRaceStage[userIdA] ~= stageId or playerRaceStage[userIdB] ~= stageId then
+					releaseBoth()
 					return
 				end
-				duelMatches[userIdA] = nil
-				duelMatches[userIdB] = nil
-				playerRaceStage[userIdA] = nil
-				playerRaceStage[userIdB] = nil
-				playerBusy[userIdA] = nil
-				playerBusy[userIdB] = nil
-				lastCheckpoint[userIdA] = nil
-				lastCheckpoint[userIdB] = nil
-				if playerA.Parent then
-					LobbyService.SetPlayerState(playerA, "Lobby")
+
+				-- Same anti-headstart snap-back as a real race (see beginRace).
+				if spawnCFrame then
+					teleportToStageSpawn(playerA, spawnCFrame)
+					teleportToStageSpawn(playerB, spawnCFrame)
+					lastCheckpoint[userIdA] = spawnCFrame
+					lastCheckpoint[userIdB] = spawnCFrame
 				end
-				if playerB.Parent then
-					LobbyService.SetPlayerState(playerB, "Lobby")
-				end
+				setFrozen(playerA, false)
+				setFrozen(playerB, false)
+				LobbyService.SetPlayerState(playerA, "Racing")
+				LobbyService.SetPlayerState(playerB, "Racing")
+				AbilityService.ResetCooldown(playerA)
+				AbilityService.ResetCooldown(playerB)
+				MovementService.ClearSpeedOverride(playerA)
+				MovementService.ClearSpeedOverride(playerB)
+				racePositionRemote:FireClient(playerA, 1, 2)
+				racePositionRemote:FireClient(playerB, 1, 2)
+
+				local match: DuelMatch = {
+					stageId = stageId,
+					players = { [userIdA] = playerA, [userIdB] = playerB },
+					startTime = os.clock(),
+					winner = nil,
+					eloDelta = {},
+				}
+				duelMatches[userIdA] = match
+				duelMatches[userIdB] = match
+
+				task.delay(Constants.Match.MaxDurationSeconds, function()
+					-- Watchdog: if neither side ever finishes (e.g. both AFK), don't
+					-- leave the pair stuck racing forever.
+					if duelMatches[userIdA] ~= match and duelMatches[userIdB] ~= match then
+						return
+					end
+					duelMatches[userIdA] = nil
+					duelMatches[userIdB] = nil
+					playerRaceStage[userIdA] = nil
+					playerRaceStage[userIdB] = nil
+					playerBusy[userIdA] = nil
+					playerBusy[userIdB] = nil
+					lastCheckpoint[userIdA] = nil
+					lastCheckpoint[userIdB] = nil
+					if playerA.Parent then
+						LobbyService.SetPlayerState(playerA, "Lobby")
+					end
+					if playerB.Parent then
+						LobbyService.SetPlayerState(playerB, "Lobby")
+					end
+				end)
 			end)
-		end)
-	end)
+		end
+	)
 end
 
 -- Fired from the profile card's "Request 1v1". Silently drops (same
@@ -2585,7 +2598,8 @@ function MatchService.RequestDuel(fromPlayer: Player, targetPlayer: Player)
 	if playerBusy[fromPlayer.UserId] or playerBusy[targetPlayer.UserId] then
 		return
 	end
-	pendingDuelRequests[targetPlayer.UserId] = { fromUserId = fromPlayer.UserId, expiresAt = os.clock() + DUEL_REQUEST_TTL }
+	pendingDuelRequests[targetPlayer.UserId] =
+		{ fromUserId = fromPlayer.UserId, expiresAt = os.clock() + DUEL_REQUEST_TTL }
 	duelRequestReceivedRemote:FireClient(targetPlayer, fromPlayer.Name)
 end
 

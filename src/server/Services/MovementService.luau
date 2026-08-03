@@ -61,9 +61,29 @@ local function getHumanoid(player: Player): Humanoid?
 	return character and character:FindFirstChildOfClass("Humanoid")
 end
 
+-- Players held at a pre-race start line (see MatchService.setFrozen).
+--
+-- MatchService anchors the root, which is what actually stops a character
+-- moving -- but the anchor alone leaves Humanoid.WalkSpeed at its normal 16,
+-- so the client's own controller still has a speed to act on and keeps trying
+-- to walk. Worse, sprint intent flows straight through applySprint below, so a
+-- racer leaning on Shift during the countdown was re-granting themselves 24
+-- WalkSpeed against an anchored root. Zeroing speed for the duration removes
+-- the input the client is predicting from, and this flag makes the zero stick
+-- against any sprint toggle that arrives while it's held.
+local frozen: { [number]: boolean } = {}
+
 local function applySprint(player: Player, isSprinting: boolean)
 	local userId = player.UserId
 	sprintIntent[userId] = isSprinting
+
+	-- Intent is still RECORDED while frozen, deliberately: the countdown ends
+	-- with a hand-back to whatever the player is currently holding, so someone
+	-- who pressed Shift during the countdown starts the race sprinting rather
+	-- than having to release and re-press.
+	if frozen[userId] then
+		return
+	end
 
 	local overrideUntil = speedOverrideUntil[userId]
 	if overrideUntil and os.clock() < overrideUntil then
@@ -106,6 +126,36 @@ function MovementService.ApplySpeedOverride(player: Player, speed: number, durat
 			applySprint(player, sprintIntent[userId] or false)
 		end
 	end)
+end
+
+-- Holds a player at 0 WalkSpeed for a pre-race countdown, and hands speed back
+-- to their current sprint intent when released.
+--
+-- Deliberately lives here rather than in MatchService: this module is the sole
+-- authority over Humanoid.WalkSpeed (see the note at the top of the file), and
+-- a freeze that wrote the property from outside would be exactly the kind of
+-- second writer that authority exists to prevent -- it would also lose every
+-- race against a sprint remote arriving a frame later.
+--
+-- Jump is left alone on purpose. An anchored root cannot jump anyway, and
+-- StageLayout solves every gap in the game against Roblox's stock JumpPower of
+-- 50 on the stated assumption that nothing in this codebase ever writes it.
+function MovementService.SetFrozen(player: Player, isFrozen: boolean)
+	local userId = player.UserId
+	if isFrozen then
+		frozen[userId] = true
+		local humanoid = getHumanoid(player)
+		if humanoid then
+			humanoid.WalkSpeed = 0
+		end
+	else
+		frozen[userId] = nil
+		-- Straight back to whatever they're holding now, cancelling any
+		-- override the same way ClearSpeedOverride does -- a countdown is
+		-- exactly the window in which a stale Surge should not survive.
+		speedOverrideUntil[userId] = nil
+		applySprint(player, sprintIntent[userId] or false)
+	end
 end
 
 -- Cancels any in-flight override and snaps WalkSpeed straight back to the

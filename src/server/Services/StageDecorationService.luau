@@ -19,37 +19,28 @@ local StageDecorationService = {}
 type Palette = {
 	PlatformColor: Color3,
 	PlatformMaterial: Enum.Material,
-	VoidColor: Color3,
 }
 
 local PALETTES: { [string]: Palette } = {
 	Sunny = {
-		PlatformColor = Color3.fromRGB(95, 205, 95),
-		PlatformMaterial = Enum.Material.Grass,
-		VoidColor = Color3.fromRGB(120, 190, 255),
+		PlatformColor = Color3.fromRGB(86, 205, 226),
+		PlatformMaterial = Enum.Material.SmoothPlastic,
 	},
 	Stormy = {
-		PlatformColor = Color3.fromRGB(75, 95, 115),
-		PlatformMaterial = Enum.Material.Slate,
-		VoidColor = Color3.fromRGB(42, 52, 68),
+		PlatformColor = Color3.fromRGB(86, 205, 226),
+		PlatformMaterial = Enum.Material.SmoothPlastic,
 	},
 	Night = {
-		PlatformColor = Color3.fromRGB(58, 42, 92),
-		PlatformMaterial = Enum.Material.Slate,
-		VoidColor = Color3.fromRGB(12, 10, 26),
+		PlatformColor = Color3.fromRGB(86, 205, 226),
+		PlatformMaterial = Enum.Material.SmoothPlastic,
 	},
 	Windy = {
-		PlatformColor = Color3.fromRGB(212, 236, 246),
+		PlatformColor = Color3.fromRGB(86, 205, 226),
 		PlatformMaterial = Enum.Material.SmoothPlastic,
-		VoidColor = Color3.fromRGB(228, 242, 250),
 	},
-	-- Concrete under a white sky: the one palette with no colour cast at all,
-	-- to match how flat Weather's Cloudy preset lights everything (its stage
-	-- floats in the sky, so the "void" here is the cloud deck below it).
 	Cloudy = {
-		PlatformColor = Color3.fromRGB(168, 172, 178),
-		PlatformMaterial = Enum.Material.Concrete,
-		VoidColor = Color3.fromRGB(206, 212, 222),
+		PlatformColor = Color3.fromRGB(86, 205, 226),
+		PlatformMaterial = Enum.Material.SmoothPlastic,
 	},
 }
 
@@ -62,18 +53,18 @@ local PALETTES: { [string]: Palette } = {
 -- SpawnLocation is similarly left alone (not a BasePart match anyway, but
 -- explicit here since it's the same "leave functional markers alone" idea).
 local function isGenericPlatform(part: BasePart): boolean
-	return part.Name == "VoidZone" or part.Name:match("^Platform") ~= nil
+	-- The void slab is deliberately NOT matched here: StageRoomService owns
+	-- it now, restyling it as the room's floorboards and resizing it to the
+	-- room. Two writers on one part is how a floor ends up disagreeing with
+	-- itself about what it looks like.
+	return part.Name:match("^Platform") ~= nil
 end
 
 local function decorateStage(stageFolder: Folder, palette: Palette)
 	for _, part in stageFolder:GetChildren() do
 		if part:IsA("BasePart") and isGenericPlatform(part) then
-			if part.Name == "VoidZone" then
-				part.Color = palette.VoidColor
-			else
-				part.Color = palette.PlatformColor
-				part.Material = palette.PlatformMaterial
-			end
+			part.Color = palette.PlatformColor
+			part.Material = palette.PlatformMaterial
 		end
 	end
 end
