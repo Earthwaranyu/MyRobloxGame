@@ -332,7 +332,7 @@ local duelCancelledRemote: RemoteEvent
 local broadcastRoster: (session: Session) -> ()
 local tryStartCountdown: () -> ()
 local startSession: (target: number, stageId: string?, roster: { Player }?) -> ()
-local beginRace: (stageId: string, participants: { [number]: Player }) -> ()
+local beginRace: (stageId: string, participants: { [number]: Player }, soloByDesign: boolean?) -> ()
 local endSession: () -> ()
 local awardWalkover: (session: Session) -> boolean
 
@@ -484,7 +484,7 @@ local function teleportToStageSpawn(player: Player, spawnCFrame: CFrame)
 			-- Always un-anchor here, even for a player who was never parked
 			-- (harmless no-op then) -- this is the one shared path every
 			-- "send a spectator somewhere real again" call goes through (see
-			-- returnSpectatorToLobby), so it's the right place to guarantee
+			-- returnToLobby), so it's the right place to guarantee
 			-- parkSpectator's Anchored = true never outlives the spectate
 			-- session it was set for -- including handing network ownership
 			-- back to the client, which parking took away (see setRootAnchored).
@@ -965,8 +965,13 @@ function startSession(target: number, stageId: string?, roster: { Player }?, min
 		return
 	end
 
+	-- Whether ONE racer is the intended size of this race rather than the
+	-- wreckage of a larger one. Only a host's forced departure passes a minimum
+	-- this low; see the walkover check in beginRace for what it prevents.
+	local soloByDesign = (minimum or requiredFor(target)) <= 1
+
 	task.delay(Constants.Match.CountdownSeconds, function()
-		beginRace(stageId, participants)
+		beginRace(stageId, participants, soloByDesign)
 	end)
 
 	-- Any station queue that filled while this one was counting down can start
@@ -976,7 +981,7 @@ end
 
 -- Actually starts the race: first-person camera (via the Racing state),
 -- timer running, finish-line detection live.
-function beginRace(stageId: string, participants: { [number]: Player })
+function beginRace(stageId: string, participants: { [number]: Player }, soloByDesign: boolean?)
 	local validParticipants: { [number]: Player } = {}
 	local totalParticipants = 0
 	for userId, player in participants do
@@ -1038,11 +1043,21 @@ function beginRace(stageId: string, participants: { [number]: Player })
 	end
 	broadcastRoster(session)
 
-	-- Everyone else bailed during the countdown (a session never starts below
-	-- Constants.Match.MinPlayers, so one participant here means departures).
-	-- Nobody left to race, so the survivor takes it rather than being sent
-	-- alone round a course with no opponent.
-	if totalParticipants == 1 and awardWalkover(session) then
+	-- Everyone else bailed during the countdown. Nobody left to race, so the
+	-- survivor takes it rather than being sent alone round a course with no
+	-- opponent.
+	--
+	-- This used to read one participant as PROOF of that, on the grounds that
+	-- "a session never starts below Constants.Match.MinPlayers, so one
+	-- participant here means departures". A private-server host's forced
+	-- departure retired that invariant: it can legitimately start a race with a
+	-- single racer. Without soloByDesign the host was handed an instant victory
+	-- the moment the countdown ended, before running a step -- reported from a
+	-- playtest, and exactly the assumption above failing.
+	--
+	-- A deliberate solo race therefore just runs: they race the course and
+	-- finish it, which in a casual server pays nothing either way.
+	if totalParticipants == 1 and not soloByDesign and awardWalkover(session) then
 		return
 	end
 
@@ -1072,7 +1087,14 @@ end
 -- Sends a still-spectating player back to the lobby -- shared by endSession
 -- (everyone left watching once the race is actually over) and
 -- MatchService.LeaveSpectate (one spectator bailing out early).
-local function returnSpectatorToLobby(player: Player)
+-- Sets the state AND actually moves them. Both halves matter: setting the
+-- state alone leaves the player standing on the course they just finished,
+-- which is the whole bug this exists to avoid (see the note in finishBotMatch,
+-- where the solo modes had the same gap).
+--
+-- Used for spectators being rounded up at the end of a race and for the last
+-- finisher, who has nobody left to watch -- hence the general name.
+local function returnToLobby(player: Player)
 	LobbyService.SetPlayerState(player, "Lobby")
 	local lobbyCFrame = getLobbySpawnCFrame()
 	if lobbyCFrame then
@@ -1133,7 +1155,7 @@ function endSession(session: Session?)
 		return
 	end
 	for _, spectator in session.spectators do
-		returnSpectatorToLobby(spectator)
+		returnToLobby(spectator)
 	end
 	-- Guarded: only clear the slot if it still holds THIS session, so a late
 	-- endSession (e.g. the AFK watchdog firing after a normal finish already
@@ -1248,6 +1270,14 @@ end
 -- queue" would quit them from the very race they just filled.
 function MatchService.IsQueued(player: Player): boolean
 	return queuedTarget[player.UserId] ~= nil
+end
+
+-- WHICH queue they are waiting in, or nil if they are not waiting in one.
+-- "Queued" alone is not enough for a caller that can only act on one of them --
+-- see HostControlService, where forcing a departure is meaningful for the
+-- wave-clock queue and meaningless for an exact-fill station.
+function MatchService.QueuedTarget(player: Player): number?
+	return queuedTarget[player.UserId]
 end
 
 -- How many players are waiting in a given size's queue. Read by
@@ -2354,7 +2384,15 @@ function MatchService.PlayerReachedFinish(player: Player, stageId: string)
 		broadcastSpectatorRacers(session)
 		broadcastRoster(session)
 	else
-		LobbyService.SetPlayerState(player, "Lobby")
+		-- Last one home: nobody left to watch, so straight back to the lobby.
+		--
+		-- This used to set the STATE only, which left the final finisher of
+		-- every race standing on the course while endSession rounded up the
+		-- spectators around them -- they are not in session.spectators, so
+		-- nothing else was ever going to move them. Easy to miss in a normal
+		-- race, where it is one player out of a field; obvious in a
+		-- host-started solo race, where the only racer is always the last one.
+		returnToLobby(player)
 	end
 
 	local elapsed = os.clock() - session.startTime
@@ -2586,7 +2624,7 @@ function MatchService.LeaveSpectate(player: Player)
 		return
 	end
 	session.spectators[userId] = nil
-	returnSpectatorToLobby(player)
+	returnToLobby(player)
 end
 
 local function removePlayer(player: Player)

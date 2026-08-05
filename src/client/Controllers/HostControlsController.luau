@@ -176,6 +176,12 @@ local function buildUI()
 	startButton.Parent = panel
 	startButton.MouseButton1Click:Connect(function()
 		Net.GetRemoteEvent(RemoteNames.StartRaceNow):FireServer()
+		-- Closed here rather than left to the player. Unlike the stage and
+		-- weather buttons -- which they may well want to press several of --
+		-- this one ends the reason to be looking at the panel, and the map
+		-- reveal it triggers plays behind it. Leaving it up hid the very thing
+		-- the button had just started.
+		closePanel()
 	end)
 
 	toggleButton.MouseButton1Click:Connect(function()

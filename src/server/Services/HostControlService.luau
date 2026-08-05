@@ -4,6 +4,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local Net = require(Shared.Net)
 local PrivateServer = require(Shared.PrivateServer)
+local QueueModes = require(Shared.QueueModes)
 local RemoteNames = require(Shared.RemoteNames)
 local Stages = require(Shared.Stages)
 local Weather = require(Shared.Weather)
@@ -126,10 +127,30 @@ function HostControlService.Init()
 		if not PrivateServer.IsOwner(player) then
 			return
 		end
-		-- Return value ignored on purpose: MatchService declines when there is
-		-- nobody queued, and the honest response to "start a race with no
-		-- racers" is for nothing to happen. Reporting a failure would need an
-		-- error path in the panel for a case the player can see for themselves.
+
+		-- The button says "start race now", so it starts a race now. It used to
+		-- only cut short a wave the host had ALREADY joined via PLAY, which
+		-- meant pressing it straight from the panel did nothing at all, with no
+		-- feedback -- the queue was empty, so there was no wave to shorten.
+		-- Reported from a playtest, and it is the obvious way to use the panel:
+		-- open it, pick a stage, press the green button.
+		--
+		-- So a host who is not queued is queued first, and the wave leaves with
+		-- them in it.
+		local target = MatchService.QueuedTarget(player)
+		if target == nil then
+			MatchService.Enqueue(player)
+		elseif target ~= QueueModes.AnySize then
+			-- Waiting on an exact-fill station pad instead. Those start the
+			-- instant they are full and have no clock to cut short, so there is
+			-- nothing here to force -- and dragging the host out of the room
+			-- they chose to stand in would be a stranger outcome than doing
+			-- nothing.
+			return
+		end
+
+		-- Return value ignored: the only remaining refusal is an empty queue,
+		-- which the enqueue above has just ruled out for the host themselves.
 		MatchService.ForceWaveDeparture()
 	end)
 
