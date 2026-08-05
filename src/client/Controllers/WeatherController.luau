@@ -74,12 +74,19 @@ local function applyLobby()
 	)
 end
 
-function WeatherController.Apply(stageId: string?)
-	if not stageId then
-		applyLobby()
-		return
+-- `overrideName` is a private-server host's pinned sky (see WeatherService). It
+-- beats both the stage's own weather AND the lobby look, so the host can see
+-- what they picked from where they picked it. An unrecognised name falls
+-- through to normal behaviour rather than blanking the sky.
+function WeatherController.Apply(stageId: string?, overrideName: string?)
+	local preset = Weather.GetByName(overrideName)
+	if not preset then
+		if not stageId then
+			applyLobby()
+			return
+		end
+		preset = Weather.GetForStage(stageId)
 	end
-	local preset = Weather.GetForStage(stageId)
 	if not preset then
 		-- An unknown stage leaves the current look alone rather than snapping
 		-- to the lobby: whatever is on screen is at least a deliberate preset.
@@ -92,9 +99,11 @@ function WeatherController.Init()
 	effect("Atmosphere")
 	applyLobby()
 
-	Net.GetRemoteEvent(RemoteNames.WeatherChanged).OnClientEvent:Connect(function(stageId: string?)
-		WeatherController.Apply(stageId)
-	end)
+	Net.GetRemoteEvent(RemoteNames.WeatherChanged).OnClientEvent:Connect(
+		function(stageId: string?, overrideName: string?)
+			WeatherController.Apply(stageId, overrideName)
+		end
+	)
 end
 
 return WeatherController

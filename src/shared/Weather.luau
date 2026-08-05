@@ -290,4 +290,21 @@ function Weather.GetForStage(stageId: string): WeatherPreset?
 	return nil
 end
 
+-- Presets is a dictionary and so has no order of its own. The host-controls
+-- picker needs one that is stable between sessions -- a picker whose buttons
+-- move around between visits is unusable -- so the order is stated here rather
+-- than left to whatever `pairs` happens to yield. Roughly brightest to
+-- darkest, which is also the order a player would guess.
+Weather.PresetOrder = { "Sunny", "Cloudy", "Windy", "Stormy", "Night" }
+
+-- Looked up by name rather than by stage, for the host override. Returns nil
+-- for an unknown name, so a bad value from a client falls back to the stage's
+-- own weather instead of a blank sky.
+function Weather.GetByName(name: string?): WeatherPreset?
+	if not name then
+		return nil
+	end
+	return Weather.Presets[name]
+end
+
 return Weather

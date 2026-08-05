@@ -8,6 +8,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Constants = require(Shared.Constants)
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
+local PrivateServer = require(Shared.PrivateServer)
 local QueueModes = require(Shared.QueueModes)
 local Stages = require(Shared.Stages)
 local RankTiers = require(Shared.RankTiers)
@@ -138,8 +139,42 @@ local function sessionSpectatedBy(userId: number): Session?
 	return nil
 end
 
+-- A private server's host can pin every race to one stage (see
+-- HostControlService); nil means "roll normally", which is what a public
+-- server always does.
+--
+-- Held here rather than in the service that sets it so MatchService needs no
+-- require in that direction -- HostControlService already requires this module
+-- to reach ForceWaveDeparture, and two services requiring each other is a
+-- cycle Luau will not load.
+local stageOverride: string? = nil
+
+-- Assigned further down, next to the wave clock it operates on. Forward
+-- declared for the same reason tryStartCountdown is: the setter below is
+-- defined long before the wave state exists.
+local refreshWaveStage: () -> ()
+
+function MatchService.SetStageOverride(stageId: string?)
+	stageOverride = stageId
+	-- The wave rolls its stage at the START of its window, so without this a
+	-- host who picks a stage 40 seconds in gets the one the game rolled before
+	-- they chose, and their pick only lands on the wave after. Measured: pinned
+	-- Stage 7, the reel still showed Stage 5.
+	if refreshWaveStage then
+		refreshWaveStage()
+	end
+end
+
 -- Any stage; courses are shared now, so there is nothing to avoid.
+--
+-- EVERY mode rolls through here -- the ranked wave, bot matches, practice and
+-- duels -- so the host's choice applies to all of them rather than to the main
+-- queue alone. Three of those four used to inline this same expression, which
+-- is exactly how a setting like this ends up half-honoured.
 local function rollStage(): string
+	if stageOverride then
+		return stageOverride
+	end
 	return Stages[math.random(1, #Stages)].Id
 end
 
@@ -657,6 +692,66 @@ local function waveSecondsRemaining(): number
 	return math.max(0, waveDepartsAt - os.clock())
 end
 
+-- Set by a private-server host's "start race now" (see ForceWaveDeparture) and
+-- consumed by the wave loop below.
+local forceDepartRequested = false
+
+-- How often the wave loop checks for that. The clock used to be a single
+-- task.wait(WaveSeconds), which cannot be interrupted -- a host pressing
+-- "start now" would have been told the race was starting and then watched the
+-- lobby sit there for up to a minute. Polling is the cheap fix: one cheap
+-- comparison four times a second, against a wait that is 60 seconds long.
+local WAVE_TICK = 0.25
+
+-- Host control: leave with whoever is queued, right now, instead of waiting
+-- out the rest of the window. Returns whether the departure was accepted, so
+-- the caller can decline silently rather than promising a race that will not
+-- come.
+--
+-- Casual-only, checked here as well as on the caller's owner check. The wave
+-- loop normally refuses to launch below MinPlayers because "a solo race pays
+-- full points and win-streak credit with no opponent to lose Elo against,
+-- which is a free repeatable reward" -- and that objection is void precisely
+-- when nothing is being paid. Tying the bypass to CountsForLadder rather than
+-- to "is a host asking" means the reward rule and the exception to it can
+-- never drift apart.
+-- Re-points the wave now waiting at whatever the current setting says, and
+-- shows the new map to anyone already queued so the reel and the panel agree.
+-- No-op unless a stage is pinned: without an override the wave's own roll is
+-- already correct, and re-rolling it every time would hand queued players a
+-- fresh random map mid-window.
+function refreshWaveStage()
+	if not stageOverride or waveStageId == stageOverride then
+		return
+	end
+	waveStageId = stageOverride
+	if not mapSelectedRemote then
+		return
+	end
+	for _, queuedPlayer in getQueue(QueueModes.AnySize) do
+		mapSelectedRemote:FireClient(queuedPlayer, waveStageId)
+	end
+end
+
+function MatchService.ForceWaveDeparture(): boolean
+	if PrivateServer.CountsForLadder() then
+		return false
+	end
+	if #getQueue(QueueModes.AnySize) < 1 then
+		return false
+	end
+
+	forceDepartRequested = true
+	waveDepartsAt = os.clock()
+	if waveClockRemote then
+		waveClockRemote:FireAllClients(0)
+	end
+	for _, queuedPlayer in getQueue(QueueModes.AnySize) do
+		queueStatusRemote:FireClient(queuedPlayer, 0)
+	end
+	return true
+end
+
 local function startWaveClock()
 	task.spawn(function()
 		while true do
@@ -677,9 +772,35 @@ local function startWaveClock()
 				mapSelectedRemote:FireClient(queuedPlayer, waveStageId)
 			end
 
-			task.wait(Constants.Match.WaveSeconds)
+			-- Interruptible wait: runs the window out normally, or cuts it
+			-- short the moment a host asks. `forced` is captured because it
+			-- also decides the minimum below, and the flag is cleared here so
+			-- one press can never spill into the next wave.
+			--
+			-- The flag is tested BEFORE the deadline, and that order is load
+			-- bearing. ForceWaveDeparture also winds waveDepartsAt back to now
+			-- so the lobby clock reads 0, which means a deadline-first loop
+			-- exits on the clock without ever noticing the flag -- leaving
+			-- `forced` false, the minimum back at MinPlayers, and a host who
+			-- pressed the button on a quiet server watching the wave get
+			-- skipped for being one racer short. Measured exactly that.
+			local forced = false
+			while true do
+				if forceDepartRequested then
+					forced = true
+					break
+				end
+				if os.clock() >= waveDepartsAt then
+					break
+				end
+				task.wait(WAVE_TICK)
+			end
+			forceDepartRequested = false
 
-			if #getQueue(QueueModes.AnySize) >= Constants.Match.MinPlayers then
+			-- A forced wave may leave with a single racer; see
+			-- ForceWaveDeparture for why that is safe only when it is casual.
+			local minimum = if forced then 1 else Constants.Match.MinPlayers
+			if #getQueue(QueueModes.AnySize) >= minimum then
 				local departing = waveStageId
 				-- Take the passengers OUT of the queue right now, at departure,
 				-- and hand them to startSession explicitly.
@@ -696,7 +817,7 @@ local function startWaveClock()
 				-- The reel spins for MapRevealSeconds after the clock hits zero,
 				-- and the teleport waits for it -- same pacing as a station race.
 				task.delay(Constants.Match.MapRevealSeconds + Constants.Match.MapRevealHoldSeconds, function()
-					startSession(QueueModes.AnySize, departing, passengers)
+					startSession(QueueModes.AnySize, departing, passengers, minimum)
 				end)
 			else
 				-- Nobody (or one person) waiting: tell whoever IS there that the
@@ -772,7 +893,17 @@ end
 -- Teleports the matched group to the chosen stage. They stay in "Lobby"
 -- (first-person, but frozen in place -- see setFrozen) for CountdownSeconds
 -- so everyone gets a moment to see the map before the clock starts.
-function startSession(target: number, stageId: string?, roster: { Player }?)
+-- `minimum` lets a caller launch below the size this queue would normally
+-- demand. Only the wave clock passes it, and only for a private-server host's
+-- forced departure (see ForceWaveDeparture) -- where a solo race is harmless
+-- because a casual server pays nothing for it.
+--
+-- Needed as well as the wave loop's own check, not instead of it: the two gates
+-- are separated by a MapReveal-length task.delay, and this one re-tests the
+-- roster on the far side of that gap to catch anyone who quit while the reel
+-- was spinning. Forcing past the first and leaving this one at MinPlayers is
+-- what silently bounced the host back into the queue with no message.
+function startSession(target: number, stageId: string?, roster: { Player }?, minimum: number?)
 	-- `roster` is for callers that already pulled their group out of the queue
 	-- (the wave clock, which must do so at departure -- see startWaveClock).
 	-- Everyone else hands over the queue as it stands.
@@ -784,7 +915,7 @@ function startSession(target: number, stageId: string?, roster: { Player }?)
 	-- window (someone quit) means putting whoever's left back rather than
 	-- starting an under-strength -- or solo -- race. tryStartCountdown picks
 	-- them back up automatically on the next Enqueue.
-	if #queued < requiredFor(target) or not stageId then
+	if #queued < (minimum or requiredFor(target)) or not stageId then
 		local restored = getQueue(target)
 		for _, player in queued do
 			if player.Parent then
@@ -1137,7 +1268,7 @@ function MatchService.StartBotMatch(player: Player)
 	end
 	playerBusy[userId] = true
 
-	local stageId = Stages[math.random(1, #Stages)].Id
+	local stageId = rollStage()
 	playerRaceStage[userId] = stageId
 
 	queueStatusRemote:FireClient(player, Constants.Match.SoloRevealSeconds)
@@ -1237,7 +1368,7 @@ function MatchService.StartPracticeMatch(player: Player)
 	end
 	playerBusy[userId] = true
 
-	local stageId = Stages[math.random(1, #Stages)].Id
+	local stageId = rollStage()
 	playerRaceStage[userId] = stageId
 
 	queueStatusRemote:FireClient(player, Constants.Match.SoloRevealSeconds)
@@ -1663,7 +1794,10 @@ local function finishBotMatch(player: Player, botMatch: { stageId: string, bot: 
 
 	local pointsAwarded = 0
 	local profile = PlayerDataService.GetProfile(player)
-	if profile then
+	-- A bot race normally pays points (just no Elo). In a casual server it pays
+	-- nothing either: a bot opponent needs no accomplice at all, so this would
+	-- be the easiest farm of the lot if it were left open.
+	if profile and PrivateServer.CountsForLadder() then
 		local multiplier = if MonetizationService.HasVIP(player) then MonetizationService.PointsMultiplier else 1
 		pointsAwarded = Constants.Match.PointsPerWin * multiplier
 		profile.Points += pointsAwarded
@@ -1852,6 +1986,20 @@ local function settleFinisherElo(
 		return 0, 0
 	end
 
+	-- Casual server (Shared.PrivateServer): no rating moves, in either
+	-- direction, for anyone. Bailing out HERE rather than zeroing the deltas
+	-- further down also leaves the rematch counters untouched -- they exist to
+	-- damp repeat wins, and there are no wins here to damp, so spending them
+	-- would let a private-server session quietly tax the ranked races the same
+	-- players run afterwards in public.
+	--
+	-- BestWeight comes back as 1 (an undamped race) rather than 0, so the value
+	-- is honest about the race rather than about the payout; settleWin declines
+	-- to pay out at all on the same condition.
+	if not PrivateServer.CountsForLadder() then
+		return 0, 1
+	end
+
 	-- Built before settling so the pure call sees one consistent snapshot.
 	-- consumeRematchWeight ADVANCES a counter, so it's called exactly once per
 	-- pair here rather than inside the settlement.
@@ -1913,6 +2061,17 @@ local function settleWin(
 	winnerDelta: number,
 	raceWeight: number
 ): (number, number, number, number)
+	-- Casual server: the whole settlement is skipped, not just the payout.
+	--
+	-- That deliberately includes the LOSERS' side below. Zeroing only the
+	-- winner's rewards would leave a private server able to break a real win
+	-- streak and add real losses to a public record -- a griefing tool rather
+	-- than a casual room, and worse than the farming this is here to prevent.
+	-- Nothing counts means nothing counts in both directions.
+	if not PrivateServer.CountsForLadder() then
+		return 0, 0, 0, 0
+	end
+
 	local pointsAwarded = 0
 	for _, opponent in opponents do
 		local opponentProfile = PlayerDataService.GetProfile(opponent)
@@ -2055,6 +2214,14 @@ end
 -- caller can put it in that player's RaceOutcome payload -- a reward the
 -- player is never shown may as well not exist.
 local function awardFinishPoints(player: Player): number
+	-- Casual server pays nothing. This is the most farmable payout in the game
+	-- -- it needs no win, no opponent and no rating, only a finish line -- so a
+	-- private server left paying it would be an unattended points faucet even
+	-- with Elo and the boards already closed off.
+	if not PrivateServer.CountsForLadder() then
+		return 0
+	end
+
 	local profile = PlayerDataService.GetProfile(player)
 	if not profile then
 		return 0
@@ -2485,7 +2652,7 @@ end
 -- duel can have its stage's sky without fighting a concurrent real race over
 -- the one global Lighting -- which is exactly why duels used to skip it.
 function MatchService.StartDuelMatch(playerA: Player, playerB: Player)
-	local stageId = Stages[math.random(1, #Stages)].Id
+	local stageId = rollStage()
 	local userIdA, userIdB = playerA.UserId, playerB.UserId
 
 	playerBusy[userIdA] = true

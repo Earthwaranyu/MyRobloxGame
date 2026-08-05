@@ -71,4 +71,12 @@ return {
 	-- Broadcast map of queue target -> players waiting, so the play menu can
 	-- show which sizes are close to filling.
 	QueueCounts = "QueueCounts",
+	-- Private-server host controls (see HostControlService). GetHostControls
+	-- answers "are YOU the host, and what is set"; HostControlsChanged
+	-- broadcasts a change to everyone, since the stage and sky the host picks
+	-- are visible to the whole server, not just to them.
+	GetHostControls = "GetHostControls",
+	SetHostControl = "SetHostControl",
+	HostControlsChanged = "HostControlsChanged",
+	StartRaceNow = "StartRaceNow",
 }

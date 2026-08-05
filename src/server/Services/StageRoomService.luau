@@ -142,6 +142,27 @@ local ROOMS: { [string]: RoomTheme } = {
 
 type Rect = { minX: number, maxX: number, minZ: number, maxZ: number }
 
+-- A room is lit only by its window and lamp PointLights, and everything built
+-- here sets CastShadow = false, so a prop gets no highlight to tell its shape
+-- apart from its shadow. Below roughly half brightness that leaves a dark
+-- colour rendering as a flat black rectangle -- which is exactly how the
+-- wall-mounted TV read before it was cut, and how the frames and the Study's
+-- panelling still read.
+--
+-- So brightness is floored for every part this module builds. Value is raised
+-- in HSV rather than by mixing in white, so a dark walnut stays walnut instead
+-- of washing out to grey, and a theme that picks a near-black brown can't
+-- reintroduce a black box.
+local MIN_BRIGHTNESS = 0.5
+
+local function lit(color: Color3): Color3
+	local h, s, v = color:ToHSV()
+	if v >= MIN_BRIGHTNESS then
+		return color
+	end
+	return Color3.fromHSV(h, s, MIN_BRIGHTNESS)
+end
+
 -- Everything this builds is decoration standing beside a timed course, so it
 -- all carries the same contract the old scenery did: never collidable, never
 -- touchable, never in a raycast. A collidable chair beside a landing zone
@@ -157,7 +178,7 @@ local function decor(parent: Instance, size: Vector3, cf: CFrame, color: Color3,
 	part.BottomSurface = Enum.SurfaceType.Smooth
 	part.Size = size
 	part.CFrame = cf
-	part.Color = color
+	part.Color = lit(color)
 	part.Material = material
 	part.Parent = parent
 	return part
@@ -182,7 +203,7 @@ local function structure(parent: Instance, size: Vector3, cf: CFrame, color: Col
 	part.BottomSurface = Enum.SurfaceType.Smooth
 	part.Size = size
 	part.CFrame = cf
-	part.Color = color
+	part.Color = lit(color)
 	part.Material = material
 	part.Parent = parent
 	return part
@@ -348,13 +369,29 @@ local function buildCounter(
 	)
 end
 
--- A framed picture.
+-- A framed picture: moulding, a pale mount, then the picture itself.
+--
+-- The mount is what makes this read as art. Without it the prop is a dark
+-- rectangle carrying one flat colour, which at course distance is a black box
+-- with a coloured screen in it -- the same thing the TV was. A bright border
+-- inside the moulding breaks the silhouette up close and keeps the prop light
+-- overall from far away.
 local function buildFrame(parent: Folder, cf: CFrame, size: number, accent: Color3)
-	decor(parent, Vector3.new(size, size * 1.25, 2.5), cf, Color3.fromRGB(86, 62, 42), Enum.Material.Wood)
+	local MOULDING = Color3.fromRGB(150, 110, 74)
+	local MOUNT = Color3.fromRGB(246, 242, 232)
+
+	decor(parent, Vector3.new(size, size * 1.25, 2.5), cf, MOULDING, Enum.Material.Wood)
 	decor(
 		parent,
-		Vector3.new(size * 0.78, size * 1.0, 1),
+		Vector3.new(size * 0.84, size * 1.07, 1),
 		cf * CFrame.new(0, 0, 1),
+		MOUNT,
+		Enum.Material.SmoothPlastic
+	)
+	decor(
+		parent,
+		Vector3.new(size * 0.62, size * 0.8, 1),
+		cf * CFrame.new(0, 0, 1.3),
 		accent,
 		Enum.Material.SmoothPlastic
 	)

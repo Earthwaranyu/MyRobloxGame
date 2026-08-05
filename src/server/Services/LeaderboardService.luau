@@ -6,6 +6,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
 local RemoteNames = require(Shared.RemoteNames)
 local Constants = require(Shared.Constants)
+local PrivateServer = require(Shared.PrivateServer)
 local Stages = require(Shared.Stages)
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
@@ -20,6 +21,20 @@ local PlayerDataService = require(script.Parent.PlayerDataService)
 -- matters is "is this a real account", not "where is the server running".
 local function isRealAccount(player: Player): boolean
 	return player.UserId > 0
+end
+
+-- Both global boards are gated on the SAME condition as the negative-UserId
+-- check above, and for the same reason: a write that a player controls the
+-- conditions of is not a leaderboard entry, it is an edit. A private server is
+-- a room the owner picks the occupants of (see Shared.PrivateServer), so times
+-- and ratings set in one stay out of the global stores entirely.
+--
+-- Enforced here rather than at the call sites because these two functions are
+-- the only doors into the stores, and there are six call sites between
+-- MatchService and this module's own periodic re-publish -- one of which would
+-- eventually be added without the guard.
+local function canPublish(player: Player): boolean
+	return isRealAccount(player) and PrivateServer.CountsForLadder()
 end
 
 local LeaderboardService = {}
@@ -167,7 +182,7 @@ end
 -- Lower time is better; only writes when it improves the player's best.
 function LeaderboardService.SubmitTime(player: Player, stageId: string, timeSeconds: number)
 	local store = getStore(stageId)
-	if not store or not isRealAccount(player) then
+	if not store or not canPublish(player) then
 		return
 	end
 
@@ -230,7 +245,7 @@ end
 -- with no cooldown needed (same as SubmitTime already does per-race).
 function LeaderboardService.SubmitElo(player: Player, elo: number)
 	local store = getEloStore()
-	if not store or not isRealAccount(player) then
+	if not store or not canPublish(player) then
 		return
 	end
 

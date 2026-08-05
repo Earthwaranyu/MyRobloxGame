@@ -1,3 +1,4 @@
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
@@ -34,22 +35,58 @@ local weatherRemote: RemoteEvent
 local lastSent: { [number]: string? } = {}
 local everSent: { [number]: boolean } = {}
 
+-- A private-server host can pin the sky (see HostControlService), overriding
+-- whatever the stage would otherwise bring with it. Server-wide rather than
+-- per-player: it is one host setting one look for one room.
+--
+-- Note this changes only the WEATHER, never the stage -- a host who wants a
+-- night race on Stage 2 gets Stage 2 with a night sky, not Stage 5.
+local override: string? = nil
+
+-- Part of the dedup key, not just the payload. Without it, a player already
+-- looking at Stage 3 would be skipped as unchanged when the host switched the
+-- sky, and would be the only one left on the old weather.
+local lastOverride: { [number]: string? } = {}
+
 -- stageId, or nil for "back to the lobby look".
 function WeatherService.SetForPlayer(player: Player, stageId: string?)
 	if not weatherRemote then
 		return
 	end
 	local userId = player.UserId
-	if everSent[userId] and lastSent[userId] == stageId then
+	if everSent[userId] and lastSent[userId] == stageId and lastOverride[userId] == override then
 		return
 	end
 	lastSent[userId] = stageId
+	lastOverride[userId] = override
 	everSent[userId] = true
-	weatherRemote:FireClient(player, stageId)
+	weatherRemote:FireClient(player, stageId, override)
+end
+
+-- Applies a new host override and re-pushes to everyone who already has a
+-- weather, so the change is felt immediately rather than at whatever the next
+-- race happens to be. The lobby (stageId nil) is included deliberately: the
+-- host is standing in it when they pick, and a control whose effect you cannot
+-- see until you leave the room is a control nobody trusts.
+function WeatherService.SetOverride(presetName: string?)
+	if override == presetName then
+		return
+	end
+	override = presetName
+	for _, player in Players:GetPlayers() do
+		if everSent[player.UserId] then
+			WeatherService.SetForPlayer(player, lastSent[player.UserId])
+		end
+	end
+end
+
+function WeatherService.GetOverride(): string?
+	return override
 end
 
 function WeatherService.Forget(player: Player)
 	lastSent[player.UserId] = nil
+	lastOverride[player.UserId] = nil
 	everSent[player.UserId] = nil
 end
 
