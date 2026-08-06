@@ -401,7 +401,7 @@ local function buildUI()
 	end
 
 	itemsList = Instance.new("ScrollingFrame")
-	itemsList.Size = UDim2.new(1, 0, 1, 0)
+	itemsList.Size = UDim2.fromScale(1, 1)
 	itemsList.Position = UDim2.fromOffset(0, 0)
 	itemsList.BackgroundTransparency = 1
 	itemsList.BorderSizePixel = 0

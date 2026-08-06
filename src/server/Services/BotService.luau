@@ -157,7 +157,8 @@ local function runToEdge(bot: BotHandle, currentPlatform: BasePart, targetPlatfo
 		if remaining.Magnitude < 1.2 then
 			break
 		end
-		root.AssemblyLinearVelocity = Vector3.new(direction.X * WALK_SPEED, root.AssemblyLinearVelocity.Y, direction.Z * WALK_SPEED)
+		root.AssemblyLinearVelocity =
+			Vector3.new(direction.X * WALK_SPEED, root.AssemblyLinearVelocity.Y, direction.Z * WALK_SPEED)
 		task.wait(0.05)
 		elapsed += 0.05
 	end

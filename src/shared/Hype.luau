@@ -107,11 +107,7 @@ function Hype.Describe(announcement: Announcement): Presentation
 	-- point of broadcasting this is to give someone a reason to queue again.
 	local detail
 	if announcement.PreviousHolder and announcement.PreviousSeconds then
-		detail = ("%s beat %s's %s"):format(
-			name,
-			announcement.PreviousHolder,
-			formatTime(announcement.PreviousSeconds)
-		)
+		detail = ("%s beat %s's %s"):format(name, announcement.PreviousHolder, formatTime(announcement.PreviousSeconds))
 	else
 		detail = ("set by %s"):format(name)
 	end

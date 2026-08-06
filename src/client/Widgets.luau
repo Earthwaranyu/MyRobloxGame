@@ -424,11 +424,11 @@ function Widgets.Modal(
 	-- those out.
 	local function isWithinPanel(screenPos: Vector2): boolean
 		local topLeft = panel.AbsolutePosition
-		local size = panel.AbsoluteSize
+		local panelSize = panel.AbsoluteSize
 		return screenPos.X >= topLeft.X
-			and screenPos.X <= topLeft.X + size.X
+			and screenPos.X <= topLeft.X + panelSize.X
 			and screenPos.Y >= topLeft.Y
-			and screenPos.Y <= topLeft.Y + size.Y
+			and screenPos.Y <= topLeft.Y + panelSize.Y
 	end
 
 	local clickOutsideEnabled = true
@@ -1583,8 +1583,8 @@ function Widgets.Slider(
 	local value = 0
 	local function apply(v: number)
 		value = math.clamp(v, 0, 1)
-		fill.Size = UDim2.new(value, 0, 1, 0)
-		thumb.Position = UDim2.new(value, 0, 0.5, 0)
+		fill.Size = UDim2.fromScale(value, 1)
+		thumb.Position = UDim2.fromScale(value, 0.5)
 	end
 	apply(initial)
 

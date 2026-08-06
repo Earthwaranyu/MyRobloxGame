@@ -45,7 +45,6 @@ local currentMembers: { string } = {}
 local requestInviteRemote: RemoteEvent
 local respondRemote: RemoteEvent
 local leaveRemote: RemoteEvent
-local requestJoinRemote: RemoteEvent
 local respondJoinRemote: RemoteEvent
 
 local function buildInviteRow(targetPlayer: Player, layoutOrder: number): Frame
@@ -373,7 +372,7 @@ function PartyController.Init()
 	requestInviteRemote = Net.GetRemoteEvent(RemoteNames.RequestPartyInvite)
 	respondRemote = Net.GetRemoteEvent(RemoteNames.RespondToPartyInvite)
 	leaveRemote = Net.GetRemoteEvent(RemoteNames.LeaveParty)
-	requestJoinRemote = Net.GetRemoteEvent(RemoteNames.RequestJoinParty)
+	-- RequestJoinParty is fired from ProfileCardController, not here.
 	respondJoinRemote = Net.GetRemoteEvent(RemoteNames.RespondToJoinRequest)
 
 	Net.GetRemoteEvent(RemoteNames.PartyInviteReceived).OnClientEvent:Connect(showToast)

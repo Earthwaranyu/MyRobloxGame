@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Installs exactly the versions pinned in rokit.toml (rojo, selene,
+      # stylua, luau), so CI and a local checkout run the same binaries.
+      - uses: CompeyDev/setup-rokit@v0.2.1
+
+      - name: Format
+        run: stylua --check src
+
+      - name: Lint
+        run: selene src
+
+      - name: Tests
+        run: ./tests/run.sh

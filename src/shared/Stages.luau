@@ -39,7 +39,14 @@ local Stages: { StageInfo } = {
 	{ Id = "Stage4", Name = "Stage 4", Difficulty = "Medium", Weather = "Windy", Gimmick = "Speed" },
 	{ Id = "Stage5", Name = "Stage 5", Difficulty = "Easy", Weather = "Cloudy", Gimmick = "Bounce", Generated = true },
 	{ Id = "Stage6", Name = "Stage 6", Difficulty = "Medium", Weather = "Sunny", Gimmick = "Speed", Generated = true },
-	{ Id = "Stage7", Name = "Stage 7", Difficulty = "Hard", Weather = "Stormy", Gimmick = "Vanishing", Generated = true },
+	{
+		Id = "Stage7",
+		Name = "Stage 7",
+		Difficulty = "Hard",
+		Weather = "Stormy",
+		Gimmick = "Vanishing",
+		Generated = true,
+	},
 	{ Id = "Stage8", Name = "Stage 8", Difficulty = "Hard", Weather = "Night", Gimmick = "Moving", Generated = true },
 }
 

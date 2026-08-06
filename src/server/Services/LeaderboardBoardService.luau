@@ -38,7 +38,6 @@ end
 -- anyone's Elo changes.
 local REFRESH_INTERVAL = 90
 
-
 -- Built once via Instance.new (same "server builds it at runtime" idiom
 -- OverheadDisplayService already uses for the overhead BillboardGui) rather
 -- than requiring it to be hand-placed in Studio first -- Workspace isn't

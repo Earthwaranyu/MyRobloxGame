@@ -19,7 +19,16 @@ local DESIGN = 100
 -- Pixels in, pixels out. Callers do their own scaling, because a figure's limbs
 -- shrink with depth while the holder it sits in does not -- mixing the two
 -- scales inside here is what silently pushed shrunken figures off-centre.
-local function part(parent: Instance, px: number, py: number, w: number, h: number, radius: number, color: Color3, rotation: number?): Frame
+local function part(
+	parent: Instance,
+	px: number,
+	py: number,
+	w: number,
+	h: number,
+	radius: number,
+	color: Color3,
+	rotation: number?
+): Frame
 	local f = Instance.new("Frame")
 	f.AnchorPoint = Vector2.new(0.5, 0.5)
 	f.Position = UDim2.fromOffset(px, py)
@@ -39,7 +48,15 @@ end
 -- `depth` (0 = front, 1 = furthest back) fades and shrinks the figure. That
 -- fake depth is what stops five figures in a row from looking like a barcode:
 -- the crowd gains a front and a back, and the eye lands on the nearest runner.
-local function figure(parent: Instance, scale: number, cx: number, cy: number, color: Color3, depth: number, lean: number)
+local function figure(
+	parent: Instance,
+	scale: number,
+	cx: number,
+	cy: number,
+	color: Color3,
+	depth: number,
+	lean: number
+)
 	local holder = Instance.new("Frame")
 	holder.AnchorPoint = Vector2.new(0.5, 0.5)
 	holder.Position = UDim2.fromOffset(cx * scale, cy * scale)

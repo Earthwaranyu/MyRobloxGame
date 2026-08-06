@@ -140,7 +140,8 @@ local function applyDashEffect(root: BasePart, direction: Vector3, info: Abiliti
 
 	local bodyVelocity = Instance.new("BodyVelocity")
 	bodyVelocity.MaxForce = Vector3.new(1e5, if hasLift then 1e5 else 0, 1e5)
-	bodyVelocity.Velocity = Vector3.new(direction.X, 0, direction.Z) * (info.Speed or 0) + Vector3.new(0, info.UpwardBoost or 0, 0)
+	bodyVelocity.Velocity = Vector3.new(direction.X, 0, direction.Z) * (info.Speed or 0)
+		+ Vector3.new(0, info.UpwardBoost or 0, 0)
 	bodyVelocity.Parent = root
 	Debris:AddItem(bodyVelocity, info.DurationSeconds or 0.18)
 

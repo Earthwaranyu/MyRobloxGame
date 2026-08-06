@@ -615,7 +615,7 @@ local function buildOddsRow(info: Abilities.AbilityInfo, layoutOrder: number): F
 	local oddsLabel = Widgets.Label(
 		("%s%%  ·  %s%% w/ Lucky"):format(formatOdds(baseOdds), formatOdds(luckyOdds)),
 		UDim2.new(0.45, -10, 1, 0),
-		UDim2.new(0.55, 0, 0, 0),
+		UDim2.fromScale(0.55, 0),
 		{
 			TextSize = 13,
 			Align = Enum.TextXAlignment.Right,
@@ -833,7 +833,7 @@ local function buildMainPanel()
 		if skipGachaOwned then
 			return
 		end
-		local buyButton = Widgets.Button("🔓 Unlock Skip Animation", UDim2.new(1, 0, 1, 0), UDim2.fromOffset(0, 0), {
+		local buyButton = Widgets.Button("🔓 Unlock Skip Animation", UDim2.fromScale(1, 1), UDim2.fromOffset(0, 0), {
 			Variant = "Secondary",
 			TextSize = 14,
 		})
@@ -1168,8 +1168,8 @@ function GachaController.Init()
 		-- MonetizationService) -- re-reading it here too so a pull started
 		-- right after that purchase already skips the animation instead of
 		-- needing a Settings visit or a panel reopen first.
-		local profile = Net.GetRemoteFunction(RemoteNames.GetProfile):InvokeServer()
-		skipAnimationEnabled = (profile and profile.SkipGachaAnimationEnabled) or false
+		local latestProfile = Net.GetRemoteFunction(RemoteNames.GetProfile):InvokeServer()
+		skipAnimationEnabled = (latestProfile and latestProfile.SkipGachaAnimationEnabled) or false
 	end)
 end
 

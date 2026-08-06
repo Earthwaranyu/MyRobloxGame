@@ -99,11 +99,10 @@ function WeatherController.Init()
 	effect("Atmosphere")
 	applyLobby()
 
-	Net.GetRemoteEvent(RemoteNames.WeatherChanged).OnClientEvent:Connect(
-		function(stageId: string?, overrideName: string?)
+	Net.GetRemoteEvent(RemoteNames.WeatherChanged).OnClientEvent
+		:Connect(function(stageId: string?, overrideName: string?)
 			WeatherController.Apply(stageId, overrideName)
-		end
-	)
+		end)
 end
 
 return WeatherController

@@ -32,8 +32,6 @@ local recordedPositions: { number } = {}
 local raceStartTime = 0
 
 local ghostModel: Model? = nil
-local ghostRoot: BasePart? = nil
-local ghostHead: BasePart? = nil
 local ghostConnection: RBXScriptConnection? = nil
 local ghostData: { Positions: { number }, TimeMs: number, SampleInterval: number }? = nil
 
@@ -97,10 +95,10 @@ local function sampleAt(positions: { number }, index: number): Vector3
 end
 
 local function startPlayback(data: { Positions: { number }, SampleInterval: number })
+	-- root/head stay local: the Heartbeat closure below is the only thing that
+	-- ever moves them, and stopPlayback destroys them through ghostModel.
 	local model, root, head = buildGhostModel()
 	ghostModel = model
-	ghostRoot = root
-	ghostHead = head
 
 	local positions = data.Positions
 	local interval = data.SampleInterval
@@ -136,8 +134,6 @@ local function stopPlayback()
 		ghostModel:Destroy()
 		ghostModel = nil
 	end
-	ghostRoot = nil
-	ghostHead = nil
 end
 
 local function startRecording()

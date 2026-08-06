@@ -105,7 +105,7 @@ type VolumeRow = {
 }
 
 local function buildVolumeRow(
-	panel: CanvasGroup,
+	parentPanel: CanvasGroup,
 	labelText: string,
 	groupName: string,
 	onUserDrag: (() -> ())?
@@ -123,7 +123,7 @@ local function buildVolumeRow(
 		TextSize = tx(16),
 		Color = Theme.Color.TextSecondary,
 	})
-	rowLabel.Parent = panel
+	rowLabel.Parent = parentPanel
 
 	-- 70px, not 50: "MUTED" is the widest string formatVolume can return and
 	-- was rendering as "MUT..." at 50. Barely reachable before (you had to drag
@@ -135,7 +135,7 @@ local function buildVolumeRow(
 			Align = Enum.TextXAlignment.Right,
 			Color = Theme.Color.TextSecondary,
 		})
-	valueLabel.Parent = panel
+	valueLabel.Parent = parentPanel
 
 	local current = 1
 
@@ -157,7 +157,7 @@ local function buildVolumeRow(
 			end
 		end
 	)
-	slider.Parent = panel
+	slider.Parent = parentPanel
 
 	local row: Row = {
 		Height = labelHeight + trackHeight,
@@ -185,7 +185,7 @@ end
 -- tapping it prompts the same purchase flow the Gacha panel's buy row uses
 -- (see GachaController.refreshSkipPurchaseRow) instead of only being
 -- discoverable there.
-local function buildSkipGachaRow(panel: CanvasGroup): Row
+local function buildSkipGachaRow(parentPanel: CanvasGroup): Row
 	local height = Responsive.Tap(TOGGLE_HEIGHT)
 	local toggleWidth = Responsive.Px(TOGGLE_WIDTH)
 	local slotRight = toggleWidth + Responsive.Px(TOGGLE_INSET)
@@ -199,14 +199,14 @@ local function buildSkipGachaRow(panel: CanvasGroup): Row
 			Color = Theme.Color.TextSecondary,
 		}
 	)
-	rowLabel.Parent = panel
+	rowLabel.Parent = parentPanel
 
 	local actionSlot = Instance.new("Frame")
 	actionSlot.Name = "SkipGachaActionSlot"
 	actionSlot.Size = UDim2.fromOffset(toggleWidth, height)
 	actionSlot.Position = UDim2.new(1, -slotRight, 0, 0)
 	actionSlot.BackgroundTransparency = 1
-	actionSlot.Parent = panel
+	actionSlot.Parent = parentPanel
 
 	refreshSkipGachaRow = function()
 		for _, child in actionSlot:GetChildren() do

@@ -17,7 +17,16 @@ local MenuIcons = {}
 
 local DESIGN = 40
 
-local function bar(parent: Instance, s: number, w: number, h: number, cx: number, cy: number, rotation: number, color: Color3)
+local function bar(
+	parent: Instance,
+	s: number,
+	w: number,
+	h: number,
+	cx: number,
+	cy: number,
+	rotation: number,
+	color: Color3
+)
 	local f = Instance.new("Frame")
 	f.AnchorPoint = Vector2.new(0.5, 0.5)
 	f.Position = UDim2.fromOffset(cx * s, cy * s)
@@ -44,7 +53,15 @@ local function dot(parent: Instance, s: number, d: number, cx: number, cy: numbe
 	f.Parent = parent
 end
 
-local function ring(parent: Instance, s: number, outerD: number, thickness: number, cx: number, cy: number, color: Color3)
+local function ring(
+	parent: Instance,
+	s: number,
+	outerD: number,
+	thickness: number,
+	cx: number,
+	cy: number,
+	color: Color3
+)
 	local f = Instance.new("Frame")
 	f.AnchorPoint = Vector2.new(0.5, 0.5)
 	f.Position = UDim2.fromOffset(cx * s, cy * s)
@@ -63,7 +80,16 @@ end
 -- Rounded rectangle (solid fill), used for bag/torso/cup shapes that a plain
 -- bar/dot can't make. Kept local to this module -- CategoryIcons/AbilityIcons
 -- glyphs never needed a rectangle body, only this one does.
-local function box(parent: Instance, s: number, w: number, h: number, cx: number, cy: number, radius: number, color: Color3)
+local function box(
+	parent: Instance,
+	s: number,
+	w: number,
+	h: number,
+	cx: number,
+	cy: number,
+	radius: number,
+	color: Color3
+)
 	local f = Instance.new("Frame")
 	f.AnchorPoint = Vector2.new(0.5, 0.5)
 	f.Position = UDim2.fromOffset(cx * s, cy * s)
@@ -102,8 +128,14 @@ BUILDERS.Settings = function(parent, s, color)
 	ring(parent, s, 20, 5, 20, 20, color)
 	ring(parent, s, 8, 2.5, 20, 20, color)
 	local teeth = {
-		{ 37, 20 }, { 32, 32 }, { 20, 37 }, { 8, 32 },
-		{ 3, 20 }, { 8, 8 }, { 20, 3 }, { 32, 8 },
+		{ 37, 20 },
+		{ 32, 32 },
+		{ 20, 37 },
+		{ 8, 32 },
+		{ 3, 20 },
+		{ 8, 8 },
+		{ 20, 3 },
+		{ 32, 8 },
 	}
 	for _, pos in teeth do
 		dot(parent, s, 7, pos[1], pos[2], color)

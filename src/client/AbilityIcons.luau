@@ -19,7 +19,17 @@ local AbilityIcons = {}
 -- 48px (HUD button) instead of hand-tuning coordinates per call site.
 local DESIGN = 40
 
-local function bar(parent: Instance, s: number, w: number, h: number, cx: number, cy: number, rotation: number, color: Color3, transparency: number?)
+local function bar(
+	parent: Instance,
+	s: number,
+	w: number,
+	h: number,
+	cx: number,
+	cy: number,
+	rotation: number,
+	color: Color3,
+	transparency: number?
+)
 	local f = Instance.new("Frame")
 	f.AnchorPoint = Vector2.new(0.5, 0.5)
 	f.Position = UDim2.fromOffset(cx * s, cy * s)
@@ -48,7 +58,15 @@ local function dot(parent: Instance, s: number, d: number, cx: number, cy: numbe
 	f.Parent = parent
 end
 
-local function ring(parent: Instance, s: number, outerD: number, thickness: number, cx: number, cy: number, color: Color3)
+local function ring(
+	parent: Instance,
+	s: number,
+	outerD: number,
+	thickness: number,
+	cx: number,
+	cy: number,
+	color: Color3
+)
 	local f = Instance.new("Frame")
 	f.AnchorPoint = Vector2.new(0.5, 0.5)
 	f.Position = UDim2.fromOffset(cx * s, cy * s)
